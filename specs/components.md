@@ -1,6 +1,8 @@
 # UI Components
 
-The platform supports full widget capabilities via Shoelace web components:
+The platform supports full widget capabilities using:
+- **Shoelace** - Web components for most UI elements
+- **Tabulator** - Advanced grids and tables
 
 ## Basic Form Elements
 - Text inputs, text areas
@@ -10,7 +12,7 @@ The platform supports full widget capabilities via Shoelace web components:
 - Sliders, switches
 
 ## Rich Content
-- Tables with sorting/filtering
+- Tables/grids with sorting/filtering (Tabulator)
 - Lists (ordered, unordered, description)
 - Markdown rendering
 - Code blocks with syntax highlighting

@@ -2,7 +2,7 @@
 
 ## Backend Library
 
-The backend library makes integrating with the UI server easy:
+The backend library makes integrating with the UI server easy. Provided for **Go** and **Lua**.
 
 **Connection:**
 - Connect to UI server with a root value for variable `1`
@@ -11,7 +11,7 @@ The backend library makes integrating with the UI server easy:
 - If the app is an SPA, the frontend will bind to `historyIndex` and `url` on the root
 
 **Path navigation:**
-- Handles path navigation with reflection for languages that support it (Go, Python, Julia, JavaScript, Java, Lua, etc.)
+- Handles path navigation with reflection
 
 **Change detection:**
 - Handles detecting and propagating server data changes

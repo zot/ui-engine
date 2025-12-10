@@ -2,6 +2,23 @@
 
 UI is a platform that provides an API for making, displaying, and interacting with remote user interfaces from programs and AIs.
 
+## Basic Premise
+
+The platform implements a **UI server** that connects static frontend code (a "presentation service") to pluggable backends:
+
+- **The UI can:**
+  - Access and change state in presentation and domain objects
+  - Send messages to presentation and domain objects
+
+- **Backends** connect to the UI server via:
+  - A service port (WebSocket/HTTP)
+  - The UI server command line as a proxy
+
+- **Presentation and domain objects** can exist in:
+  - A backend (external program)
+  - The UI server itself (via embedded Lua)
+  - Both (hybrid model)
+
 ## Target Users
 
 - **AI Assistants**: AIs like Claude that need to present rich UIs to users during conversations
@@ -31,8 +48,10 @@ UI is a platform that provides an API for making, displaying, and interacting wi
 - Technology stack
 
 ### [Interfaces](interfaces.md)
+- Session URLs (`SITE/SESSION-ID`)
 - Frontend server (SharedWorker, SPA history, tab activation)
 - Backend integration patterns (REST, WebSocket, MCP, CLI, Lua)
+- **MCP Server** - Primary AI integration point
 
 ### [Backend Data Models](data-models.md)
 - Unbound model (UI server as database)
@@ -40,7 +59,7 @@ UI is a platform that provides an API for making, displaying, and interacting wi
 - Hybrid usage
 
 ### [Libraries](libraries.md)
-- Backend library (connection, path navigation, change detection)
+- Backend library for Go and Lua (connection, path navigation, change detection)
 - Frontend library (SPA navigation, view rendering, widgets)
 
 ### [UI Components](components.md)

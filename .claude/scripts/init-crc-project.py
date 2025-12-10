@@ -209,6 +209,26 @@ When you've made code changes, invoke the design-maintainer agent to:
 - **Code → Design**: Use `design-maintainer` agent (Level 3 → Level 2)
 - **Design → Documentation**: Use `documenter` agent (Level 2 → Docs)
 
+### 🔧 Design Update Requests
+
+**When the user asks to update, modify, or add to the design (Level 2 artifacts), ALWAYS use the appropriate agent:**
+
+| User Request | Agent to Use |
+|--------------|--------------|
+| "Update the design for X" | `designer` |
+| "Add X to the design" | `designer` |
+| "Reflect spec changes in design" | `designer` |
+| "Update CRC cards / sequences" | `designer` |
+| "Update design based on these changes" | `designer` |
+| "Update design after code changes" | `design-maintainer` |
+| "Run gap analysis" | `gap-analyzer` |
+| "Generate/update documentation" | `documenter` |
+
+**Do NOT manually edit design files** unless it's a trivial fix (typo, formatting). Always delegate to the appropriate agent to ensure:
+- Consistency across CRC cards, sequences, and architecture
+- Proper traceability updates
+- Test design updates when needed
+
 ### 📚 Documentation Generation
 
 **After completing design or implementation work, offer to generate or update project documentation.**
