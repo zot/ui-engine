@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>UI Platform</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@shoelace-style/shoelace@2.12.0/cdn/themes/light.css" />
+  <script type="module" src="https://cdn.jsdelivr.net/npm/@shoelace-style/shoelace@2.12.0/cdn/shoelace-autoloader.js"></script>
+  <style>
+    :root {
+      --sl-color-primary-600: #3b82f6;
+    }
+
+    body {
+      font-family: system-ui, -apple-system, sans-serif;
+      margin: 0;
+      padding: 0;
+      min-height: 100vh;
+    }
+
+    #app {
+      min-height: 100vh;
+    }
+
+    .loading {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      flex-direction: column;
+      gap: 1rem;
+    }
+
+    .hidden {
+      display: none !important;
+    }
+
+    /* Error state styling for ui-value bindings with path-failure or other errors */
+    /* Spec: viewdefs.md - Error conditions show visual indicator */
+    .ui-error {
+      outline: 2px solid var(--sl-color-danger-600, #dc2626) !important;
+      outline-offset: -2px;
+    }
+
+    .ui-error::after {
+      content: attr(data-ui-error-description);
+      position: absolute;
+      background: var(--sl-color-danger-600, #dc2626);
+      color: white;
+      padding: 0.25rem 0.5rem;
+      font-size: 0.75rem;
+      border-radius: 0.25rem;
+      white-space: nowrap;
+      z-index: 1000;
+      margin-top: 0.25rem;
+    }
+
+    /* Input-specific error styling */
+    input.ui-error,
+    textarea.ui-error,
+    select.ui-error {
+      border-color: var(--sl-color-danger-600, #dc2626) !important;
+      box-shadow: 0 0 0 3px rgba(220, 38, 38, 0.2);
+    }
+
+    /* Shoelace component error styling */
+    sl-input.ui-error::part(base),
+    sl-textarea.ui-error::part(base),
+    sl-select.ui-error::part(combobox) {
+      border-color: var(--sl-color-danger-600, #dc2626) !important;
+      box-shadow: 0 0 0 3px rgba(220, 38, 38, 0.2);
+    }
+  </style>
+</head>
+<body>
+  <!-- Main application container -->
+  <div id="app" data-ui-app>
+    <div class="loading">
+      <sl-spinner style="font-size: 3rem;"></sl-spinner>
+      <p>Connecting...</p>
+    </div>
+  </div>
+
+  <!-- Default viewdef templates (hidden, cloned when used) -->
+  <template id="viewdef-default">
+    <div data-viewdef="app.DEFAULT">
+      <sl-card>
+        <div slot="header">
+          <h2 ui-value="title">Welcome</h2>
+        </div>
+        <div ui-value="content">
+          <p>UI Platform is ready.</p>
+        </div>
+        <div slot="footer">
+          <sl-button ui-action="navigate('/')">Home</sl-button>
+        </div>
+      </sl-card>
+    </div>
+  </template>
+
+  <template id="viewdef-error">
+    <div data-viewdef="error.DEFAULT">
+      <sl-alert variant="danger" open>
+        <sl-icon slot="icon" name="exclamation-octagon"></sl-icon>
+        <strong ui-value="title">Error</strong>
+        <p ui-value="message">An error occurred.</p>
+      </sl-alert>
+    </div>
+  </template>
+
+  <script type="module" src="/src/index.ts"></script>
+</body>
+</html>

@@ -1,0 +1,19 @@
+<template>
+  <div class="contact-card">
+    <div class="contact-info">
+      <div class="contact-name" ui-value="fullName"></div>
+      <div class="contact-email" ui-value="email"></div>
+      <div class="contact-phone" ui-value="phone" ui-attr-hidden="noPhone"></div>
+    </div>
+    <div class="contact-actions">
+      <!-- Note: Actions on child objects would need path navigation to parent's presenter -->
+      <!-- For now, these are placeholders showing the syntax -->
+      <sl-button size="small" ui-action="editContact()">
+        <sl-icon name="pencil"></sl-icon>
+      </sl-button>
+      <sl-button size="small" variant="danger" ui-action="deleteContact()">
+        <sl-icon name="trash"></sl-icon>
+      </sl-button>
+    </div>
+  </div>
+</template>

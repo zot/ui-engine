@@ -36,6 +36,91 @@ The UI server functions as a web server, hosting the frontend webapp. By default
 - `cat` - Display contents of a bundled file
 - `cp` - Copy files from the bundled site
 
+### Bundle Format
+
+Sites are bundled by appending a ZIP archive to the end of the binary, with a footer that identifies the bundle:
+
+```
+[executable binary][ZIP archive][footer]
+
+Footer (24 bytes):
+  [8 bytes: offset to ZIP start (little-endian int64)]
+  [8 bytes: ZIP size (little-endian int64)]
+  [8 bytes: magic marker "UISERVER"]
+```
+
+**Key properties:**
+- **No recompilation required**: Bundling happens post-compilation by appending data
+- **Cross-platform**: Pre-built binaries for all platforms can be bundled with any site
+- **Re-bundleable**: A bundled binary can be re-bundled with a different site
+- **Efficient**: ZIP data is read directly from the binary without extraction
+
+**Detection:** At startup, the server reads the last 24 bytes. If the magic marker matches, the ZIP is served directly. Otherwise, the binary is unbundled.
+
+**Bundle command:**
+```bash
+# Bundle a site into a new binary
+ui bundle my-site -o my-app
+
+# Re-bundle with different site (strips old bundle first)
+./my-app bundle other-site -o other-app
+```
+
+### Site Directory Structure
+
+Both embedded bundles and `--dir` directories use the same structure:
+
+```
+site/
+├── html/           # Web files served to browsers (required)
+│   ├── index.html  # Main entry point
+│   ├── main.js     # Application JavaScript
+│   └── ...         # Other web assets
+├── config/         # Configuration files (optional)
+│   └── config.toml # Server configuration
+└── lua/            # Lua presentation code (optional)
+    └── *.lua       # Lua scripts loaded at startup
+```
+
+**Directory purposes:**
+
+| Directory | Purpose | Notes |
+|-----------|---------|-------|
+| `html/` | Static web files | Served at root URL; `index.html` is the SPA entry point |
+| `config/` | Configuration | `config.toml` is loaded if present; overrides defaults |
+| `lua/` | Lua scripts | Loaded when Lua is enabled; provides presentation logic |
+
+**Embedded mode (default):**
+- Server reads from ZIP archive appended to binary
+- All paths are relative to ZIP root
+- Example: `html/index.html` in ZIP → served at `/index.html`
+
+**Directory mode (`--dir`):**
+- Server reads from filesystem at specified path
+- Structure must match: `<dir>/html/`, `<dir>/config/`, `<dir>/lua/`
+- Example: `--dir my-app` → serves from `my-app/html/`
+
+**Minimal site:**
+```
+my-site/
+└── html/
+    └── index.html
+```
+
+**Full site with Lua backend:**
+```
+my-site/
+├── html/
+│   ├── index.html
+│   ├── main.js
+│   └── styles.css
+├── config/
+│   └── config.toml
+└── lua/
+    ├── init.lua
+    └── handlers.lua
+```
+
 ## Configuration
 
 The UI server reads configuration from an optional `config.toml` file:
@@ -48,20 +133,20 @@ The UI server reads configuration from an optional `config.toml` file:
 
 ### Configuration Options
 
-| Option          | CLI Flag            | Env Var              | TOML Path         | Default              | Description                      |
-|-----------------|---------------------|----------------------|-------------------|----------------------|----------------------------------|
-| Host            | `--host`            | `UI_HOST`            | `server.host`     | `"0.0.0.0"`          | Browser listen address           |
-| Port            | `--port`            | `UI_PORT`            | `server.port`     | `8080`               | Browser listen port              |
-| Socket          | `--socket`          | `UI_SOCKET`          | `server.socket`   | (see below)          | Backend API socket               |
-| Site directory  | `--dir`             | `UI_DIR`             | -                 | (embedded)           | Custom site directory            |
-| Storage type    | `--storage`         | `UI_STORAGE`         | `storage.type`    | `"memory"`           | `memory`, `sqlite`, `postgresql` |
-| Storage path    | `--storage-path`    | `UI_STORAGE_PATH`    | `storage.path`    | `"ui.db"`            | SQLite file path                 |
-| Storage URL     | `--storage-url`     | `UI_STORAGE_URL`     | `storage.url`     | -                    | PostgreSQL connection URL        |
-| Lua enabled     | `--lua`             | `UI_LUA`             | `lua.enabled`     | `true`               | Enable Lua backend               |
-| Lua path        | `--lua-path`        | `UI_LUA_PATH`        | `lua.path`        | `"lua/"`             | Lua scripts directory            |
-| Session timeout    | `--session-timeout`    | `UI_SESSION_TIMEOUT`    | `session.timeout`    | `"24h"`  | Session expiration (`0` = never)       |
-| Connection timeout | `--connection-timeout` | `UI_CONNECTION_TIMEOUT` | `session.connection` | `"5s"`   | Grace period for frontend reconnection |
-| Log level          | `--log-level`          | `UI_LOG_LEVEL`          | `logging.level`      | `"info"` | `debug`, `info`, `warn`, `error`       |
+| Option          | CLI Flag            | Env Var              | TOML Path         | Default     | Description                      |
+|-----------------|---------------------|----------------------|-------------------|-------------|----------------------------------|
+| Host            | `--host`            | `UI_HOST`            | `server.host`     | `"0.0.0.0"` | Browser listen address           |
+| Port            | `--port`            | `UI_PORT`            | `server.port`     | `8080`      | Browser listen port              |
+| Socket          | `--socket`          | `UI_SOCKET`          | `server.socket`   | (see below) | Backend API socket               |
+| Site directory  | `--dir`             | `UI_DIR`             | -                 | (embedded)  | Custom site directory            |
+| Storage type    | `--storage`         | `UI_STORAGE`         | `storage.type`    | `"memory"`  | `memory`, `sqlite`, `postgresql` |
+| Storage path    | `--storage-path`    | `UI_STORAGE_PATH`    | `storage.path`    | `"ui.db"`   | SQLite file path                 |
+| Storage URL     | `--storage-url`     | `UI_STORAGE_URL`     | `storage.url`     | -           | PostgreSQL connection URL        |
+| Lua enabled     | `--lua`             | `UI_LUA`             | `lua.enabled`     | `true`      | Enable Lua backend               |
+| Lua path        | `--lua-path`        | `UI_LUA_PATH`        | `lua.path`        | `"lua/"`    | Lua scripts directory            |
+| Session timeout | `--session-timeout` | `UI_SESSION_TIMEOUT` | `session.timeout` | `"24h"`     | Session expiration (`0` = never) |
+| Log level       | `--log-level`       | `UI_LOG_LEVEL`       | `logging.level`   | `"info"`    | `debug`, `info`, `warn`, `error` |
+| Verbosity       | `-v` to `-vvvv`     | `UI_VERBOSITY`       | `logging.verbosity` | `0`        | Debug output level (0-4)         |
 
 ### Command-Line Usage
 
@@ -99,6 +184,10 @@ Server Flags:
   --lua-path string          Lua scripts directory (default "lua/")
   --session-timeout duration Session expiration (default 24h, 0=never)
   --log-level string         Log level: debug, info, warn, error (default "info")
+  -v                         Verbosity level 1: connection events
+  -vv                        Verbosity level 2: + protocol messages
+  -vvv                       Verbosity level 3: + variable operations
+  -vvvv                      Verbosity level 4: + variable values
 
 Protocol Flags:
   --socket string            Connect to server socket (default: platform-specific)
@@ -185,6 +274,41 @@ The `poll` command (and REST equivalent) retrieves pending responses without per
 
 These commands enable shell scripts and other programs to interact with the UI server without implementing the full protocol.
 
+### Verbosity Levels
+
+The verbosity flag (`-v`) controls debug output for troubleshooting. Each level includes all output from lower levels:
+
+| Level | Flag    | Output                                           |
+|-------|---------|--------------------------------------------------|
+| 0     | (none)  | Normal operation, errors only                    |
+| 1     | `-v`    | Connection events (connect, disconnect, reconnect) |
+| 2     | `-vv`   | Protocol messages (create, update, watch, etc.)  |
+| 3     | `-vvv`  | Variable operations (CRUD details, property changes) |
+| 4     | `-vvvv` | Variable values (full JSON values on set/update) |
+
+**Examples:**
+```bash
+# See connection activity
+ui serve -v
+
+# Debug protocol messages
+ui serve -vv
+
+# Full variable operation tracing
+ui serve -vvv
+
+# Show variable values (verbose, large output)
+ui serve -vvvv
+```
+
+**Environment variable:** Set `UI_VERBOSITY=1`, `2`, `3`, or `4` for equivalent levels.
+
+**TOML configuration:**
+```toml
+[logging]
+verbosity = 2  # equivalent to -vv
+```
+
 ### Example `config.toml`
 
 ```toml
@@ -204,10 +328,10 @@ path = "lua/"             # relative to --dir or embedded root
 
 [session]
 timeout = "24h"           # session expiration (0 = never)
-connection = "5s"         # grace period for frontend reconnection
 
 [logging]
 level = "info"            # "debug", "info", "warn", "error"
+verbosity = 0             # 0=none, 1=connections, 2=messages, 3=variables
 ```
 
 ### Loading Behavior

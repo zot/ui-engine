@@ -1,7 +1,7 @@
 # Sequence: Frontend Reconnect
 
 **Source Spec:** interfaces.md
-**Use Case:** Browser reconnecting to session within grace period after disconnect (e.g., page refresh)
+**Use Case:** Browser reconnecting to existing session after disconnect (e.g., page refresh, network interruption)
 
 ## Participants
 
@@ -14,7 +14,7 @@
 
 ## Sequence
 
-### Disconnect Flow (Grace Period Start)
+### Disconnect Flow
 
 ```
      Browser            FrontendApp           SharedWorker         WebSocketEndpoint          Session
@@ -27,15 +27,14 @@
         |                      |                      |                      |                      |
         |                      |                      |                      |---onDisconnect------>|
         |                      |                      |                      |                      |
-        |                      |                      |                      |          [if last frontend]
+        |                      |                      |                      |---removeConnection-->|
         |                      |                      |                      |                      |
-        |                      |                      |                      |<-startConnectionTimeout
-        |                      |                      |                      |                      |
-        |                      |                      |                      |     [start 5s timer] |
+        |                      |                      |                      |     [session remains]|
+        |                      |                      |                      |     [until timeout]  |
         |                      |                      |                      |                      |
 ```
 
-### Reconnect Flow (Within Grace Period)
+### Reconnect Flow
 
 ```
      Browser            FrontendApp           SharedWorker         WebSocketEndpoint          Session          SessionManager
@@ -50,16 +49,8 @@
         |                      |                      |                      |                      |                      |
         |                      |                      |---new WebSocket()--->|                      |                      |
         |                      |                      |                      |                      |                      |
-        |                      |                      |                      |---sessionExists?---->|                      |
-        |                      |                      |                      |                      |---getSession-------->|
-        |                      |                      |                      |                      |<--session (in grace)-|
-        |                      |                      |                      |                      |                      |
-        |                      |                      |                      |---isInGracePeriod?-->|                      |
-        |                      |                      |                      |<--true---------------|                      |
-        |                      |                      |                      |                      |                      |
-        |                      |                      |                      |---onReconnect------->|                      |
-        |                      |                      |                      |                      |                      |
-        |                      |                      |                      |            cancelConnectionTimeout          |
+        |                      |                      |                      |---sessionExists?----------------------------->|
+        |                      |                      |                      |<--true-------------------------------------|
         |                      |                      |                      |                      |                      |
         |                      |                      |                      |---addConnection----->|                      |
         |                      |                      |                      |                      |                      |
@@ -79,29 +70,12 @@
         |                      |                      |                      |                      |                      |
 ```
 
-### Timeout Expiration Flow
-
-```
-                                                      WebSocketEndpoint          Session          SessionManager
-                                                             |                      |                      |
-                                                             |     [5s timer fires] |                      |
-                                                             |                      |                      |
-                                                             |<--onTimeout----------|                      |
-                                                             |                      |                      |
-                                                             |                      |---onConnectionTimeout>|
-                                                             |                      |                      |
-                                                             |                      |          [may destroy session]
-                                                             |                      |          [depends on session timeout]
-                                                             |                      |                      |
-```
-
 ## Notes
 
-- Grace period default is 5 seconds (configurable via `--connection-timeout`)
-- Session state (variables, presenters, watches) is preserved during grace period
-- Only frontend disconnects trigger grace period; backend disconnects do not
-- If multiple frontends are connected, grace period only starts when last frontend disconnects
-- Session URL remains valid during grace period; reconnection is seamless
-- After grace period expires, session may be cleaned up (depends on session timeout setting)
-- If session timeout is set to 0 (never), session persists indefinitely after grace period
+- Sessions can be reconnected to at any time before session timeout (default 24h)
+- Session state (variables, presenters, watches) is preserved until session timeout
+- Session timeout is configurable via `--session-timeout` (0 = never expires)
+- Session URL remains valid as long as session exists; reconnection is seamless
 - SharedWorker may not survive page refresh; new WebSocket is established on reconnect
+- Multiple tabs can connect to same session simultaneously
+- Session ID is in URL path, making URLs bookmarkable and shareable

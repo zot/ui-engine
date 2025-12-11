@@ -1,12 +1,12 @@
 # Test Design: Communication System
 
-**Source Specs**: interfaces.md, deployment.md, libraries.md
-**CRC Cards**: crc-WebSocketEndpoint.md, crc-HTTPEndpoint.md, crc-SharedWorker.md, crc-MessageRelay.md
-**Sequences**: seq-frontend-connect.md, seq-backend-connect.md, seq-relay-message.md, seq-bootstrap.md
+**Source Specs**: interfaces.md, deployment.md, libraries.md, protocol.md
+**CRC Cards**: crc-WebSocketEndpoint.md, crc-HTTPEndpoint.md, crc-SharedWorker.md, crc-MessageRelay.md, crc-MessageBatcher.md
+**Sequences**: seq-frontend-connect.md, seq-backend-connect.md, seq-relay-message.md, seq-viewdef-delivery.md, seq-bootstrap.md
 
 ## Overview
 
-Tests for WebSocket/HTTP transport, SharedWorker coordination, and message relay.
+Tests for WebSocket/HTTP transport, SharedWorker coordination, message relay, and priority-based batching.
 
 ## Test Cases
 
@@ -296,6 +296,114 @@ Tests for WebSocket/HTTP transport, SharedWorker coordination, and message relay
 
 ---
 
+### Test: MessageBatcher queues value with priority
+
+**Purpose**: Verify value priority queuing
+
+**Input**:
+- queueValue(varId, value, "high")
+
+**References**:
+- CRC: crc-MessageBatcher.md - "Does: queueValue"
+
+**Expected Results**:
+- Value queued with high priority
+- Can be retrieved by buildBatch
+
+---
+
+### Test: MessageBatcher parses property priority suffix
+
+**Purpose**: Verify :high/:med/:low suffix parsing
+
+**Input**:
+- Property name "viewdefs:high"
+
+**References**:
+- CRC: crc-MessageBatcher.md - "Does: parsePropertyPriority"
+
+**Expected Results**:
+- Base name: "viewdefs"
+- Priority: high
+- Suffix removed from output
+
+---
+
+### Test: MessageBatcher builds priority-ordered batch
+
+**Purpose**: Verify batch ordering by priority
+
+**Input**:
+- High priority update for var 1 (viewdefs)
+- Medium priority update for var 5 (value)
+- Low priority update for var 10 (value)
+
+**References**:
+- CRC: crc-MessageBatcher.md - "Does: buildBatch, separateByPriority"
+- Sequence: seq-viewdef-delivery.md
+
+**Expected Results**:
+- Batch is JSON array
+- Var 1 update first (high)
+- Var 5 update second (medium)
+- Var 10 update last (low)
+
+---
+
+### Test: MessageBatcher handles same variable at different priorities
+
+**Purpose**: Verify multi-priority for single variable
+
+**Input**:
+- Variable 5: high priority property update
+- Variable 5: medium priority value update
+
+**References**:
+- CRC: crc-MessageBatcher.md - "Does: buildBatch"
+- Sequence: seq-viewdef-delivery.md
+
+**Expected Results**:
+- Two separate update messages for var 5
+- Property update first (high)
+- Value update second (medium)
+
+---
+
+### Test: MessageBatcher flush clears state
+
+**Purpose**: Verify flush empties queue
+
+**Input**:
+- Queue multiple changes
+- Call flush()
+
+**References**:
+- CRC: crc-MessageBatcher.md - "Does: flush, isEmpty"
+
+**Expected Results**:
+- Batch returned with all changes
+- isEmpty() returns true after flush
+- Second flush returns empty batch
+
+---
+
+### Test: Process batch message on receive
+
+**Purpose**: Verify batch message handling
+
+**Input**:
+- JSON array of messages received
+
+**References**:
+- CRC: crc-ProtocolHandler.md - "Does: handleBatch, isBatch"
+
+**Expected Results**:
+- Array detected as batch
+- Each message processed in order
+- All updates applied
+
+---
+
 ## Coverage Summary
 
 **Responsibilities Covered:**
@@ -303,11 +411,13 @@ Tests for WebSocket/HTTP transport, SharedWorker coordination, and message relay
 - HTTPEndpoint: handleRequest, serveStatic, handleSessionRedirect, handleRESTApi, extractBundledFile, setCustomDir
 - SharedWorker: connect, disconnect, setMainTab, isMainTab, relayToBackend, relayToTabs, activateMainTab, sendNotification, handleDuplicateTab
 - MessageRelay: relayToFrontend, relayToBackend, shouldRelay, filterForUnbound, batchMessages, flushBatch
+- MessageBatcher: queueValue, queueProperty, parsePropertyPriority, buildBatch, separateByPriority, createUpdateMessage, flush, isEmpty
 
 **Scenarios Covered:**
 - seq-frontend-connect.md: All paths
 - seq-backend-connect.md: All paths
 - seq-relay-message.md: All paths
+- seq-viewdef-delivery.md: All paths
 - seq-bootstrap.md: Connection paths
 
 **Gaps**: None identified

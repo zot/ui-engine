@@ -39,9 +39,11 @@ FrontendApp (root)
 - Handles tab activation and notifications
 
 ### ViewdefStore (Frontend)
-- Caches viewdefs by TYPE.VIEW key
+- Caches viewdefs by TYPE.NAMESPACE key
+- Validates viewdefs (single template root element)
 - Receives updates via variable 1's viewdefs property
 - Provides viewdefs to ViewRenderer on demand
+- Manages pending views list (views waiting for viewdefs)
 
 ### BindingEngine
 - Processes all ui-* attributes
@@ -64,10 +66,10 @@ FrontendApp (root)
 
 ### Container Bindings
 - `ui-content="path"` - Render HTML content
-- `ui-view="path"` - Render nested object with viewdef
-- `ui-viewlist="path"` - Render array of objects
+- `ui-view="path"` - Create View for object reference (renders with TYPE.NAMESPACE viewdef)
+- `ui-viewlist="path"` - Create ViewList for array of object references
 - `ui-viewdef="path"` - Render computed viewdef string
-- `ui-namespace="TYPE"` - Viewdef namespace for nested views
+- `ui-namespace="NAMESPACE"` - Viewdef namespace (default: DEFAULT)
 
 ### Path Parameters
 - `path?create=Type&prop=value` - URL-style parameters in paths
@@ -84,6 +86,12 @@ FrontendApp (root)
 ### CSS Classes
 - Defined per viewdef
 - No global theme enforced (backend controls styling)
+
+### Error State Classes
+- `ui-error` - Applied to elements when binding has error condition (e.g., path-failure)
+- `data-ui-error-code` - Attribute containing error code (e.g., "path-failure")
+- `data-ui-error-description` - Attribute containing human-readable error description
+- Error state clears automatically on successful update to the same variable
 
 ---
 

@@ -5,29 +5,38 @@
 ## Responsibilities
 
 ### Knows
-- state: Lua VM state
-- loadedModules: Map of loaded Lua modules
-- presenterTypes: Registered Lua presenter types
-- luaDir: Directory for Lua files (lua/ or --dir)
+- luaDir: Directory for Lua files (site's lua/ directory)
+- luaSessions: Map of session ID to LuaSession instances
+- executorChan: Channel for zero-arg functions (thread-safe execution)
 
 ### Does
-- initialize: Create Lua VM and load standard library
-- loadFile: Load and execute Lua file
-- loadCode: Load and execute Lua code string
-- registerPresenterType: Register Lua class as presenter type
-- callMethod: Invoke method on Lua presenter
-- getPresenterValue: Get value from Lua presenter
-- setPresenterValue: Set value on Lua presenter
-- shutdown: Clean up Lua VM
+- initialize: Start executor goroutine for thread-safe Lua execution
+- startExecutor: Create goroutine that reads from executorChan and executes functions
+- execute: Queue zero-arg function on executorChan (blocks until complete)
+- createLuaSession: Create new LuaSession for frontend session, expose as global `session`, load main.lua
+- destroyLuaSession: Clean up LuaSession when frontend session ends
+- getLuaSession: Get LuaSession by session ID
+- loadFile: Load and execute Lua file (via executor)
+- loadCode: Load and execute Lua code string (via executor)
+- shutdown: Close executor channel, clean up all Lua sessions
 
 ## Collaborators
 
-- LuaPresenterLogic: Presenter implementations
-- MCPTool: Loads code via MCP
-- ProtocolHandler: Invokes Lua methods on actions
-- VariableStore: Binds Lua objects to variables
+- LuaSession: Per-frontend-session Lua API (created on new session)
+- SessionManager: Notifies LuaRuntime when frontend sessions start/end
+- VariableStore: LuaSessions use to create/manage variables
+- PathNavigator: Used for path-based action dispatch
 
 ## Sequences
 
-- seq-load-lua-code.md: Loading Lua presenter logic
-- seq-lua-handle-action.md: Handling user actions in Lua
+- seq-lua-session-init.md: Creating Lua session when frontend connects
+- seq-lua-execute.md: Thread-safe Lua execution via executor channel
+- seq-load-lua-code.md: Loading Lua code (file or dynamic via lua property)
+- seq-lua-handle-action.md: Handling user actions via path-based method dispatch
+
+## Notes
+
+**Backend Modes (see interfaces.md):**
+- **Embedded Lua only** (`--lua`, no backend): LuaRuntime handles all backend logic
+- **Connected backend only** (`--no-lua`): LuaRuntime disabled, BackendSocket handles logic
+- **Hybrid** (`--lua` + backend): LuaRuntime provides reusable UI behaviors, backend provides app-specific logic

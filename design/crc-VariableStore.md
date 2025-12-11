@@ -26,6 +26,7 @@
 - StorageBackend: Persistence layer (Memory/SQLite/PostgreSQL)
 - ProtocolHandler: Receives protocol messages
 - WatchManager: Notifies when variables change
+- Config: Queries verbosity for variable operation logging (level 3)
 
 ## Sequences
 

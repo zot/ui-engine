@@ -40,16 +40,22 @@
 **Design Elements**:
 - crc-Viewdef.md
 - crc-ViewdefStore.md
+- crc-View.md
+- crc-ViewList.md
+- crc-AppView.md
 - crc-BindingEngine.md
 - crc-ValueBinding.md
 - crc-EventBinding.md
 - seq-load-viewdefs.md
+- seq-viewdef-delivery.md
+- seq-render-view.md
+- seq-viewlist-update.md
 - seq-bind-element.md
 - seq-handle-event.md
 
 ### Session System
 
-**Purpose**: Session management, URL routing, tab coordination, and connection timeout handling
+**Purpose**: Session management, URL routing, and tab coordination
 
 **Design Elements**:
 - crc-Session.md
@@ -62,28 +68,32 @@
 
 ### Communication System
 
-**Purpose**: WebSocket/HTTP transport, SharedWorker coordination, message relay
+**Purpose**: WebSocket/HTTP transport, SharedWorker coordination, message relay and batching
 
 **Design Elements**:
 - crc-WebSocketEndpoint.md
 - crc-HTTPEndpoint.md
 - crc-SharedWorker.md
 - crc-MessageRelay.md
+- crc-MessageBatcher.md
 - seq-frontend-connect.md
 - seq-backend-connect.md
 - seq-relay-message.md
 
 ### Backend Socket System
 
-**Purpose**: Local socket API for backend programs with multi-protocol support
+**Purpose**: Local socket API for external backends (Go, etc.) with session-wrapped protocol
 
 **Design Elements**:
 - crc-BackendSocket.md
-- crc-ProtocolDetector.md
-- crc-PacketProtocol.md
 - crc-PendingResponseQueue.md
 - seq-backend-socket-accept.md
 - seq-poll-pending.md
+
+**Notes**:
+- Supports connected backend only, or hybrid mode with embedded Lua
+- Session-wrapped batching: `{"session": "abc123", "messages": [...]}`
+- Backend creates variable 1 (unless hybrid mode with Lua creating it)
 
 ### Storage System
 
@@ -111,24 +121,33 @@
 
 ### Lua Runtime System
 
-**Purpose**: Embedded Lua backend for presentation logic
+**Purpose**: Embedded Lua backend for presentation logic with session-based architecture
 
 **Design Elements**:
 - crc-LuaRuntime.md
+- crc-LuaSession.md
+- crc-LuaVariable.md
 - crc-LuaPresenterLogic.md
+- seq-lua-executor-init.md
+- seq-lua-session-init.md
+- seq-lua-execute.md
 - seq-load-lua-code.md
 - seq-lua-handle-action.md
 
 ### Backend Library System
 
-**Purpose**: Go/Lua library for backend integration (connection, path navigation, change detection)
+**Purpose**: Path navigation and change detection for backend integration
 
 **Design Elements**:
-- crc-BackendConnection.md
 - crc-PathNavigator.md
 - crc-ChangeDetector.md
-- seq-backend-refresh.md
+- crc-BackendConnection.md
 - seq-path-resolve.md
+- seq-backend-refresh.md
+
+**Notes**:
+- BackendConnection used by external Go backends (connected backend mode)
+- Embedded Lua uses LuaSession instead of BackendConnection
 
 ### Frontend Library System
 

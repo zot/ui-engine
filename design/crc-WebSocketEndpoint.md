@@ -8,34 +8,38 @@
 - connections: Map of connection ID to WebSocket connection
 - sessionBindings: Map of connection ID to session ID
 - messageQueue: Outbound message queue per connection
-- reconnectTokens: Map of session ID to reconnect token for grace period validation
+- reconnectTokens: Map of session ID to reconnect token for reconnection validation
 
 ### Does
 - accept: Accept new WebSocket connection
-- close: Close connection and cleanup, start grace period if last frontend
+- close: Close connection and cleanup
 - send: Send message to specific connection
 - broadcast: Send message to all connections in session
 - receive: Handle incoming message
 - bindToSession: Associate connection with session
 - isConnected: Check connection status
 - getSessionId: Return session for connection
-- onDisconnect: Handle connection close, notify Session to start grace period
-- onReconnect: Handle reconnection within grace period, restore session state
-- isSessionReconnectable: Check if session is in grace period and can be rejoined
+- onDisconnect: Handle connection close
+- isSessionReconnectable: Check if session exists and can be rejoined
 - generateReconnectToken: Create token for validating reconnection to same session
 
 ## Collaborators
 
-- Session: Connection belongs to session, notified of disconnect/reconnect
+- Session: Connection belongs to session
 - SessionManager: Queries session state during reconnection
 - ProtocolHandler: Routes received messages
 - MessageRelay: Coordinates message flow
 - SharedWorker: Coordinates with other tabs
-- Config: Provides connection timeout setting
+- Config: Queries verbosity for connection event logging (level 1)
 
 ## Sequences
 
 - seq-frontend-connect.md: WebSocket handshake and session binding
-- seq-frontend-reconnect.md: Frontend reconnection within grace period
+- seq-frontend-reconnect.md: Frontend reconnection to existing session
 - seq-relay-message.md: Message routing
 - seq-activate-tab.md: Tab activation via WebSocket
+
+## Notes
+
+- Sessions can be reconnected to at any time before session timeout
+- No separate connection timeout - session timeout handles cleanup

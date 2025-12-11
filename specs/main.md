@@ -67,6 +67,10 @@ The platform implements a **UI server** that connects static frontend code (a "p
 - Rich content
 - Advanced widgets
 
+### [Demo Application](demo.md)
+- Contact Manager example with Lua backend
+- In-memory storage, CRUD operations
+
 ---
 
 ## Core Concepts

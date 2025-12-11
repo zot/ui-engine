@@ -2,3 +2,7 @@
 *~
 .*~
 .#*
+/site/
+/build/
+/release/
+node_modules

@@ -40,11 +40,11 @@ Opening a new browser tab/window to a session URL:
 
 Enables backends/AIs to bring the UI to the user's attention by opening the session URL.
 
-**Connection Timeout:**
-- Frontend connections have a 5-second grace period after disconnect
-- Allows for accidental page refreshes without losing session state
-- If frontend reconnects within timeout, session continues seamlessly
-- After timeout expires, session state may be cleaned up (depending on session timeout setting)
+**Reconnection:**
+- Frontend can reconnect to any session that hasn't timed out
+- Session timeout is configured via `--session-timeout` (default: 24h, 0=never)
+- Allows page refreshes, network interruptions, and browser restarts without losing session state
+- Session state is preserved until session timeout expires
 
 **Browser Communication:**
 - **WebSocket**: Real-time bidirectional communication (via main tab)
@@ -57,6 +57,82 @@ Enables backends/AIs to bring the UI to the user's attention by opening the sess
 - **MCP (Model Context Protocol)**: For AI assistant integration (see MCP Server below)
 - **Command Line**: Mirrors the REST API for simple shell script integration
 - **Embedded Lua**: Backend logic in the `lua/` subdirectory runs within the UI server process
+
+## Backend Modes
+
+The UI server supports three backend configurations:
+
+**1. Embedded Lua only (`--lua`, no connected backend):**
+- Complete app runs in embedded Lua
+- `main.lua` creates variable 1 and handles all logic
+- Best for: Simple apps, demos, prototypes
+
+**2. Connected backend only (no `--lua`):**
+- Complete app runs in external backend (Go, etc.) connected via socket
+- Backend creates variable 1 and handles all logic
+- Best for: Apps that need full backend language capabilities
+
+**3. Hybrid (`--lua` + connected backend):**
+- Both embedded Lua and external backend active
+- Developer decides where variable 1 is created
+- Allows embedded Lua for reusable UI behavior with backend as "plugin"
+- Best for: Complex apps where Lua handles common patterns and backend handles app-specific logic
+
+## Backend Socket
+
+External backends connect to the UI server via Unix socket (or named pipe on Windows).
+
+**Protocol:**
+- Session-wrapped batches: `{"session": "abc123", "messages": [...]}`
+- When a batch arrives with a new session ID, the backend creates a corresponding session
+- Backend is responsible for creating variable 1 (unless hybrid mode with Lua creating it)
+
+**Default path:** `/tmp/ui.sock` (Unix) or `\\.\pipe\ui` (Windows)
+
+## Embedded Lua Runtime
+
+When `--lua` is enabled (default: true), the UI server provides an embedded Lua runtime for presentation logic.
+
+**Session-Based Architecture:**
+- Each frontend session has a corresponding Lua session
+- When a frontend connects and creates a new session, the UI server:
+  1. Creates a new Lua session with a `session` global
+  2. Loads and executes `main.lua` from the site's `lua/` directory (if it exists)
+- Executing `main.lua` serves as the notification of a new session
+- In Lua-only mode, `main.lua` is responsible for:
+  - Creating variable 1 (the app variable) with initial app state
+  - Defining presenter objects with methods that handle `ui-action` calls
+- In hybrid mode, `main.lua` may set up reusable behaviors while the backend creates variable 1
+
+**Session Object:**
+- A `session` global is available when `main.lua` executes
+- Provides methods for variable management (see Lua Session API in libraries.md)
+
+**Execution Model:**
+- UI server creates a Lua executor goroutine with a channel for zero-arg functions
+- All variable path sets and method calls execute through this channel
+- Ensures single-threaded Lua access (Lua VMs are not thread-safe)
+- Variable updates that trigger Lua methods are queued and processed sequentially
+
+**Dynamic Code Loading:**
+- After initial load, additional code can be loaded via the `lua` property on variable 1
+- Two modes depending on the value format:
+  1. **Inline code**: If the value is Lua code, evaluate it directly
+  2. **File reference**: If the value ends with `.lua`, load from `<dir>/lua/<filename>`
+
+- Examples via protocol:
+  ```json
+  // Inline code
+  {"type": "update", "id": 1, "properties": {"lua": "ui.registerPresenter('MyApp', {...})"}}
+
+  // File reference
+  {"type": "update", "id": 1, "properties": {"lua": "helpers.lua"}}
+  ```
+
+**Lua API:**
+- `ui.registerPresenter(name, table)` - Register a presenter type
+- `ui.log(message)` - Log from Lua code
+- `ui.json_encode(value)` / `ui.json_decode(string)` - JSON conversion
 
 ## MCP Server
 

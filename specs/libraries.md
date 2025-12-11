@@ -21,6 +21,108 @@ The backend library makes integrating with the UI server easy. Provided for **Go
 - Background-triggered changes are throttled
 - Provides a thread-safe mechanism for interacting with refresh logic
 
+## Lua Session API
+
+The embedded Lua runtime provides a `session` global for variable management. This is available when `main.lua` executes for each new frontend session.
+
+**Session object:**
+```lua
+-- Create the app variable (variable 1) - typically done in main.lua
+local app = session:createAppVariable(initialValue, properties)
+
+-- Get the app variable (variable 1) after it's created
+local app = session:getAppVariable()
+
+-- Create a child variable
+local child = session:createVariable(parentId, value, properties)
+
+-- Get a variable by ID
+local var = session:getVariable(id)
+
+-- Destroy a variable
+session:destroyVariable(id)
+
+-- Watch a property on a variable (react to frontend changes)
+session:watchProperty(varId, "propertyName", function(value)
+  -- called when property updates from frontend
+end)
+```
+
+**Built-in property watchers:**
+
+The Lua runtime automatically watches the `lua` property on variable 1. When updated:
+- If value ends with `.lua`, loads the file from `<site>/lua/<filename>`
+- Otherwise, executes the value as inline Lua code
+
+**Variable wrapper:**
+```lua
+-- Get variable ID
+local id = var:getId()
+
+-- Get current value
+local value = var:getValue()
+
+-- Get a property
+local prop = var:getProperty("type")
+
+-- Update value and/or properties
+var:update(newValue)
+var:update(newValue, {type = "Contact"})
+var:updateProperties({type = "Contact"})
+```
+
+**Viewdef delivery:**
+
+Backends deliver viewdefs by setting the `viewdefs:high` property on variable 1:
+```lua
+local app = session:getAppVariable()
+app:updateProperties({
+  ["viewdefs:high"] = {
+    ["ContactApp.DEFAULT"] = "<template>...</template>",
+    ["Contact.DEFAULT"] = "<template>...</template>"
+  }
+})
+```
+
+**Example main.lua:**
+```lua
+-- main.lua - Entry point for each new session
+
+-- App presenter with methods callable via ui-action paths
+local AppPresenter = {}
+AppPresenter.__index = AppPresenter
+
+function AppPresenter:new()
+  local self = setmetatable({}, AppPresenter)
+  self.items = {}
+  return self
+end
+
+function AppPresenter:addItem(name)
+  local item = session:createVariable(app:getId(), {
+    type = "Item",
+    name = name
+  })
+  table.insert(self.items, {obj = item:getId()})
+  app:update({items = self.items})
+end
+
+function AppPresenter:deleteItem(itemId)
+  session:destroyVariable(tonumber(itemId))
+  -- Remove from items list...
+end
+
+-- Create presenter and app variable
+local presenter = AppPresenter:new()
+local app = session:createAppVariable({
+  type = "App",
+  view = "app",
+  title = "My Application",
+  items = {},
+  presenter = presenter  -- ui-action="presenter.addItem(name)" calls this
+})
+```
+
 ## Frontend Library
 
 The frontend library connects to the UI server and supports remote UIs:

@@ -1,52 +1,72 @@
 # Sequence: Load Viewdefs
 
 **Source Spec:** viewdefs.md
-**Use Case:** Loading viewdefs from variable 1 on frontend
+**Use Case:** Loading and validating viewdefs from variable 1 on frontend
 
 ## Participants
 
 - FrontendApp: Frontend application
-- VariableStore: Variable storage
-- ViewdefStore: Viewdef storage
-- BindingEngine: Binding processor
+- ViewdefStore: Viewdef storage and validation
+- View: Pending views waiting for viewdefs
+- ProtocolHandler: Error reporting
 
 ## Sequence
 
 ```
-     FrontendApp         VariableStore          ViewdefStore          BindingEngine
+     FrontendApp          ViewdefStore                View            ProtocolHandler
         |                      |                      |                      |
         |---watch(1)---------->|                      |                      |
         |                      |                      |                      |
         |<--update(1,{viewdefs:|                      |                      |
-        |    {T.V: html,...}}) |                      |                      |
+        |   {T.NS: html,...}}) |                      |                      |
         |                      |                      |                      |
-        |---parseViewdefs()--->|                      |                      |
+        |     [for each TYPE.NAMESPACE in viewdefs]   |                      |
+        |---validate(T.NS,html)|                      |                      |
         |                      |                      |                      |
-        |     [for each TYPE.VIEW in viewdefs]        |                      |
-        |---store(T.V,html)--->|                      |                      |
-        |                      |---store()----------->|                      |
+        |                      |---parseHtml--------->|                      |
+        |                      |   (innerHTML)        |                      |
         |                      |                      |                      |
-        |                      |                      |---parseHtml()------->|
+        |                      |---checkRootElement-->|                      |
+        |                      |   (single element?)  |                      |
         |                      |                      |                      |
-        |                      |                      |---extractBindings--->|
+        |                      |---checkIsTemplate--->|                      |
+        |                      |   (is <template>?)   |                      |
         |                      |                      |                      |
-        |                      |                      |<--bindings-----------|
+        |                      |          [if validation fails]              |
+        |                      |---sendError----------|--------------------->|
+        |                      |   (varId:1, desc)    |                      |
         |                      |                      |                      |
-        |                      |<--viewdef-----------|                      |
+        |                      |          [if validation passes]             |
+        |---store(T.NS,        |                      |                      |
+        |    template)-------->|                      |                      |
         |                      |                      |                      |
-        |     [subsequent updates replace viewdefs property]                 |
+        |     [process pending views]                 |                      |
+        |                      |---processPending---->|                      |
+        |                      |                      |                      |
+        |                      |     [for each pending view]                 |
+        |                      |                      |---render()---------->|
+        |                      |                      |                      |
+        |                      |          [if returns true]                  |
+        |                      |                      |---removePending----->|
+        |                      |                      |                      |
+        |                      |          [if returns false, stays pending]  |
+        |                      |                      |                      |
+        |     [subsequent updates]                    |                      |
         |<--update(1,{viewdefs:|                      |                      |
-        |    {NEW.V: html}})   |                      |                      |
+        |   {NEW.NS: html}})   |                      |                      |
         |                      |                      |                      |
-        |---store(NEW.V,html)->|                      |                      |
+        |---validate+store---->|                      |                      |
+        |---processPending---->|                      |                      |
         |                      |                      |                      |
 ```
 
 ## Notes
 
-- Variable 1's viewdefs property contains TYPE.VIEW -> HTML mappings
-- Frontend parses and stores viewdefs locally
+- Viewdef format: single `<template>` element as root
+- Validation: parse HTML, verify exactly one root, root is template
+- If validation fails, send error message to backend (varId: 1)
+- Viewdefs stored by TYPE.NAMESPACE key (e.g., Contact.DEFAULT)
 - Previous viewdefs property values can be replaced (frontend stores separately)
-- Viewdefs delivered when presenter type changes
-- Backend batches viewdef updates and prioritizes delivery
-- Bindings parsed and cached for efficient rendering
+- After storing new viewdefs, attempt to render pending views
+- Pending views removed from list when render() returns true
+- Viewdefs delivered with :high priority to ensure availability before use

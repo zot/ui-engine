@@ -55,3 +55,6 @@
 - Value bindings watch variables and apply to element
 - Event bindings attach DOM listeners
 - Bindings cleaned up when element is removed
+- **Nullish path handling:** Paths use nullish coalescing (see crc-PathNavigator.md):
+  - Read: Displays empty/default value when path is nullish (no error)
+  - Write: Sends `error(varId, 'path-failure', description)` when path is nullish (UI shows error indicator, clears on success)

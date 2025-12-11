@@ -1,0 +1,21 @@
+<template>
+  <div>
+    <!-- Header -->
+    <header class="app-header">
+      <h1 ui-value="title"></h1>
+      <sl-badge variant="neutral" ui-value="contactCount"></sl-badge>
+    </header>
+
+    <!-- Error alert -->
+    <sl-alert variant="danger" class="error-alert" ui-attr-open="error" closable>
+      <sl-icon slot="icon" name="exclamation-octagon"></sl-icon>
+      <span ui-value="error"></span>
+    </sl-alert>
+
+    <!-- List View -->
+    <div ui-view="listView"></div>
+
+    <!-- Edit View -->
+    <div ui-view="editView"></div>
+  </div>
+</template>

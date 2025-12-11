@@ -1,66 +1,82 @@
 # Sequence: Render View
 
-**Source Spec:** libraries.md
-**Use Case:** Rendering viewdef for current page presenter
+**Source Spec:** viewdefs.md, libraries.md
+**Use Case:** Rendering variable with viewdef, handling ui-view and ui-viewlist
 
 ## Participants
 
-- SPANavigator: Navigation trigger
 - ViewRenderer: View display manager
-- ViewdefStore: Viewdef storage
+- View: Individual object reference view
+- ViewList: Array of object reference views
+- ViewdefStore: Viewdef storage with pending views
 - BindingEngine: Binding processor
-- WidgetBinder: Widget-specific bindings
 
 ## Sequence
 
 ```
-     SPANavigator          ViewRenderer          ViewdefStore          BindingEngine          WidgetBinder
+     ViewRenderer               View              ViewdefStore          BindingEngine            ViewList
         |                      |                      |                      |                      |
-        |---render(presenter)->|                      |                      |                      |
+        |---render(element,    |                      |                      |                      |
+        |    variable,         |                      |                      |                      |
+        |    namespace)------->|                      |                      |                      |
         |                      |                      |                      |                      |
-        |                      |---getType()--------->|                      |                      |
-        |                      |   (from presenter)   |                      |                      |
+        |                      |---checkRequirements->|                      |                      |
+        |                      |   (value? type?)     |                      |                      |
         |                      |                      |                      |                      |
-        |                      |---get(TYPE.VIEW)---->|                      |                      |
+        |                      |          [if missing value or type]         |                      |
+        |                      |---addPendingView---->|                      |                      |
         |                      |                      |                      |                      |
-        |                      |<--viewdef------------|                      |                      |
+        |                      |<--false (not ready)--|                      |                      |
         |                      |                      |                      |                      |
+        |                      |          [if has value and type]            |                      |
+        |                      |---get(TYPE.NS)------>|                      |                      |
+        |                      |                      |                      |                      |
+        |                      |          [fallback to TYPE.DEFAULT if not found]                   |
+        |                      |<--viewdef or null----|                      |                      |
+        |                      |                      |                      |                      |
+        |                      |          [if viewdef not found]             |                      |
+        |                      |---addPendingView---->|                      |                      |
+        |                      |<--false (not ready)--|                      |                      |
+        |                      |                      |                      |                      |
+        |                      |          [if viewdef found]                 |                      |
         |                      |---clear()----------->|                      |                      |
-        |                      |   (remove old view)  |                      |                      |
         |                      |                      |                      |                      |
-        |                      |---parseHtml()------->|                      |                      |
-        |                      |   (viewdef.html)     |                      |                      |
+        |                      |---cloneTemplate----->|                      |                      |
+        |                      |   (deep clone)       |                      |                      |
         |                      |                      |                      |                      |
-        |                      |---createElements---->|                      |                      |
+        |                      |---bind(elements)-----|--------------------->|                      |
         |                      |                      |                      |                      |
-        |                      |     [for each element with ui-*]            |                      |
-        |                      |---bind(element)----->|                      |                      |
-        |                      |                      |---processBindings--->|                      |
+        |                      |     [for ui-view elements]                  |                      |
+        |                      |---createView-------->|                      |                      |
+        |                      |   (vendHtmlId)       |                      |                      |
         |                      |                      |                      |                      |
-        |                      |                      |     [for special widgets]                   |
-        |                      |                      |---bindWidget-------->|                      |
-        |                      |                      |                      |---apply bindings---->|
+        |                      |     [for ui-viewlist elements]              |                      |
+        |                      |---createViewList-----|-----------------------------------create--->|
         |                      |                      |                      |                      |
-        |                      |     [handle nested views]                   |                      |
-        |                      |---renderNested------>|                      |                      |
-        |                      |   (ui-view elements) |                      |                      |
+        |                      |                      |                      |     [set exemplar]   |
+        |                      |                      |                      |<--setExemplar--------|
         |                      |                      |                      |                      |
-        |                      |     [handle view lists]                     |                      |
-        |                      |---renderViewList---->|                      |                      |
-        |                      |   (ui-viewlist)      |                      |                      |
+        |                      |<--true (rendered)----|                      |                      |
         |                      |                      |                      |                      |
-        |                      |---appendToDOM------->|                      |                      |
+        |     [when viewdefs arrive via variable 1]   |                      |                      |
         |                      |                      |                      |                      |
-        |<--complete-----------|                      |                      |                      |
+        |                      |---processPending---->|                      |                      |
+        |                      |                      |                      |                      |
+        |                      |     [for each pending view]                 |                      |
+        |                      |---render()---------->|                      |                      |
+        |                      |                      |                      |                      |
+        |                      |          [if returns true, remove from pending]                    |
+        |                      |---removePending----->|                      |                      |
         |                      |                      |                      |                      |
 ```
 
 ## Notes
 
-- View name defaults to "DEFAULT" if not specified
-- Old view content cleared before new render
-- ui-view renders single nested object with its viewdef
-- ui-viewlist renders array of objects
-- ui-content renders raw HTML
-- ui-viewdef renders computed viewdef string
-- Widget bindings handle Shoelace and Tabulator components
+- render(element, variable, namespace) returns boolean: true if rendered, false if pending
+- Requirements: variable has value, variable has type property, viewdef exists
+- Fallback: If TYPE.NAMESPACE not found, tries TYPE.DEFAULT
+- Pending views: Views that can't render added to pending list
+- When viewdefs arrive, pending views re-attempt render
+- ui-view creates View with unique frontend-vended HTML id
+- ui-viewlist creates ViewList with exemplar element (default: div, or sl-option for selects)
+- ui-namespace attribute specifies namespace for nested views

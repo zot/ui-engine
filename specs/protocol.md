@@ -83,7 +83,10 @@ The UI server relays protocol messages bidirectionally between frontend and back
   - `unwatch(varId)` - Unsubscribe from value changes
 
 **Server-response messages** (only sent from UI server)
-- `error(varId, description)` - indicates that a variable could not be created
+- `error(varId, code, description)` - indicates an error condition on a variable
+  - `code` - One-word error code (e.g., `path-failure`, `not-found`, `unauthorized`)
+  - `description` - Human-readable error description
+  - Error conditions persist until cleared by a successful operation on the same variable
 
 **UI server-handled messages** (not relayed):
 - `get([varId, ...])` - Retrieve variable values from UI server storage
@@ -104,3 +107,69 @@ The UI server maintains a count of observers for each variable. For bound variab
 - `unwatch` is only forwarded to the backend when the tally changes from 1 → 0
 
 This allows multiple frontend observers without redundant backend notifications.
+
+## Message Batching
+
+Messages can be sent individually as JSON objects or batched as JSON arrays:
+
+```json
+// Single message
+{"type": "update", "id": 5, "value": "hello"}
+
+// Batched messages
+[
+  {"type": "update", "id": 5, "properties": {"viewdefs": {...}}},
+  {"type": "update", "id": 10, "value": "world"},
+  {"type": "update", "id": 5, "value": {"name": "Alice"}}
+]
+```
+
+## Session-Based Communication
+
+Protocol batches between UI server and backend include a session ID. This allows the backend to maintain per-session state.
+
+**Session ID vending:**
+
+The UI server maintains a mapping between internal session IDs (UUIDs) and compact vended IDs for backend communication. Vended IDs are sequential integers starting from 1, saving bandwidth compared to sending full UUID strings.
+
+- Internal session ID: `df785bf8982879c0a582560990dbeae3` (32 chars)
+- Vended session ID: `1`, `2`, `3`, ... (1-3 chars typically)
+
+The UI server tracks `internalID ↔ vendedID` mappings. Backend only sees vended IDs.
+
+**Batch format (server ↔ backend):**
+```json
+{"session": 1, "messages": [
+  {"type": "watch", "id": 1},
+  {"type": "update", "id": 5, "value": "hello"}
+]}
+```
+
+**Session lifecycle:**
+- When the UI server receives a batch with a new session ID, the backend creates a corresponding session
+- For embedded Lua: A new Lua session is created and `main.lua` is executed with the `session` global
+- Executing `main.lua` serves as the notification that a new session has started
+- The Lua code is responsible for creating variable 1 (the app variable) and sending its initial state
+
+**Priority-based batching:**
+
+Both values and properties have priority (`high`, `medium` (default), `low`). When sending batched updates:
+
+1. Queue all pending changes (values and properties)
+2. Separate by priority - a single variable may have changes at different priorities
+3. Order the batch: all high-priority updates first, then medium, then low
+4. A variable may appear multiple times in a batch if its value and properties have different priorities
+
+**Example:** If variable 5 has a high-priority `viewdefs` property update and a medium-priority value update, the batch contains two separate update messages for variable 5.
+
+**Viewdef delivery:**
+
+When a variable is created or its value changes, the backend sets the `type` property based on the value's type. If viewdefs for that type haven't been sent to the frontend, the backend queues them. Before sending updates, pending viewdefs are set on the app variable (ID 1) as a `viewdefs` property:
+
+```json
+{"type": "update", "id": 1, "properties": {
+  "viewdefs:high": {"Contact.DEFAULT": "<template>...</template>", "Contact.COMPACT": "<template>...</template>"}
+}}
+```
+
+Viewdefs use `:high` priority to ensure they're processed before the variables that need them.

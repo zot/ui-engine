@@ -33,6 +33,9 @@
         |     [for each segment]                      |                      |                      |
         |                      |---navigateSegment--->|                      |                      |
         |                      |                      |                      |                      |
+        |                      |     [if currentValue is null/undefined]     |                      |
+        |                      |<--null/undefined-----|   (nullish coalescing - stop traversal)    |
+        |                      |                      |                      |                      |
         |                      |     [property: "name"]                      |                      |
         |                      |                      |---getProperty------->|                      |
         |                      |                      |                      |---obj.name---------->|
@@ -63,3 +66,5 @@
 - Array indices are 1-based (Lua convention)
 - Parent traversal navigates up the object tree
 - Caching improves repeated resolution performance
+- **Nullish coalescing:** If any segment resolves to null/undefined, traversal stops and returns null/undefined (no error)
+- **Write direction:** When resolveForWrite encounters nullish intermediate, caller sends `error(varId, 'path-failure', description)` message. UI shows error indicator (e.g., `ui-error` class). Error clears on next successful update.

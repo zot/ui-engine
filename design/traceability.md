@@ -29,6 +29,7 @@
 - crc-WatchManager.md
 - crc-ObjectReference.md
 - crc-PathSyntax.md
+- crc-MessageBatcher.md
 
 **Sequence Diagrams:**
 - seq-create-variable.md
@@ -37,6 +38,7 @@
 - seq-destroy-variable.md
 - seq-relay-message.md
 - seq-path-resolve.md
+- seq-viewdef-delivery.md
 
 ---
 
@@ -45,15 +47,20 @@
 **CRC Cards:**
 - crc-Viewdef.md
 - crc-ViewdefStore.md
+- crc-View.md
+- crc-ViewList.md
+- crc-AppView.md
 - crc-BindingEngine.md
 - crc-ValueBinding.md
 - crc-EventBinding.md
 
 **Sequence Diagrams:**
 - seq-load-viewdefs.md
+- seq-viewdef-delivery.md
+- seq-render-view.md
+- seq-viewlist-update.md
 - seq-bind-element.md
 - seq-handle-event.md
-- seq-render-view.md
 
 ---
 
@@ -92,18 +99,21 @@
 - crc-MCPResource.md
 - crc-MCPTool.md
 - crc-LuaRuntime.md
+- crc-LuaSession.md
 - crc-LuaPresenterLogic.md
 
 **Sequence Diagrams:**
 - seq-create-session.md
 - seq-frontend-connect.md
 - seq-frontend-reconnect.md
-- seq-backend-connect.md
 - seq-activate-tab.md
 - seq-navigate-url.md
 - seq-mcp-create-session.md
 - seq-mcp-create-presenter.md
 - seq-mcp-receive-event.md
+- seq-lua-executor-init.md
+- seq-lua-session-init.md
+- seq-lua-execute.md
 - seq-load-lua-code.md
 - seq-lua-handle-action.md
 
@@ -124,19 +134,26 @@
 ### libraries.md
 
 **CRC Cards:**
-- crc-BackendConnection.md
 - crc-PathNavigator.md
 - crc-ChangeDetector.md
+- crc-BackendConnection.md
 - crc-FrontendApp.md
 - crc-SPANavigator.md
 - crc-ViewRenderer.md
 - crc-WidgetBinder.md
 - crc-MessageRelay.md
+- crc-LuaSession.md
+- crc-LuaVariable.md
 
 **Sequence Diagrams:**
-- seq-backend-refresh.md
 - seq-spa-navigate.md
 - seq-bootstrap.md
+- seq-lua-session-init.md
+- seq-backend-refresh.md
+
+**Notes:**
+- BackendConnection used by external Go backends (connected backend mode)
+- Embedded Lua uses LuaSession instead of BackendConnection
 
 ---
 
@@ -149,221 +166,253 @@
 
 ## Level 2 <-> Level 3 (Design Models to Implementation)
 
-*Implementation checkboxes to be filled as code is written*
+*Implementation checkboxes updated to reflect actual code*
 
 ### crc-Variable.md
 **Source Spec:** protocol.md
 **Implementation:**
-- [ ] `server/variable.go` - Variable struct and methods
-- [ ] `frontend/variable.ts` - Frontend variable representation
+- [x] `internal/variable/variable.go` - Variable struct and methods
+- [x] `web/src/variable.ts` - Frontend variable representation
 
 ### crc-VariableStore.md
 **Source Spec:** protocol.md, data-models.md
 **Implementation:**
-- [ ] `server/store.go` - VariableStore implementation
+- [x] `internal/variable/store.go` - VariableStore implementation
+- [x] `web/src/connection.ts` - Frontend VariableStore class
 
 ### crc-ProtocolHandler.md
 **Source Spec:** protocol.md
 **Implementation:**
-- [ ] `server/protocol.go` - Protocol message handling
+- [x] `internal/protocol/handler.go` - Protocol message handling
+- [x] `web/src/protocol.ts` - Frontend protocol types and encoding
 
 ### crc-WatchManager.md
 **Source Spec:** protocol.md
 **Implementation:**
-- [ ] `server/watch.go` - Watch subscription management
+- [x] `internal/variable/watch.go` - Watch subscription management
 
 ### crc-Presenter.md
 **Source Spec:** main.md
 **Implementation:**
-- [ ] `server/presenter.go` - Base presenter
-- [ ] `lib/presenter.lua` - Lua presenter base
+- [x] `internal/presenter/presenter.go` - Base presenter (includes AppPresenter, ListPresenter)
+- [x] `lib/presenter.lua` - Lua presenter base
 
 ### crc-AppPresenter.md
 **Source Spec:** main.md
 **Implementation:**
-- [ ] `server/app_presenter.go` - App presenter
-- [ ] `lib/app.lua` - Lua app presenter
+- [x] `internal/presenter/presenter.go` - App presenter (combined with Presenter)
+- [x] `lib/app.lua` - Lua app presenter
 
 ### crc-ListPresenter.md
 **Source Spec:** main.md
 **Implementation:**
-- [ ] `server/list_presenter.go` - List presenter
-- [ ] `lib/list.lua` - Lua list presenter
+- [x] `internal/presenter/presenter.go` - List presenter (combined with Presenter)
+- [x] `lib/list.lua` - Lua list presenter
 
 ### crc-Viewdef.md
 **Source Spec:** viewdefs.md
 **Implementation:**
-- [ ] `server/viewdef.go` - Viewdef struct
-- [ ] `frontend/viewdef.ts` - Frontend viewdef handling
+- [x] `internal/viewdef/viewdef.go` - Viewdef struct
+- [x] `web/src/viewdef.ts` - Frontend viewdef handling
 
 ### crc-ViewdefStore.md
 **Source Spec:** viewdefs.md
 **Implementation:**
-- [ ] `server/viewdef_store.go` - Server viewdef store
-- [ ] `frontend/viewdef_store.ts` - Frontend viewdef cache
+- [x] `internal/viewdef/store.go` - Server viewdef store
+- [x] `web/src/viewdef_store.ts` - Frontend viewdef cache with validation and pending views
+
+### crc-View.md
+**Source Spec:** viewdefs.md
+**Implementation:**
+- [x] `web/src/view.ts` - View class for ui-view elements
+
+### crc-ViewList.md
+**Source Spec:** viewdefs.md
+**Implementation:**
+- [x] `web/src/viewlist.ts` - ViewList class for ui-viewlist elements
+
+### crc-AppView.md
+**Source Spec:** viewdefs.md
+**Implementation:**
+- [x] `web/src/app_view.ts` - AppView class for ui-app element
 
 ### crc-BindingEngine.md
 **Source Spec:** viewdefs.md, libraries.md
 **Implementation:**
-- [ ] `frontend/binding.ts` - Binding engine
+- [x] `web/src/binding.ts` - Binding engine (includes value and event bindings)
 
 ### crc-ValueBinding.md
 **Source Spec:** viewdefs.md
 **Implementation:**
-- [ ] `frontend/value_binding.ts` - Value bindings
+- [x] `web/src/binding.ts` - Value bindings (combined with BindingEngine)
 
 ### crc-EventBinding.md
 **Source Spec:** viewdefs.md
 **Implementation:**
-- [ ] `frontend/event_binding.ts` - Event bindings
+- [x] `web/src/binding.ts` - Event bindings (combined with BindingEngine)
 
 ### crc-Session.md
 **Source Spec:** main.md, interfaces.md
 **Implementation:**
-- [ ] `server/session.go` - Session struct
+- [x] `internal/session/session.go` - Session struct
 
 ### crc-SessionManager.md
-**Source Spec:** interfaces.md
+**Source Spec:** interfaces.md, protocol.md
 **Implementation:**
-- [ ] `server/session_manager.go` - Session management
+- [x] `internal/session/manager.go` - Session management with vended ID mapping
 
 ### crc-Router.md
 **Source Spec:** interfaces.md
 **Implementation:**
-- [ ] `server/router.go` - URL routing
-- [ ] `frontend/router.ts` - Frontend routing
+- [x] `internal/router/router.go` - URL routing
+- [x] `web/src/router.ts` - Frontend routing
 
 ### crc-WebSocketEndpoint.md
 **Source Spec:** interfaces.md, deployment.md
 **Implementation:**
-- [ ] `server/websocket.go` - WebSocket handler
+- [x] `internal/server/websocket.go` - WebSocket handler
+- [x] `web/src/connection.ts` - Frontend Connection class
 
 ### crc-HTTPEndpoint.md
 **Source Spec:** interfaces.md, deployment.md
 **Implementation:**
-- [ ] `server/http.go` - HTTP handler
+- [x] `internal/server/http.go` - HTTP handler
 
 ### crc-SharedWorker.md
 **Source Spec:** interfaces.md
 **Implementation:**
-- [ ] `frontend/worker.ts` - SharedWorker
+- [x] `web/src/worker.ts` - SharedWorker
 
 ### crc-MessageRelay.md
 **Source Spec:** protocol.md
 **Implementation:**
-- [ ] `server/relay.go` - Message relay
+- [x] `internal/server/relay.go` - Message relay
+
+### crc-MessageBatcher.md
+**Source Spec:** protocol.md
+**Implementation:**
+- [x] `internal/protocol/batcher.go` - Priority-based message batching
+- [x] `web/src/batcher.ts` - Frontend batch processing
 
 ### crc-StorageBackend.md
 **Source Spec:** deployment.md, data-models.md
 **Implementation:**
-- [ ] `server/storage.go` - Storage interface
+- [x] `internal/storage/backend.go` - Storage interface
 
 ### crc-MemoryStorage.md
 **Source Spec:** deployment.md
 **Implementation:**
-- [ ] `server/memory_storage.go` - In-memory storage
+- [x] `internal/storage/memory.go` - In-memory storage
 
 ### crc-SQLiteStorage.md
 **Source Spec:** deployment.md
 **Implementation:**
-- [ ] `server/sqlite_storage.go` - SQLite storage
+- [x] `internal/storage/sqlite.go` - SQLite storage
 
 ### crc-PostgresStorage.md
 **Source Spec:** deployment.md
 **Implementation:**
-- [ ] `server/postgres_storage.go` - PostgreSQL storage
+- [x] `internal/storage/postgres.go` - PostgreSQL storage
 
 ### crc-MCPServer.md
 **Source Spec:** interfaces.md
 **Implementation:**
-- [ ] `mcp/server.go` - MCP server
+- [x] `internal/mcp/server.go` - MCP server
 
 ### crc-MCPResource.md
 **Source Spec:** interfaces.md
 **Implementation:**
-- [ ] `mcp/resources.go` - MCP resources
+- [x] `internal/mcp/resources.go` - MCP resources
 
 ### crc-MCPTool.md
 **Source Spec:** interfaces.md
 **Implementation:**
-- [ ] `mcp/tools.go` - MCP tools
+- [x] `internal/mcp/tools.go` - MCP tools
 
 ### crc-LuaRuntime.md
 **Source Spec:** interfaces.md, deployment.md
 **Implementation:**
-- [ ] `server/lua.go` - Lua runtime
+- [x] `internal/lua/runtime.go` - Lua runtime with session API
+
+### crc-LuaSession.md
+**Source Spec:** libraries.md, interfaces.md, protocol.md
+**Implementation:**
+- [x] `internal/lua/runtime.go` - Go-side LuaSession implementation (uses vended session IDs)
+
+### crc-LuaVariable.md
+**Source Spec:** libraries.md
+**Implementation:**
+- [x] `internal/lua/runtime.go` - Variable wrapper class (Go-side for embedded Lua)
 
 ### crc-LuaPresenterLogic.md
 **Source Spec:** interfaces.md
 **Implementation:**
-- [ ] `lib/presenter_logic.lua` - Presenter logic base
+- [x] `lib/presenter_logic.lua` - Presenter logic base
 
 ### crc-BackendConnection.md
 **Source Spec:** libraries.md
+**Notes:** Used by external Go backends (connected backend mode); embedded Lua uses LuaSession instead
 **Implementation:**
-- [ ] `lib/go/connection.go` - Go backend connection
-- [ ] `lib/connection.lua` - Lua backend connection
+- [x] `lib/go/connection.go` - Go backend connection
+- [ ] `lib/lua/connection.lua` - (not needed - embedded Lua uses LuaSession)
 
 ### crc-PathNavigator.md
 **Source Spec:** protocol.md, libraries.md
 **Implementation:**
-- [ ] `lib/go/path.go` - Go path navigation
-- [ ] `lib/path.lua` - Lua path navigation
-- [ ] `frontend/path.ts` - Frontend path resolution
+- [x] `lib/go/path.go` - Go path navigation
+- [x] `lib/lua/path.lua` - Lua path navigation
+- [x] `web/src/path.ts` - Frontend path resolution
 
 ### crc-ChangeDetector.md
 **Source Spec:** libraries.md
 **Implementation:**
-- [ ] `lib/go/change.go` - Go change detection
-- [ ] `lib/change.lua` - Lua change detection
+- [x] `lib/go/change.go` - Go change detection
+- [x] `lib/lua/change.lua` - Lua change detection
 
 ### crc-FrontendApp.md
 **Source Spec:** libraries.md, interfaces.md
 **Implementation:**
-- [ ] `frontend/app.ts` - Frontend app
+- [x] `web/src/app.ts` - Frontend app (includes SPA navigation)
 
 ### crc-SPANavigator.md
 **Source Spec:** libraries.md, interfaces.md
 **Implementation:**
-- [ ] `frontend/navigator.ts` - SPA navigation
+- [x] `web/src/app.ts` - SPA navigation (combined with FrontendApp)
 
 ### crc-ViewRenderer.md
 **Source Spec:** libraries.md
 **Implementation:**
-- [ ] `frontend/renderer.ts` - View renderer
+- [x] `web/src/renderer.ts` - View renderer
 
 ### crc-WidgetBinder.md
 **Source Spec:** libraries.md, components.md
 **Implementation:**
-- [ ] `frontend/widgets.ts` - Widget bindings
+- [x] `web/src/widgets.ts` - Widget bindings
 
 ### crc-ObjectReference.md
 **Source Spec:** protocol.md
 **Implementation:**
-- [ ] `server/object_ref.go` - Object reference handling
+- [x] `internal/variable/variable.go` - Object reference handling (in Variable)
+- [x] `web/src/variable.ts` - Frontend ObjectReference type
 
 ### crc-PathSyntax.md
 **Source Spec:** protocol.md, viewdefs.md
 **Implementation:**
-- [ ] `server/path_syntax.go` - Path parsing
-- [ ] `frontend/path_syntax.ts` - Frontend path parsing
+- [x] `internal/path/syntax.go` - Path parsing
+- [x] `web/src/binding.ts` - Frontend path parsing (in parsePath/resolvePath)
 
 ### crc-BackendSocket.md
-**Source Spec:** deployment.md
+**Source Spec:** deployment.md, interfaces.md
+**Notes:** Supports connected backend only or hybrid mode (with embedded Lua)
 **Implementation:**
-- [ ] `server/backend_socket.go` - Backend socket listener
-
-### crc-ProtocolDetector.md
-**Source Spec:** deployment.md
-**Implementation:**
-- [ ] `server/protocol_detector.go` - Protocol detection
-
-### crc-PacketProtocol.md
-**Source Spec:** deployment.md
-**Implementation:**
-- [ ] `server/packet_protocol.go` - Packet protocol handler
+- [x] `internal/server/backend_socket.go` - Backend socket handler
 
 ### crc-PendingResponseQueue.md
 **Source Spec:** deployment.md
 **Implementation:**
-- [ ] `server/pending_queue.go` - Pending response queue
+- [x] `internal/server/pending.go` - Pending response queue
+
+### crc-Config.md
+**Source Spec:** deployment.md
+**Implementation:**
+- [x] `internal/config/config.go` - Configuration loading

@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Contact Manager - UI Platform Demo</title>
+
+  <!-- Shoelace CSS -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@shoelace-style/shoelace@2.12.0/cdn/themes/light.css" />
+  <script type="module" src="https://cdn.jsdelivr.net/npm/@shoelace-style/shoelace@2.12.0/cdn/shoelace-autoloader.js"></script>
+
+  <style>
+    :root {
+      --app-max-width: 800px;
+      --spacing-sm: 0.5rem;
+      --spacing-md: 1rem;
+      --spacing-lg: 1.5rem;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: var(--sl-font-sans);
+      margin: 0;
+      padding: var(--spacing-md);
+      background: var(--sl-color-neutral-50);
+      min-height: 100vh;
+    }
+
+    .app-container {
+      max-width: var(--app-max-width);
+      margin: 0 auto;
+    }
+
+    .app-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: var(--spacing-lg);
+      padding-bottom: var(--spacing-md);
+      border-bottom: 1px solid var(--sl-color-neutral-200);
+    }
+
+    .app-header h1 {
+      margin: 0;
+      font-size: 1.5rem;
+      color: var(--sl-color-neutral-900);
+    }
+
+    .toolbar {
+      display: flex;
+      gap: var(--spacing-md);
+      margin-bottom: var(--spacing-md);
+    }
+
+    .toolbar sl-input {
+      flex: 1;
+    }
+
+    .contact-list {
+      display: flex;
+      flex-direction: column;
+      gap: var(--spacing-sm);
+    }
+
+    .contact-card {
+      background: white;
+      border-radius: var(--sl-border-radius-medium);
+      padding: var(--spacing-md);
+      box-shadow: var(--sl-shadow-small);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .contact-info {
+      flex: 1;
+    }
+
+    .contact-name {
+      font-weight: 600;
+      color: var(--sl-color-neutral-900);
+      margin-bottom: 0.25rem;
+    }
+
+    .contact-email {
+      color: var(--sl-color-neutral-600);
+      font-size: 0.875rem;
+    }
+
+    .contact-phone {
+      color: var(--sl-color-neutral-500);
+      font-size: 0.875rem;
+    }
+
+    .contact-actions {
+      display: flex;
+      gap: var(--spacing-sm);
+    }
+
+    .edit-form {
+      background: white;
+      border-radius: var(--sl-border-radius-medium);
+      padding: var(--spacing-lg);
+      box-shadow: var(--sl-shadow-medium);
+    }
+
+    .edit-form h2 {
+      margin-top: 0;
+      margin-bottom: var(--spacing-lg);
+    }
+
+    .form-row {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: var(--spacing-md);
+      margin-bottom: var(--spacing-md);
+    }
+
+    .form-row.full-width {
+      grid-template-columns: 1fr;
+    }
+
+    .form-actions {
+      display: flex;
+      gap: var(--spacing-md);
+      justify-content: flex-end;
+      margin-top: var(--spacing-lg);
+      padding-top: var(--spacing-md);
+      border-top: 1px solid var(--sl-color-neutral-200);
+    }
+
+    .error-alert {
+      margin-bottom: var(--spacing-md);
+    }
+
+    .empty-state {
+      text-align: center;
+      padding: calc(var(--spacing-lg) * 2);
+      color: var(--sl-color-neutral-500);
+    }
+
+    .hidden {
+      display: none !important;
+    }
+
+    /* Loading state shown before app renders */
+    [ui-app]:empty {
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      min-height: 200px;
+    }
+
+    [ui-app]:empty::after {
+      content: "";
+      width: 2rem;
+      height: 2rem;
+      border: 3px solid var(--sl-color-neutral-200);
+      border-top-color: var(--sl-color-primary-600);
+      border-radius: 50%;
+      animation: spin 1s linear infinite;
+    }
+
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+  </style>
+</head>
+<body>
+  <!-- App container - renders variable 1 -->
+  <div class="app-container" ui-app></div>
+
+  <!-- Main App Script -->
+  <script type="module" src="main.js"></script>
+</body>
+</html>

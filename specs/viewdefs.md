@@ -4,17 +4,36 @@ Viewdefs (HTML view definitions) can reference variables using binding syntax.
 
 ## View Definitions
 
-View definitions ("viewdefs") are HTML snippets named `TYPE.VIEW.html` (e.g., `Person.DEFAULT.html`, `Person.list-item.html`). They are delivered to the frontend via variable `1`.
+View definitions ("viewdefs") are HTML snippets named `TYPE.NAMESPACE.html` (e.g., `Person.DEFAULT.html`, `Person.COMPACT.html`). They are stored in `html/viewdefs/` and delivered to the frontend via variable `1`.
+
+**Viewdef format:**
+
+Each viewdef is a string containing a single `<template>` element:
+
+```html
+<template>
+  <div class="person-card">
+    <span ui-value="name"></span>
+    <span ui-value="email"></span>
+  </div>
+</template>
+```
+
+The frontend parses viewdefs by placing them in a scratch div's innerHTML, then validates:
+- Exactly one root element exists
+- The root element is a `<template>`
+- If validation fails, sends an `error` message to the backend
 
 **Bootstrap process:**
 1. When a frontend connects, it immediately watches variable `1` (the only variable at startup)
 2. Variable `1` contains the root object of the application
-3. Variable `1` has a `viewdefs` property containing `TYPE.VIEW` → `HTML` mappings
-4. The frontend parses the viewdefs and stores them by TYPE.VIEW
+3. Variable `1` has a `viewdefs` property containing `TYPE.NAMESPACE` → `HTML` mappings
+4. The frontend parses the viewdefs and stores them by TYPE.NAMESPACE
 
 **Viewdef delivery:**
-- When a variable's type changes, the backend sets the `type` property and includes the viewdefs for that type in variable `1`'s `viewdefs` property
-- The backend accumulates viewdef updates for batching and prioritizes the update message
+- When a variable is created or its value changes, the backend sets the `type` property based on the value's type
+- If viewdefs for that type haven't been sent, the backend queues them
+- Before sending updates, pending viewdefs are set on variable `1`'s `viewdefs` property with `:high` priority
 - Previous `viewdefs` property values can be safely replaced since the frontend stores viewdefs separately
 
 ## Value Bindings (variable → element)
@@ -32,6 +51,16 @@ Variable values are used directly; variable properties can specify transformatio
 - `ui-event-*` - Trigger a variable value change on an event (e.g., `ui-event-click`, `ui-event-change`)
   - Sets the bound variable to a specified value when the event fires
 
+## Action Bindings
+
+- `ui-action` - Bind a button/element click to a method call on the presenter
+  - Value is a path ending in a method call
+  - `method()` - call with no arguments
+  - `method(_)` - call with the update message's value as the argument
+  - Examples:
+    - `<sl-button ui-action="presenter.save()">Save</sl-button>` - calls `save()` with no args
+    - `<sl-button ui-action="delegate.run(_)">Run</sl-button>` - calls `run(value)` with the update value
+
 ## Backend Paths
 
 The `ui-*` attribute values can contain **paths** that navigate the presenter's data structure. Paths use dot notation to traverse nested objects.
@@ -42,7 +71,139 @@ The `ui-*` attribute values can contain **paths** that navigate the presenter's 
 - `ui-value="addresses.0.city"` - Binds to the first address's city (array index)
 - `ui-value="getName()"` - Binds to a call on the persenter's `getName` method
 
+**Nullish path handling:**
+
+Path traversal uses nullish coalescing behavior (like JavaScript's `?.` operator). If any segment in the path resolves to `null` or `undefined`:
+- **Read direction:** The binding displays empty/default value instead of erroring
+- **Write direction:** The variable holder issues an `error` message with code `path-failure`, allowing the frontend to display an error state (e.g., red border on the field). A subsequent successful update clears the error condition.
+
+This allows bindings like `ui-value="selectedContact.firstName"` to work gracefully when `selectedContact` is null (e.g., when no contact is selected). When a user attempts to edit a field with a nullish path, the field can show an error indicator until the path becomes valid.
+
 Paths are stored in the variable's "path" property, allowing the backend to:
 - Resolve the path to the actual data location in the presenter data
 - Update the correct nested field when the variable changes
 - Watch specific sub-paths for changes
+
+## App View
+
+The **App View** is a special view that renders variable `1` (the root app variable). It is the entry point for the entire UI.
+
+**App View attribute:**
+- `ui-app` - Marks an element as the app view container (renders variable `1`)
+
+**App flow:**
+1. Client connects to the server
+2. Server sends an `update` message for variable `1` with app state and viewdefs
+3. The `ui-app` element renders its view based on variable `1`'s `type` property
+
+**Example (minimal index.html):**
+```html
+<!DOCTYPE html>
+<html>
+<head>
+  <script type="module" src="main.js"></script>
+</head>
+<body>
+  <div ui-app></div>
+</body>
+</html>
+```
+
+Developers can customize `index.html` with their own styles, scripts, and structure while keeping the `ui-app` element as the rendering root.
+
+## Views
+
+A **View** is an element that renders a variable using a viewdef. Views are created via the `ui-view` attribute.
+
+**View attributes:**
+- `ui-view` - Path to an object reference variable to render
+- `ui-namespace` - (optional) Namespace for viewdef lookup (default: `DEFAULT`)
+
+**View properties:**
+- Unique HTML `id` (vended by the frontend)
+- Manages a container element (e.g., `<div>`, `<sl-option>`)
+
+**Example:**
+```html
+<div ui-view="currentContact" ui-namespace="COMPACT"></div>
+```
+
+This creates a variable for the `currentContact` object reference and renders it using the `TYPE.COMPACT` viewdef (where TYPE is the variable's `type` property).
+
+## Rendering
+
+The frontend maintains a `render(element, variable, namespace)` function:
+
+**Parameters:**
+- `element` - The container element to render into
+- `variable` - The variable to render
+- `namespace` - The viewdef namespace (default: `DEFAULT`)
+
+**Returns:** `true` if rendered successfully, `false` if not ready
+
+**Requirements for rendering:**
+1. Variable must have a `value`
+2. Variable must have a `type` property
+3. Viewdef for `TYPE.NAMESPACE` must exist (falls back to `TYPE.DEFAULT` if not found)
+
+**Render process:**
+1. Look up viewdef for `TYPE.NAMESPACE`
+2. If not found, try `TYPE.DEFAULT`
+3. Clear the element's children
+4. Deep clone the template's contents into the element
+5. Bind the cloned elements to the variable
+
+**Pending views:**
+
+If a view cannot render (missing `type` or viewdef), it's added to a pending views list. When new viewdefs arrive (via variable `1` update):
+1. Store the new viewdefs
+2. Iterate pending views, calling `render()` on each
+3. Remove views that return `true` (successfully rendered)
+4. Views that return `false` remain pending
+
+## ViewLists
+
+A **ViewList** renders an array of object references as a list of views. Created via the `ui-viewlist` attribute.
+
+**ViewList attributes:**
+- `ui-viewlist` - Path to an array of object references
+- `ui-namespace` - (optional) Namespace for child views (default: `DEFAULT`)
+
+**ViewList properties:**
+- Has an **exemplar element** that gets cloned for each item (default: `<div>`)
+- Maintains a parallel array of View elements (these don't have `ui-view` attributes - the ViewList creates their variables)
+- Has a delegate for add/remove notifications
+
+**Example:**
+```html
+<div ui-viewlist="contacts" ui-namespace="COMPACT"></div>
+```
+
+**Update behavior:**
+
+When the bound array changes:
+- **Items added:** Clone the exemplar, create a variable for the new item, render and append
+- **Items removed:** Destroy the variable, remove the element from DOM
+- **Items reordered:** Reorder the parallel View elements to match
+
+## Select Views
+
+A **Select View** uses a ViewList to populate `<sl-select>` options.
+
+**Example:**
+```html
+<sl-select ui-value="selectedContact">
+  <div ui-viewlist="contacts" ui-namespace="OPTION"></div>
+</sl-select>
+```
+
+The Select View provides `<sl-option>` as the exemplar element to its ViewList, so each item renders as an option:
+
+```html
+<!-- Contact.OPTION.html viewdef -->
+<template>
+  <sl-option ui-attr-value="id">
+    <span ui-value="name"></span>
+  </sl-option>
+</template>
+```

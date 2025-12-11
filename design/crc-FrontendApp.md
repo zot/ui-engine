@@ -9,9 +9,10 @@
 - sharedWorker: Reference to SharedWorker instance
 - rootVariable: Variable 1 reference
 - isMainTab: Whether this tab is the primary connection
+- appView: AppView instance for ui-app element
 
 ### Does
-- initialize: Parse URL, connect to SharedWorker, watch variable 1
+- initialize: Parse URL, connect to SharedWorker, create AppView for ui-app element
 - handleBootstrap: Process initial viewdefs from variable 1
 - handleVariableUpdate: Process incoming variable updates
 - sendMessage: Send protocol message via SharedWorker
@@ -23,7 +24,8 @@
 
 - SharedWorker: Backend communication
 - SPANavigator: History management
-- ViewRenderer: View display
+- AppView: Renders root app via ui-app element
+- ViewRenderer: View display (via AppView)
 - WidgetBinder: Widget bindings
 
 ## Sequences
