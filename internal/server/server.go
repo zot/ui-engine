@@ -24,18 +24,21 @@ import (
 
 // Server is the main UI server.
 type Server struct {
-	config         *config.Config
-	store          *variable.Store
-	watches        *variable.WatchManager
-	sessions       *session.Manager
-	handler        *protocol.Handler
-	pendingQueues  *PendingQueueManager
-	storageBackend storage.Backend
-	httpServer     *http.Server
-	httpEndpoint   *HTTPEndpoint
-	wsEndpoint     *WebSocketEndpoint
-	backendSocket  *BackendSocket
-	luaRuntime     *lua.Runtime
+	config          *config.Config
+	store           *variable.Store
+	watches         *variable.WatchManager
+	sessions        *session.Manager
+	handler         *protocol.Handler
+	pendingQueues   *PendingQueueManager
+	storageBackend  storage.Backend
+	httpServer      *http.Server
+	httpEndpoint    *HTTPEndpoint
+	wsEndpoint      *WebSocketEndpoint
+	backendSocket   *BackendSocket
+	luaRuntime      *lua.Runtime
+	wrapperRegistry *lua.WrapperRegistry
+	wrapperManager  *lua.WrapperManager
+	storeAdapter    *luaStoreAdapter
 }
 
 // New creates a new server with the given configuration.
@@ -105,9 +108,22 @@ func New(cfg *config.Config) *Server {
 	s.handler.SetVerbosity(verbosity)
 	store.SetVerbosity(verbosity)
 
+	// Initialize wrapper registry (needed for ViewList wrapper support)
+	s.wrapperRegistry = lua.NewWrapperRegistry()
+
 	// Initialize Lua runtime if enabled
 	if cfg.Lua.Enabled {
 		s.setupLua(cfg, verbosity)
+
+		// Create wrapper manager with runtime and registry
+		s.wrapperManager = lua.NewWrapperManager(s.luaRuntime, s.wrapperRegistry)
+
+		// Set wrapper manager on store adapter so it can create wrappers during variable creation
+		if s.storeAdapter != nil {
+			s.storeAdapter.SetWrapperManager(s.wrapperManager)
+		}
+
+		// Note: Go wrappers (like ViewList) auto-register via init() - no explicit registration needed
 
 		// Set session callbacks for Lua session management
 		// Callbacks receive vended IDs (compact integers) for backend communication
@@ -117,6 +133,9 @@ func New(cfg *config.Config) *Server {
 		sessions.SetOnSessionDestroyed(func(vendedID string) {
 			s.DestroyLuaSessionForFrontend(vendedID)
 		})
+
+		// Set up afterBatch callback for automatic change detection
+		s.wsEndpoint.SetAfterBatch(s.AfterBatch)
 	}
 
 	return s
@@ -260,8 +279,11 @@ func (s *Server) setupLua(cfg *config.Config, verbosity int) {
 	s.luaRuntime = runtime
 
 	// Create store adapter and set on runtime
-	adapter := &luaStoreAdapter{store: s.store}
-	runtime.SetVariableStore(adapter)
+	s.storeAdapter = &luaStoreAdapter{store: s.store}
+	runtime.SetVariableStore(s.storeAdapter)
+
+	// Set wrapper registry on runtime (allows ui.registerWrapper from Lua)
+	runtime.SetWrapperRegistry(s.wrapperRegistry)
 
 	// Pre-load main.lua from bundle if available (for bundle mode)
 	// When sessions connect, this will be executed per-session
@@ -294,6 +316,29 @@ func (s *Server) DestroyLuaSessionForFrontend(vendedID string) {
 		return
 	}
 	s.luaRuntime.DestroyLuaSession(vendedID)
+}
+
+// AfterBatch triggers Lua change detection after processing a message batch.
+// internalSessionID is the full UUID session ID (used in URLs/WebSocket bindings).
+// This method looks up the vended ID and calls the Lua runtime's AfterBatch.
+func (s *Server) AfterBatch(internalSessionID string) {
+	if s.luaRuntime == nil {
+		return
+	}
+
+	vendedID := s.sessions.GetVendedID(internalSessionID)
+	if vendedID == "" {
+		return
+	}
+
+	// AfterBatch handles change detection internally - updates are sent via store.Update
+	// which triggers the normal watch notification mechanism
+	s.luaRuntime.AfterBatch(vendedID)
+}
+
+// GetLuaRuntime returns the Lua runtime (for testing/advanced use).
+func (s *Server) GetLuaRuntime() *lua.Runtime {
+	return s.luaRuntime
 }
 
 // preloadMainLuaFromBundle caches main.lua from bundle if available.
@@ -352,15 +397,46 @@ func (s *Server) loadLuaLibrariesFromBundle(runtime *lua.Runtime) {
 
 // luaStoreAdapter adapts variable.Store to lua.VariableStore interface.
 type luaStoreAdapter struct {
-	store *variable.Store
+	store          *variable.Store
+	wrapperManager *lua.WrapperManager
+}
+
+// SetWrapperManager sets the wrapper manager for creating wrappers during variable creation.
+func (a *luaStoreAdapter) SetWrapperManager(wm *lua.WrapperManager) {
+	a.wrapperManager = wm
 }
 
 func (a *luaStoreAdapter) Create(parentID int64, value json.RawMessage, properties map[string]string) (int64, error) {
-	return a.store.Create(variable.CreateOptions{
+	id, err := a.store.Create(variable.CreateOptions{
 		ParentID:   parentID,
 		Value:      value,
 		Properties: properties,
 	})
+	if err != nil {
+		return id, err
+	}
+
+	// If wrapper property is set, create wrapper instance
+	if wrapperType, ok := properties["wrapper"]; ok && wrapperType != "" && a.wrapperManager != nil {
+		v, ok := a.store.Get(id)
+		if ok {
+			wrapper, err := a.wrapperManager.CreateWrapper(v)
+			if err != nil {
+				log.Printf("Warning: failed to create wrapper %s for variable %d: %v", wrapperType, id, err)
+			} else if wrapper != nil {
+				v.SetWrapperInstance(wrapper)
+				// Compute initial stored value
+				storedValue, err := lua.ComputeStoredValue(wrapper, value)
+				if err != nil {
+					log.Printf("Warning: failed to compute stored value for variable %d: %v", id, err)
+				} else {
+					v.SetStoredValue(storedValue)
+				}
+			}
+		}
+	}
+
+	return id, nil
 }
 
 func (a *luaStoreAdapter) Get(id int64) (json.RawMessage, map[string]string, bool) {

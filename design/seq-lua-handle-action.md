@@ -17,60 +17,58 @@
 ## Sequence
 
 ```
-     Frontend       WebSocketEndpoint    ProtocolHandler       LuaRuntime          LuaSession        PathNavigator      PresenterObject      VariableStore
-        |                   |                   |                   |                   |                   |                   |                   |
-        |---update--------->|                   |                   |                   |                   |                   |                   |
-        |   (varId,         |                   |                   |                   |                   |                   |                   |
-        |    props:{        |                   |                   |                   |                   |                   |                   |
-        |      path:        |                   |                   |                   |                   |                   |                   |
-        |      "presenter.  |                   |                   |                   |                   |                   |                   |
-        |       save()"})   |                   |                   |                   |                   |                   |                   |
-        |                   |                   |                   |                   |                   |                   |                   |
-        |                   |---handleMessage-->|                   |                   |                   |                   |                   |
-        |                   |   (sessionId,     |                   |                   |                   |                   |                   |
-        |                   |    update)        |                   |                   |                   |                   |                   |
-        |                   |                   |                   |                   |                   |                   |                   |
-        |                   |                   |---getLuaSession-->|                   |                   |                   |                   |
-        |                   |                   |   (sessionId)     |                   |                   |                   |                   |
-        |                   |                   |                   |                   |                   |                   |                   |
-        |                   |                   |<--luaSession------|                   |                   |                   |                   |
-        |                   |                   |                   |                   |                   |                   |                   |
-        |                   |                   |---execute-------->|                   |                   |                   |                   |
-        |                   |                   |   (dispatch       |                   |                   |                   |                   |
-        |                   |                   |    action)        |                   |                   |                   |                   |
-        |                   |                   |                   |                   |                   |                   |                   |
-        |                   |                   |                   |---dispatchAction->|                   |                   |                   |
-        |                   |                   |                   |   (varId, path,   |                   |                   |                   |
-        |                   |                   |                   |    value?)        |                   |                   |                   |
-        |                   |                   |                   |                   |                   |                   |                   |
-        |                   |                   |                   |                   |---getVariable---->|                   |                   |
-        |                   |                   |                   |                   |   (varId)         |                   |                   |
-        |                   |                   |                   |                   |                   |                   |                   |
-        |                   |                   |                   |                   |---resolve-------->|                   |                   |
-        |                   |                   |                   |                   |   (varValue,      |                   |                   |
-        |                   |                   |                   |                   |    "presenter")   |                   |                   |
-        |                   |                   |                   |                   |                   |                   |                   |
-        |                   |                   |                   |                   |<--presenterObj----|                   |                   |
-        |                   |                   |                   |                   |                   |                   |                   |
-        |                   |                   |                   |                   |---callMethod(-----|----------------->|                   |
-        |                   |                   |                   |                   |    "save",        |                   |                   |
-        |                   |                   |                   |                   |    args?)         |                   |                   |
-        |                   |                   |                   |                   |                   |                   |                   |
-        |                   |                   |                   |                   |                   |                   |---execute method  |
-        |                   |                   |                   |                   |                   |                   |                   |
-        |                   |                   |                   |                   |                   |                   |---modify state--->|
-        |                   |                   |                   |                   |                   |                   |   (var:update)    |
-        |                   |                   |                   |                   |                   |                   |                   |
-        |                   |                   |                   |                   |<--result----------|------------------|                   |
-        |                   |                   |                   |                   |                   |                   |                   |
-        |                   |                   |                   |<--result----------|                   |                   |                   |
-        |                   |                   |                   |                   |                   |                   |                   |
-        |                   |                   |<--result----------|                   |                   |                   |                   |
-        |                   |                   |                   |                   |                   |                   |                   |
-        |                   |                   |---notifyChanges-->|                   |                   |                   |                   |
-        |                   |                   |                   |                   |                   |                   |                   |
-        |<--update(s)-------|                   |                   |                   |                   |                   |                   |
-        |                   |                   |                   |                   |                   |                   |                   |
+     Frontend       WebSocketEndpoint    ProtocolHandler       LuaRuntime          LuaSession        PathNavigator      PresenterObject
+        |                   |                   |                   |                   |                   |                   |
+        |---update--------->|                   |                   |                   |                   |                   |
+        |   (varId,         |                   |                   |                   |                   |                   |
+        |    props:{        |                   |                   |                   |                   |                   |
+        |      path:        |                   |                   |                   |                   |                   |
+        |      "presenter.  |                   |                   |                   |                   |                   |
+        |       save()"})   |                   |                   |                   |                   |                   |
+        |                   |                   |                   |                   |                   |                   |
+        |                   |---handleMessage-->|                   |                   |                   |                   |
+        |                   |   (sessionId,     |                   |                   |                   |                   |
+        |                   |    update)        |                   |                   |                   |                   |
+        |                   |                   |                   |                   |                   |                   |
+        |                   |                   |---execute-------->|                   |                   |                   |
+        |                   |                   |   (dispatch       |                   |                   |                   |
+        |                   |                   |    action)        |                   |                   |                   |
+        |                   |                   |                   |                   |                   |                   |
+        |                   |                   |                   |---getApp--------->|                   |                   |
+        |                   |                   |                   |                   |                   |                   |
+        |                   |                   |                   |<--appObject-------|                   |                   |
+        |                   |                   |                   |                   |                   |                   |
+        |                   |                   |                   |---resolve-------->|                   |                   |
+        |                   |                   |                   |   (appObject,     |                   |                   |
+        |                   |                   |                   |    "presenter")   |                   |                   |
+        |                   |                   |                   |                   |                   |                   |
+        |                   |                   |                   |<--presenterObj----|-------------------|                   |
+        |                   |                   |                   |                   |                   |                   |
+        |                   |                   |                   |---callMethod------|-------------------|----------------->|
+        |                   |                   |                   |   ("save", args?) |                   |                   |
+        |                   |                   |                   |                   |                   |                   |
+        |                   |                   |                   |                   |                   |  [modifies self  |
+        |                   |                   |                   |                   |                   |   directly]      |
+        |                   |                   |                   |                   |                   |                   |
+        |                   |                   |                   |<--result----------|-------------------|-------------------|
+        |                   |                   |                   |                   |                   |                   |
+        |                   |                   |<--result----------|                   |                   |                   |
+        |                   |                   |                   |                   |                   |                   |
+        |                   |                   |---afterBatch----->|                   |                   |                   |
+        |                   |                   |                   |                   |                   |                   |
+        |                   |                   |                   |---computeChanges->|                   |                   |
+        |                   |                   |                   |                   |                   |                   |
+        |                   |                   |                   |                   |  [for each watched var:]             |
+        |                   |                   |                   |                   |  - serialize object to JSON          |
+        |                   |                   |                   |                   |  - compare to cached value           |
+        |                   |                   |                   |                   |  - if changed, queue update          |
+        |                   |                   |                   |                   |                   |                   |
+        |                   |                   |                   |<--changedVars-----|                   |                   |
+        |                   |                   |                   |                   |                   |                   |
+        |                   |                   |<--updates---------|                   |                   |                   |
+        |                   |                   |                   |                   |                   |                   |
+        |<--update(s)-------|                   |                   |                   |                   |                   |
+        |                   |                   |                   |                   |                   |                   |
 ```
 
 ## Notes
@@ -80,8 +78,12 @@
   - `method()` - call with no arguments
   - `method(_)` - call with the update message's value as the argument
 - **Thread safety**: All Lua access goes through LuaRuntime's executor channel
-- PathNavigator resolves the path to find the target object
+- PathNavigator resolves the path starting from the app object (session:getApp())
 - Method is called on the resolved presenter object
-- Lua method can modify presenter state via variable updates
-- Changes propagate back to frontend via normal update mechanism
+- **Direct object modification**: Lua methods modify `self` directly (no var:update calls)
+- **Automatic change detection**: After message batch, framework:
+  1. Iterates all watched variables
+  2. Serializes each referenced Lua object to JSON
+  3. Compares to cached previous value
+  4. Sends update messages for changed variables
 - Error handling returns error message to frontend

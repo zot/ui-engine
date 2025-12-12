@@ -19,6 +19,22 @@ The platform implements a **UI server** that connects static frontend code (a "p
   - The UI server itself (via embedded Lua)
   - Both (hybrid model)
 
+## Design Principles
+
+### Frictionless Development
+
+The platform is designed for **frictionless UI development**. Developers should be able to create UIs with minimal boilerplate, configuration, or registration ceremonies:
+
+- **Convention over configuration**: Features "just work" through sensible defaults and auto-discovery
+- **Zero registration**: Define a wrapper type and use it by name - no explicit registration calls required
+  - **Lua**: Define a global table with `computeValue` method, use it by name
+  - **Go**: Use `init()` with `RegisterWrapperType()` for automatic registration at import
+- **Declarative binding**: HTML attributes like `ui-value="path"` automatically bind to backend data
+- **Auto-discovery of wrappers**: Use `wrapper=MyWrapper` in a path and the platform finds it automatically
+- **Minimal backend code**: The app variable is the only required setup point
+
+This principle guides all design decisions: if a developer has to write boilerplate or registration code, we look for ways to eliminate it.
+
 ## Target Users
 
 - **AI Assistants**: AIs like Claude that need to present rich UIs to users during conversations

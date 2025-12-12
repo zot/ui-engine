@@ -23,6 +23,9 @@ var upgrader = websocket.Upgrader{
 	},
 }
 
+// AfterBatchCallback is called after processing a message batch to trigger change detection.
+type AfterBatchCallback func(sessionID string)
+
 // WebSocketEndpoint handles WebSocket connections.
 type WebSocketEndpoint struct {
 	connections     map[string]*websocket.Conn // connectionID -> conn
@@ -30,6 +33,7 @@ type WebSocketEndpoint struct {
 	reconnectTokens map[string]string          // sessionID -> token
 	sessions        *session.Manager
 	handler         *protocol.Handler
+	afterBatch      AfterBatchCallback         // Called after each message to detect changes
 	verbosity       int
 	mu              sync.RWMutex
 }
@@ -48,6 +52,11 @@ func NewWebSocketEndpoint(sessions *session.Manager, handler *protocol.Handler) 
 // SetVerbosity sets the verbosity level for connection logging.
 func (ws *WebSocketEndpoint) SetVerbosity(level int) {
 	ws.verbosity = level
+}
+
+// SetAfterBatch sets the callback for change detection after message processing.
+func (ws *WebSocketEndpoint) SetAfterBatch(callback AfterBatchCallback) {
+	ws.afterBatch = callback
 }
 
 // HandleWebSocket handles incoming WebSocket connections.
@@ -112,6 +121,16 @@ func (ws *WebSocketEndpoint) readPump(connectionID string, conn *websocket.Conn)
 		// Send response if there's a result or error
 		if resp != nil && (resp.Result != nil || resp.Error != "" || len(resp.Pending) > 0) {
 			ws.sendResponse(connectionID, resp)
+		}
+
+		// Trigger change detection after processing the message
+		if ws.afterBatch != nil {
+			ws.mu.RLock()
+			sessionID := ws.sessionBindings[connectionID]
+			ws.mu.RUnlock()
+			if sessionID != "" {
+				ws.afterBatch(sessionID)
+			}
 		}
 	}
 }

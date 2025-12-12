@@ -166,8 +166,69 @@ If a view cannot render (missing `type` or viewdef), it's added to a pending vie
 A **ViewList** renders an array of object references as a list of views. Created via the `ui-viewlist` attribute.
 
 **ViewList attributes:**
-- `ui-viewlist` - Path to an array of object references
-- `ui-namespace` - (optional) Namespace for child views (default: `DEFAULT`)
+- `ui-viewlist` - Path to an array of object references (supports path properties)
+- `ui-namespace` - (optional) Namespace for child views (default: `list-item`)
+
+**Path properties for ViewList:**
+```html
+<!-- Basic ViewList -->
+<div ui-viewlist="contacts">
+
+<!-- With item presenter wrapper -->
+<div ui-viewlist="contacts?item=ContactPresenter">
+```
+
+The `?item=PresenterType` property tells ViewList which presenter type to wrap each domain object with.
+
+**ViewList as wrapper object:**
+
+ViewList is a wrapper type (see protocol.md). When `ui-viewlist="path"` is used:
+1. Frontend creates a variable with `wrapper=ViewList` in path properties
+2. Backend instantiates a ViewList wrapper object: `ViewList(variable)`
+3. The wrapper is stored internally in the variable
+4. When the monitored value (domain array) changes, `viewList.computeValue(rawArray)` is called
+5. ViewList maintains a parallel array of presenter objects and returns presenter refs as the stored value
+
+The ViewList can access path properties like `item=ContactPresenter` from the variable's properties.
+
+**ViewItem objects:**
+
+ViewList creates a ViewItem object for each array element. Each ViewItem has:
+- `baseItem` - Reference to the domain object (`{obj: ID}`)
+- `item` - Either same as `baseItem`, or if `item=ItemWrapper` property is set, the result of `ItemWrapper(viewItem)`
+- `list` - Reference to the ViewList object
+- `index` - Position in the list (0-based)
+
+**Item wrapping (optional):**
+
+When `item=PresenterType` is specified in path properties, the ViewItem's `item` property holds a wrapped presenter instead of the raw domain object. The ItemWrapper is constructed with the ViewItem: `ItemWrapper(viewItem)`.
+
+This allows presenters to have UI-specific methods like `delete()` that can:
+- Access the domain object via `viewItem.baseItem`
+- Remove itself via `viewItem.list.removeAt(viewItem.index)`
+
+**ViewItem viewdef:**
+
+ViewList uses the `list-item` namespace by default for its ViewItems. The ViewItem's `list-item` viewdef contains a view on `item` that also uses the `list-item` namespace, plus a delete button:
+
+```html
+<!-- ViewItem.list-item viewdef -->
+<template>
+  <div style="display: flex; align-items: center;">
+    <div ui-view="item" ui-namespace="list-item" style="flex: 1;"></div>
+    <sl-icon-button ui-action="remove()" name="x" label="Remove"></sl-icon-button>
+  </div>
+</template>
+```
+
+Developers can specify a custom `ui-namespace` on the ViewList to use a different ViewItem viewdef (e.g., one without the delete button):
+
+```html
+<!-- ViewItem.readonly viewdef (no delete button) -->
+<template>
+  <div ui-view="item" ui-namespace="list-item"></div>
+</template>
+```
 
 **ViewList properties:**
 - Has an **exemplar element** that gets cloned for each item (default: `<div>`)

@@ -71,6 +71,34 @@ func (v *verbosityCounter) IsBoolFlag() bool {
 	return true
 }
 
+// expandVerbosityFlags preprocesses args to expand -vvv into -v -v -v.
+// This allows both "-v -v -v" and "-vvv" styles to work.
+func expandVerbosityFlags(args []string) []string {
+	result := make([]string, 0, len(args))
+	for _, arg := range args {
+		// Check if this is a -v... flag (but not --verbose or -version etc.)
+		if len(arg) > 2 && arg[0] == '-' && arg[1] != '-' && arg[1] == 'v' {
+			// Check if all remaining chars are 'v'
+			allV := true
+			for _, c := range arg[1:] {
+				if c != 'v' {
+					allV = false
+					break
+				}
+			}
+			if allV {
+				// Expand -vvv into -v -v -v
+				for range arg[1:] {
+					result = append(result, "-v")
+				}
+				continue
+			}
+		}
+		result = append(result, arg)
+	}
+	return result
+}
+
 // Duration is a time.Duration that can be unmarshaled from TOML strings.
 type Duration time.Duration
 
@@ -132,6 +160,9 @@ func defaultSocketPath() string {
 // Priority: CLI flags > env vars > TOML file > defaults
 func Load(args []string) (*Config, error) {
 	cfg := DefaultConfig()
+
+	// Preprocess args to expand -vvv into -v -v -v
+	args = expandVerbosityFlags(args)
 
 	// Parse CLI flags first to get --dir if specified
 	fs := flag.NewFlagSet("ui", flag.ContinueOnError)

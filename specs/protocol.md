@@ -40,6 +40,7 @@ Variable metadata properties with special meaning:
 | `access`   | `r`, `w`, `rw`, `action`                 | Read/write permissions. `action` = write-only trigger (like a button) |
 | `type`     | Type name string                         | Auto-set by backend to the runtime type name of the variable's value  |
 | `inactive` | any or unset                             | if set, variable updates will not be relayed for this or its children |
+| `wrapper`  | Type name (e.g., `ViewList`)             | Backend uses `Wrapper(variable)` to compute outgoing value            |
 
 **Access modes:**
 - `r` = readable only
@@ -53,6 +54,59 @@ Variable metadata properties with special meaning:
 - Parent traversal: `..`
 - Method calls: `getName()`
 - Standard variable prefix: `@customers.2.name` (starts from a well-known registered variable)
+- Path properties: `contacts?wrapper=ViewList&item=ContactPresenter`
+  - Properties after `?` are set on the created variable
+  - Uses URL query string syntax: `key=value&key2=value2`
+  - Common properties: `wrapper`, `item`, `create`
+
+## Variable Wrappers
+
+The `wrapper` property specifies a **wrapper type name** (e.g., `ViewList`). When set, the backend instantiates a wrapper object that controls how the variable's value is computed from raw path resolution.
+
+**Wrapper resolution (auto-discovery):**
+1. Check global Go wrapper registry (auto-populated via `init()`)
+2. Look up Lua global by name - if a global table with that name exists and has `computeValue`, use it
+
+This follows the [frictionless development](main.md#frictionless-development) principle: define a wrapper and use it by name - no explicit registration calls required.
+
+**Wrapper lifecycle:**
+1. When a variable is created with `wrapper=TypeName` in path properties, a wrapper object of that type is instantiated
+2. The wrapper constructor receives the variable: `Constructor(variable)`
+3. The wrapper object is stored internally in the variable (not as a property)
+4. The wrapper persists for the lifetime of the variable
+
+**Wrapper interface:**
+```
+Wrapper {
+    computeValue(rawValue) → storedValue
+}
+```
+
+When the monitored value changes, `wrapper.computeValue(rawValue)` is called to compute the new stored value. The wrapper can maintain state (e.g., ViewList keeps a parallel array of presenter objects).
+
+Wrappers are created via path property syntax (e.g., `contacts?wrapper=ViewList&item=ContactPresenter`).
+
+## Variable Value Processing
+
+Variables maintain two values:
+
+1. **Monitored value** - Used for change detection
+   - For arrays: a **shallow copy** to detect content changes (additions, removals, reorders)
+   - For other values: the raw value from path resolution
+
+2. **Stored value** - The variable's actual value, sent to frontend
+   - Without wrapper: same as raw value
+   - With wrapper: result of `wrapper.computeValue(rawValue)`
+   - Sent in "value JSON" form (objects as `{obj: ID}` refs)
+
+**Change detection flow:**
+1. Path resolves to raw value
+2. Compare raw value to monitored value (shallow compare for arrays)
+3. If changed:
+   - Update monitored value (shallow copy for arrays)
+   - If wrapper exists: stored value = `wrapper.computeValue(rawValue)`
+   - Else: stored value = raw value
+   - Queue update to frontend
 
 **Property priority:**
 

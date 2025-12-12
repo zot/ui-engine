@@ -11,6 +11,8 @@ export interface Binding {
 
 export interface PathOptions {
   create?: string;
+  wrapper?: string;
+  item?: string;
   props?: Record<string, string>;
 }
 
@@ -19,7 +21,8 @@ export interface ParsedPath {
   options: PathOptions;
 }
 
-// Parse a path like "father.name?create=Person&type=customer"
+// Parse a path like "father.name?create=Person&wrapper=ViewList&item=ContactPresenter"
+// Spec: protocol.md - Path property syntax
 export function parsePath(path: string): ParsedPath {
   const [pathPart, queryPart] = path.split('?');
   const segments = pathPart.split('.');
@@ -27,12 +30,22 @@ export function parsePath(path: string): ParsedPath {
 
   if (queryPart) {
     const params = new URLSearchParams(queryPart);
+
+    // Extract well-known properties
     if (params.has('create')) {
       options.create = params.get('create')!;
     }
+    if (params.has('wrapper')) {
+      options.wrapper = params.get('wrapper')!;
+    }
+    if (params.has('item')) {
+      options.item = params.get('item')!;
+    }
+
+    // Collect remaining properties
     const props: Record<string, string> = {};
     params.forEach((value, key) => {
-      if (key !== 'create') {
+      if (key !== 'create' && key !== 'wrapper' && key !== 'item') {
         props[key] = value;
       }
     });
@@ -42,6 +55,27 @@ export function parsePath(path: string): ParsedPath {
   }
 
   return { segments, options };
+}
+
+// Convert path options to variable properties map
+// Used when creating variables from paths with properties
+export function pathOptionsToProperties(options: PathOptions): Record<string, string> {
+  const props: Record<string, string> = {};
+
+  if (options.create) {
+    props['create'] = options.create;
+  }
+  if (options.wrapper) {
+    props['wrapper'] = options.wrapper;
+  }
+  if (options.item) {
+    props['item'] = options.item;
+  }
+  if (options.props) {
+    Object.assign(props, options.props);
+  }
+
+  return props;
 }
 
 // Resolve a path against a variable value

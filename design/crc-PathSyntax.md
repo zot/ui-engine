@@ -9,6 +9,7 @@
 - hasStandardPrefix: True if starts with @name
 - hasUrlParams: True if contains ?key=value parameters
 - hasMethodArg: True if method call has `_` argument
+- urlParams: Parsed URL parameters as key-value map
 
 ### Does
 - parse: Split path string into segments and parameters
@@ -19,8 +20,10 @@
 - isMethodCallNoArg: Check if method call has no argument (e.g., `method()`)
 - getParentTraversal: Identify ".." segment
 - getStandardVariable: Extract @name prefix
-- getUrlParams: Parse ?create=Type&prop=value parameters
+- getUrlParams: Parse ?key=value&key2=value2 parameters
+- getPathWithoutParams: Return path without URL parameters
 - toString: Reconstruct path string
+- toVariableProperties: Convert URL params to variable properties map
 
 ## Notes
 
@@ -31,14 +34,40 @@ Nullish coalescing during path traversal is handled by PathNavigator (see crc-Pa
 - `method()` - call with no arguments
 - `method(_)` - call with the update message's value as the argument
 
+**Path property syntax:**
+
+Paths can include properties that are set on the created variable:
+
+```
+contacts?wrapper=ViewList&item=ContactPresenter
+```
+
+- Properties after `?` are set on the created variable
+- Uses URL query string syntax: `key=value&key2=value2`
+- Common properties:
+  - `wrapper` - Wrapper type for value transformation
+  - `item` - Item presenter type (for ViewList)
+  - `create` - Type to instantiate as variable value
+
+**Examples:**
+- `name` - Simple property access
+- `father.name` - Nested property access
+- `contacts.1` - Array index (1-based)
+- `@customers.2.name` - Standard variable prefix
+- `getName()` - Method call
+- `contacts?wrapper=ViewList` - Path with wrapper property
+- `contacts?item=ContactPresenter&editable=true` - Multiple properties
+
 ## Collaborators
 
 - PathNavigator: Uses for path resolution
 - BindingEngine: Parses ui-* attribute values (including ui-action paths)
-- Variable: Path stored in path property
+- Variable: Path stored in path property, URL params become variable properties
+- ViewList: Receives item property from path params
 
 ## Sequences
 
 - seq-path-resolve.md: Path parsing and resolution
 - seq-bind-element.md: Binding path parsing
 - seq-lua-handle-action.md: Action path parsing for method dispatch
+- seq-create-variable.md: Path params converted to variable properties

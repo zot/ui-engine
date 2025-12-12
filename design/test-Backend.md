@@ -1,8 +1,8 @@
 # Test Design: Backend Library
 
 **Source Specs**: libraries.md
-**CRC Cards**: crc-BackendConnection.md, crc-PathNavigator.md, crc-ChangeDetector.md
-**Sequences**: seq-backend-connect.md, seq-backend-refresh.md, seq-path-resolve.md
+**CRC Cards**: crc-BackendConnection.md, crc-PathNavigator.md, crc-ChangeDetector.md, crc-ObjectRegistry.md
+**Sequences**: seq-backend-connect.md, seq-backend-refresh.md, seq-path-resolve.md, seq-object-registry.md
 
 ## Overview
 
@@ -312,16 +312,154 @@ Tests for Go/Lua backend library supporting connection, path navigation, and cha
 
 ---
 
+### Test: Object registry register and lookup
+
+**Purpose**: Verify object registration with weak reference
+
+**Input**:
+- register(object, varId)
+- lookup(object)
+
+**References**:
+- CRC: crc-ObjectRegistry.md - "Does: register, lookup"
+- Sequence: seq-object-registry.md
+
+**Expected Results**:
+- Object mapped to varId
+- Weak reference created
+- lookup returns varId
+
+---
+
+### Test: Object registry unregister
+
+**Purpose**: Verify object removal from registry
+
+**Input**:
+- register(object, varId)
+- unregister(varId)
+- lookup(object)
+
+**References**:
+- CRC: crc-ObjectRegistry.md - "Does: unregister"
+
+**Expected Results**:
+- Entry removed
+- lookup returns nil
+- No memory leak
+
+---
+
+### Test: Object registry serialization with refs
+
+**Purpose**: Verify object reference serialization
+
+**Input**:
+- Contact registered as varId 5
+- App with contacts array containing Contact
+- serializeWithRefs(app)
+
+**References**:
+- CRC: crc-ObjectRegistry.md - "Does: serializeWithRefs"
+- Sequence: seq-object-registry.md
+
+**Expected Results**:
+- Contact serializes as {"obj": 5}
+- Non-registered objects inline
+- Nested objects handled
+
+---
+
+### Test: Object identity across multiple references
+
+**Purpose**: Verify same object serializes identically
+
+**Input**:
+- Contact in contacts[0] and selected
+- Both point to same object
+- serializeWithRefs(app)
+
+**References**:
+- CRC: crc-ObjectRegistry.md - "Does: lookup, serializeWithRefs"
+- Sequence: seq-object-registry.md
+
+**Expected Results**:
+- Both locations emit {"obj": id}
+- Same id value
+- Identity preserved
+
+---
+
+### Test: Object registry weak reference cleanup
+
+**Purpose**: Verify GC'd objects removed from registry
+
+**Input**:
+- register(object, varId)
+- Drop all references to object
+- Force GC
+- cleanup()
+
+**References**:
+- CRC: crc-ObjectRegistry.md - "Does: cleanup"
+- Sequence: seq-object-registry.md
+
+**Expected Results**:
+- Weak pointer returns nil
+- Entry removed from registry
+- No memory leak
+
+---
+
+### Test: Object registry thread safety
+
+**Purpose**: Verify concurrent access safety
+
+**Input**:
+- Concurrent register/lookup/unregister calls
+
+**References**:
+- CRC: crc-ObjectRegistry.md - "Knows: mu"
+
+**Expected Results**:
+- No race conditions
+- Consistent state
+- Operations atomic
+
+---
+
+### Test: Change detector with object registry integration
+
+**Purpose**: Verify addWatch registers objects
+
+**Input**:
+- addWatch(varId, path)
+- Object at path
+
+**References**:
+- CRC: crc-ChangeDetector.md - "Does: addWatch"
+- CRC: crc-ObjectRegistry.md - "Does: register"
+- Sequence: seq-object-registry.md
+
+**Expected Results**:
+- Object registered in ObjectRegistry
+- Serialization uses object refs
+- Identity-based comparison
+
+---
+
 ## Coverage Summary
 
 **Responsibilities Covered:**
 - BackendConnection: connect, disconnect, send, receive, setRootValue, onClose, reconnect
 - PathNavigator: resolve, resolveForWrite, parsePath, navigateSegment, handleMethodCall, handleArrayIndex, handleParentTraversal, resolveStandardVariable
 - ChangeDetector: addWatch, removeWatch, refresh, detectChange, scheduleRefresh, sendUpdates, afterMessage
+- ObjectRegistry: register, unregister, lookup, serializeWithRefs, cleanup, startCleanup, stopCleanup
 
 **Scenarios Covered:**
 - seq-backend-connect.md: All paths
 - seq-backend-refresh.md: All paths
 - seq-path-resolve.md: All paths
+- seq-object-registry.md: All paths
 
 **Gaps**: None identified

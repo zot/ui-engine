@@ -18,6 +18,7 @@
 - getLuaSession: Get LuaSession by session ID
 - loadFile: Load and execute Lua file (via executor)
 - loadCode: Load and execute Lua code string (via executor)
+- afterBatch: Trigger change detection for a session after processing message batch
 - shutdown: Close executor channel, clean up all Lua sessions
 
 ## Collaborators
@@ -33,6 +34,7 @@
 - seq-lua-execute.md: Thread-safe Lua execution via executor channel
 - seq-load-lua-code.md: Loading Lua code (file or dynamic via lua property)
 - seq-lua-handle-action.md: Handling user actions via path-based method dispatch
+- seq-backend-refresh.md: Automatic change detection after message batch
 
 ## Notes
 
@@ -40,3 +42,10 @@
 - **Embedded Lua only** (`--lua`, no backend): LuaRuntime handles all backend logic
 - **Connected backend only** (`--no-lua`): LuaRuntime disabled, BackendSocket handles logic
 - **Hybrid** (`--lua` + backend): LuaRuntime provides reusable UI behaviors, backend provides app-specific logic
+
+**Automatic Change Detection:**
+- After processing a batch of messages, LuaRuntime triggers change detection
+- Each LuaSession tracks object references for its watched variables
+- The session computes current JSON values from live Lua objects
+- Changed values are automatically sent to frontend watchers
+- No manual update() calls needed in Lua code

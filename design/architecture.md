@@ -10,17 +10,19 @@
 
 ### Variable Protocol System
 
-**Purpose**: Core protocol for variable identity, values, properties, and message handling
+**Purpose**: Core protocol for variable identity, values, properties, wrappers, and message handling
 
 **Design Elements**:
 - crc-Variable.md
 - crc-VariableStore.md
 - crc-ProtocolHandler.md
 - crc-WatchManager.md
+- crc-Wrapper.md
 - seq-create-variable.md
 - seq-update-variable.md
 - seq-watch-variable.md
 - seq-destroy-variable.md
+- seq-wrapper-transform.md
 
 ### Presenter System
 
@@ -42,6 +44,7 @@
 - crc-ViewdefStore.md
 - crc-View.md
 - crc-ViewList.md
+- crc-ViewItem.md
 - crc-AppView.md
 - crc-BindingEngine.md
 - crc-ValueBinding.md
@@ -50,6 +53,7 @@
 - seq-viewdef-delivery.md
 - seq-render-view.md
 - seq-viewlist-update.md
+- seq-viewlist-presenter-sync.md
 - seq-bind-element.md
 - seq-handle-event.md
 
@@ -136,18 +140,21 @@
 
 ### Backend Library System
 
-**Purpose**: Path navigation and change detection for backend integration
+**Purpose**: Path navigation, change detection, and object identity for backend integration
 
 **Design Elements**:
 - crc-PathNavigator.md
 - crc-ChangeDetector.md
+- crc-ObjectRegistry.md
 - crc-BackendConnection.md
 - seq-path-resolve.md
 - seq-backend-refresh.md
+- seq-object-registry.md
 
 **Notes**:
 - BackendConnection used by external Go backends (connected backend mode)
 - Embedded Lua uses LuaSession instead of BackendConnection
+- ObjectRegistry provides identity-based serialization for Go backends (requires Go 1.25+)
 
 ### Frontend Library System
 

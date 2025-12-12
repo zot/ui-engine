@@ -27,6 +27,7 @@
 - crc-VariableStore.md
 - crc-ProtocolHandler.md
 - crc-WatchManager.md
+- crc-Wrapper.md
 - crc-ObjectReference.md
 - crc-PathSyntax.md
 - crc-MessageBatcher.md
@@ -36,6 +37,7 @@
 - seq-update-variable.md
 - seq-watch-variable.md
 - seq-destroy-variable.md
+- seq-wrapper-transform.md
 - seq-relay-message.md
 - seq-path-resolve.md
 - seq-viewdef-delivery.md
@@ -49,6 +51,7 @@
 - crc-ViewdefStore.md
 - crc-View.md
 - crc-ViewList.md
+- crc-ViewItem.md
 - crc-AppView.md
 - crc-BindingEngine.md
 - crc-ValueBinding.md
@@ -59,6 +62,7 @@
 - seq-viewdef-delivery.md
 - seq-render-view.md
 - seq-viewlist-update.md
+- seq-viewlist-presenter-sync.md
 - seq-bind-element.md
 - seq-handle-event.md
 
@@ -136,6 +140,7 @@
 **CRC Cards:**
 - crc-PathNavigator.md
 - crc-ChangeDetector.md
+- crc-ObjectRegistry.md
 - crc-BackendConnection.md
 - crc-FrontendApp.md
 - crc-SPANavigator.md
@@ -150,10 +155,12 @@
 - seq-bootstrap.md
 - seq-lua-session-init.md
 - seq-backend-refresh.md
+- seq-object-registry.md
 
 **Notes:**
 - BackendConnection used by external Go backends (connected backend mode)
 - Embedded Lua uses LuaSession instead of BackendConnection
+- ObjectRegistry provides identity-based serialization for Go backends (requires Go 1.25+)
 
 ---
 
@@ -172,6 +179,7 @@
 **Source Spec:** protocol.md
 **Implementation:**
 - [x] `internal/variable/variable.go` - Variable struct and methods
+- [x] `internal/variable/variable.go` - Add wrapper property, dual value architecture
 - [x] `web/src/variable.ts` - Frontend variable representation
 
 ### crc-VariableStore.md
@@ -227,9 +235,15 @@
 - [x] `web/src/view.ts` - View class for ui-view elements
 
 ### crc-ViewList.md
+**Source Spec:** viewdefs.md, protocol.md
+**Implementation:**
+- [x] `web/src/viewlist.ts` - ViewList class for ui-viewlist elements (frontend)
+- [x] `internal/lua/viewlist_wrapper.go` - ViewList wrapper (backend)
+
+### crc-ViewItem.md
 **Source Spec:** viewdefs.md
 **Implementation:**
-- [x] `web/src/viewlist.ts` - ViewList class for ui-viewlist elements
+- [ ] `internal/lua/viewitem.go` - ViewItem struct (baseItem, item, list, index)
 
 ### crc-AppView.md
 **Source Spec:** viewdefs.md
@@ -338,11 +352,12 @@
 **Source Spec:** libraries.md, interfaces.md, protocol.md
 **Implementation:**
 - [x] `internal/lua/runtime.go` - Go-side LuaSession implementation (uses vended session IDs)
+- [x] `internal/lua/runtime.go` - Automatic change detection via AfterBatch()
 
 ### crc-LuaVariable.md
 **Source Spec:** libraries.md
 **Implementation:**
-- [x] `internal/lua/runtime.go` - Variable wrapper class (Go-side for embedded Lua)
+- [x] `internal/lua/runtime.go` - Object reference tracking (for automatic change detection)
 
 ### crc-LuaPresenterLogic.md
 **Source Spec:** interfaces.md
@@ -368,6 +383,12 @@
 **Implementation:**
 - [x] `lib/go/change.go` - Go change detection
 - [x] `lib/lua/change.lua` - Lua change detection
+
+### crc-ObjectRegistry.md
+**Source Spec:** libraries.md
+**Notes:** Go 1.25+ required for weak package; provides identity-based serialization
+**Implementation:**
+- [ ] `lib/go/registry.go` - Object registry with weak references
 
 ### crc-FrontendApp.md
 **Source Spec:** libraries.md, interfaces.md
@@ -416,3 +437,10 @@
 **Source Spec:** deployment.md
 **Implementation:**
 - [x] `internal/config/config.go` - Configuration loading
+
+### crc-Wrapper.md
+**Source Spec:** protocol.md
+**Implementation:**
+- [x] `internal/lua/wrapper.go` - Wrapper interface and registry
+- [x] `internal/lua/viewlist_wrapper.go` - ViewList wrapper implementation
+- [ ] `lib/wrapper.lua` - Lua wrapper base (optional - Go implementation complete)

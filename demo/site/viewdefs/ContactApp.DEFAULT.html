@@ -12,10 +12,80 @@
       <span ui-value="error"></span>
     </sl-alert>
 
-    <!-- List View -->
-    <div ui-view="listView"></div>
+    <!-- List View (shown when currentView == "list") -->
+    <div ui-attr-hidden="isEditView">
+      <!-- Toolbar -->
+      <div class="toolbar">
+        <sl-input
+          placeholder="Search contacts..."
+          ui-value="searchQuery"
+          ui-event-sl-input="search()"
+          clearable>
+          <sl-icon name="search" slot="prefix"></sl-icon>
+        </sl-input>
+        <sl-button variant="primary" ui-action="presenter.addContact()">
+          <sl-icon slot="prefix" name="plus-lg"></sl-icon>
+          Add Contact
+        </sl-button>
+      </div>
 
-    <!-- Edit View -->
-    <div ui-view="editView"></div>
+      <!-- Contact List -->
+      <div class="contact-list" ui-viewlist="contacts"></div>
+
+      <!-- Empty state -->
+      <div class="empty-state" ui-attr-hidden="hasContacts">
+        <sl-icon name="person-rolodex" style="font-size: 3rem; margin-bottom: 1rem;"></sl-icon>
+        <p>No contacts yet. Click "Add Contact" to get started.</p>
+      </div>
+    </div>
+
+    <!-- Edit View (shown when currentView == "edit") -->
+    <div class="edit-form" ui-attr-hidden="isListView">
+      <h2 ui-value="formTitle"></h2>
+
+      <div class="form-row">
+        <sl-input
+          label="First Name"
+          ui-value="editFirstName"
+          required>
+        </sl-input>
+        <sl-input
+          label="Last Name"
+          ui-value="editLastName">
+        </sl-input>
+      </div>
+
+      <div class="form-row">
+        <sl-input
+          label="Email"
+          type="email"
+          ui-value="editEmail"
+          required>
+          <sl-icon name="envelope" slot="prefix"></sl-icon>
+        </sl-input>
+        <sl-input
+          label="Phone"
+          type="tel"
+          ui-value="editPhone">
+          <sl-icon name="telephone" slot="prefix"></sl-icon>
+        </sl-input>
+      </div>
+
+      <div class="form-row full-width">
+        <sl-textarea
+          label="Notes"
+          ui-value="editNotes"
+          rows="3">
+        </sl-textarea>
+      </div>
+
+      <div class="form-actions">
+        <sl-button variant="default" ui-action="presenter.cancelEdit()">Cancel</sl-button>
+        <sl-button variant="primary" ui-action="presenter.saveContact()">
+          <sl-icon slot="prefix" name="check-lg"></sl-icon>
+          Save Contact
+        </sl-button>
+      </div>
+    </div>
   </div>
 </template>

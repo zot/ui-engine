@@ -1,108 +1,137 @@
 -- Contact Manager Demo Backend
 -- Spec: demo.md
 -- CRC: crc-LuaSession.md
+-- Uses automatic change detection - no manual update() calls needed
 
--- ContactApp presenter with methods callable via ui-action paths
-local ContactApp = {}
-ContactApp.__index = ContactApp
+-- Contact type for individual contacts
+local Contact = {type = "Contact"}
+Contact.__index = Contact
 
-function ContactApp:new()
-    local self = setmetatable({}, ContactApp)
-    self.contacts = {}
-    self.nextId = 1
-    return self
+function Contact:new(tbl)
+    tbl = tbl or {}
+    setmetatable(tbl, self)
+    return tbl
 end
 
--- Add a new contact
+-- ContactApp presenter - all view state is inline (no separate view types)
+local ContactApp = {type = "ContactApp"}
+ContactApp.__index = ContactApp
+
+function ContactApp:new(tbl)
+    tbl = tbl or {}
+    setmetatable(tbl, self)
+    -- App-level state
+    tbl.title = tbl.title or "Contact Manager"
+    tbl.currentView = tbl.currentView or "list"
+    tbl.isEditView = tbl.isEditView or false
+    tbl.isListView = tbl.isListView ~= false  -- default true
+    tbl.error = tbl.error or nil
+    -- List view state (inline)
+    tbl.searchQuery = tbl.searchQuery or ""
+    tbl.contacts = tbl.contacts or {}
+    tbl.hasContacts = tbl.hasContacts or false
+    -- Edit view state (inline)
+    tbl.formTitle = tbl.formTitle or "Add Contact"
+    tbl.editFirstName = tbl.editFirstName or ""
+    tbl.editLastName = tbl.editLastName or ""
+    tbl.editEmail = tbl.editEmail or ""
+    tbl.editPhone = tbl.editPhone or ""
+    tbl.editNotes = tbl.editNotes or ""
+    tbl.editContactId = tbl.editContactId or nil
+    -- Internal state (not serialized - prefixed with _)
+    tbl._contactData = {}
+    tbl._nextId = 1
+    return tbl
+end
+
+-- Add a new contact - switches to edit view
 function ContactApp:addContact()
-    -- Show empty form for new contact
-    local app = session:getAppVariable()
-    app:update({
-        currentView = "edit",
-        selectedContact = nil,
-        error = nil
-    })
+    -- Just modify self directly - changes auto-detected after message processing
+    self.currentView = "edit"
+    self.isEditView = true
+    self.isListView = false
+    self.formTitle = "Add Contact"
+    self.editFirstName = ""
+    self.editLastName = ""
+    self.editEmail = ""
+    self.editPhone = ""
+    self.editNotes = ""
+    self.editContactId = nil
+    self.error = nil
 end
 
 -- Edit an existing contact
 function ContactApp:editContact(contactId)
-    local app = session:getAppVariable()
     if contactId then
-        app:update({
-            currentView = "edit",
-            selectedContact = {obj = tonumber(contactId)},
-            error = nil
-        })
+        local contact = self._contactData[tonumber(contactId)]
+        if contact then
+            self.currentView = "edit"
+            self.isEditView = true
+            self.isListView = false
+            self.formTitle = "Edit Contact"
+            self.editFirstName = contact.firstName or ""
+            self.editLastName = contact.lastName or ""
+            self.editEmail = contact.email or ""
+            self.editPhone = contact.phone or ""
+            self.editNotes = contact.notes or ""
+            self.editContactId = tonumber(contactId)
+            self.error = nil
+        end
     end
 end
 
 -- Save contact (create or update)
-function ContactApp:saveContact(formData)
-    local app = session:getAppVariable()
-    local appValue = app:getValue()
-
-    -- Parse form data if it's a string
-    local data = formData
-    if type(formData) == "string" then
-        -- formData might be JSON-like
-        data = {
-            firstName = formData.firstName,
-            lastName = formData.lastName,
-            email = formData.email,
-            phone = formData.phone,
-            notes = formData.notes
-        }
-    end
+function ContactApp:saveContact()
+    -- Get data from edit fields (self is the app object)
+    local data = {
+        firstName = self.editFirstName,
+        lastName = self.editLastName,
+        email = self.editEmail,
+        phone = self.editPhone,
+        notes = self.editNotes
+    }
 
     -- Check if we're editing or creating
-    local contactId = data and data.contactId
+    local contactId = self.editContactId
 
     local result, err
     if contactId then
-        -- Update existing
-        result, err = self:updateContactData(tonumber(contactId), data)
+        result, err = self:updateContactData(contactId, data)
     else
-        -- Create new
         result, err = self:createContactData(data)
     end
 
     if err then
-        app:update({error = err})
+        self.error = err
     else
-        app:update({
-            currentView = "list",
-            selectedContact = nil,
-            error = nil
-        })
+        self.currentView = "list"
+        self.isEditView = false
+        self.isListView = true
+        self.error = nil
     end
 end
 
 -- Delete a contact
 function ContactApp:deleteContact(contactId)
-    local app = session:getAppVariable()
     if contactId then
         local success, err = self:deleteContactData(tonumber(contactId))
         if err then
-            app:update({error = err})
+            self.error = err
         end
     end
 end
 
 -- Cancel editing
 function ContactApp:cancelEdit()
-    local app = session:getAppVariable()
-    app:update({
-        currentView = "list",
-        selectedContact = nil,
-        error = nil
-    })
+    self.currentView = "list"
+    self.isEditView = false
+    self.isListView = true
+    self.error = nil
 end
 
 -- Search contacts
 function ContactApp:search(query)
-    local app = session:getAppVariable()
-    app:update({searchQuery = query or ""})
-    -- Note: Filtering is done client-side based on searchQuery
+    self.searchQuery = query or ""
 end
 
 -- Internal: Create contact data
@@ -115,38 +144,34 @@ function ContactApp:createContactData(data)
         return nil, "Email is required"
     end
 
-    local id = self.nextId
-    self.nextId = self.nextId + 1
+    local id = self._nextId
+    self._nextId = self._nextId + 1
 
-    local contact = {
+    local contact = Contact:new({
         id = id,
-        type = "Contact",
-        view = "contact-item",
         firstName = data.firstName or "",
         lastName = data.lastName or "",
         email = data.email or "",
         phone = data.phone or "",
         notes = data.notes or ""
-    }
+    })
 
-    self.contacts[id] = contact
+    self._contactData[id] = contact
 
-    -- Create variable for contact
-    local app = session:getAppVariable()
-    local contactVar = session:createVariable(app:getId(), contact)
+    -- Create variable for contact - pass self (the app object) as parent
+    -- The variable references the contact object for change detection
+    local contactVarId = session:createVariable(self, contact)
 
-    -- Add to app's contact list
-    local appValue = app:getValue()
-    local contactList = appValue.contacts or {}
-    table.insert(contactList, {obj = contactVar:getId()})
-    app:update({contacts = contactList})
+    -- Add to app's contact list (direct modification)
+    table.insert(self.contacts, {obj = contactVarId})
+    self.hasContacts = true
 
     return contact
 end
 
 -- Internal: Update contact data
 function ContactApp:updateContactData(id, data)
-    local contact = self.contacts[id]
+    local contact = self._contactData[id]
     if not contact then
         return nil, "Contact not found"
     end
@@ -159,17 +184,12 @@ function ContactApp:updateContactData(id, data)
         return nil, "Email is required"
     end
 
-    -- Update fields
+    -- Update fields directly on the contact object
+    -- Changes are auto-detected because the contact is a watched variable
     for key, value in pairs(data) do
-        if key ~= "id" and key ~= "type" and key ~= "view" and key ~= "contactId" then
+        if key ~= "id" and key ~= "type" and key ~= "contactId" then
             contact[key] = value
         end
-    end
-
-    -- Update variable
-    local contactVar = session:getVariable(id)
-    if contactVar then
-        contactVar:update(contact)
     end
 
     return contact
@@ -177,29 +197,25 @@ end
 
 -- Internal: Delete contact data
 function ContactApp:deleteContactData(id)
-    local contact = self.contacts[id]
+    local contact = self._contactData[id]
     if not contact then
         return false, "Contact not found"
     end
 
-    self.contacts[id] = nil
+    self._contactData[id] = nil
 
-    -- Remove from app's contact list
-    local app = session:getAppVariable()
-    local appValue = app:getValue()
-    local contactList = appValue.contacts or {}
+    -- Remove from app's contact list (direct modification)
     local newList = {}
-
-    for _, ref in ipairs(contactList) do
+    for _, ref in ipairs(self.contacts) do
         if ref.obj ~= id then
             table.insert(newList, ref)
         end
     end
+    self.contacts = newList
+    self.hasContacts = #newList > 0
 
-    app:update({contacts = newList})
-
-    -- Destroy the variable
-    session:destroyVariable(id)
+    -- Destroy the variable (can pass the contact object directly)
+    session:destroyVariable(contact)
 
     return true
 end
@@ -217,25 +233,15 @@ function ContactApp:addSampleContacts()
     end
 end
 
--- Create the presenter
-local presenter = ContactApp:new()
-
--- Create the app variable (variable 1) with presenter
-local app = session:createAppVariable({
-    type = "ContactApp",
-    view = "contact-app",
-    title = "Contact Manager",
-    currentView = "list",
-    contacts = {},
-    selectedContact = nil,
-    searchQuery = "",
-    error = nil,
-    presenter = presenter  -- ui-action="presenter.addContact()" calls this
-}, {
-    type = "ContactApp"
+-- Create the app instance and register as app variable
+-- The type property is automatically extracted from the metatable's type field
+local app = ContactApp:new({
+    title = "Contact Manager"
 })
 
+session:createAppVariable(app)
+
 -- Add sample contacts
-presenter:addSampleContacts()
+app:addSampleContacts()
 
 ui.log("Contact Manager initialized for session")

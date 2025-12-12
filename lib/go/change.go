@@ -13,8 +13,8 @@ import (
 type ChangeDetector struct {
 	conn             *Connection
 	navigator        *PathNavigator
-	watchedVariables map[int64]string        // varID -> path
-	previousValues   map[int64]interface{}   // varID -> last known value
+	watchedVariables map[int64]string      // varID -> path
+	previousJSON     map[int64][]byte      // varID -> last known JSON value
 	pendingRefresh   bool
 	throttleInterval time.Duration
 	lastRefresh      time.Time
@@ -29,7 +29,7 @@ func NewChangeDetector(conn *Connection, nav *PathNavigator) *ChangeDetector {
 		conn:             conn,
 		navigator:        nav,
 		watchedVariables: make(map[int64]string),
-		previousValues:   make(map[int64]interface{}),
+		previousJSON:     make(map[int64][]byte),
 		throttleInterval: 50 * time.Millisecond, // Default throttle
 	}
 }
@@ -55,10 +55,12 @@ func (d *ChangeDetector) AddWatch(varID int64, path string) {
 
 	d.watchedVariables[varID] = path
 
-	// Capture initial value
+	// Capture initial JSON value
 	if d.rootObject != nil {
 		if val, err := d.navigator.Resolve(d.rootObject, path); err == nil {
-			d.previousValues[varID] = d.cloneValue(val)
+			if jsonBytes, err := json.Marshal(val); err == nil {
+				d.previousJSON[varID] = jsonBytes
+			}
 		}
 	}
 }
@@ -69,7 +71,7 @@ func (d *ChangeDetector) RemoveWatch(varID int64) {
 	defer d.mu.Unlock()
 
 	delete(d.watchedVariables, varID)
-	delete(d.previousValues, varID)
+	delete(d.previousJSON, varID)
 }
 
 // IsWatched checks if a variable is being watched.

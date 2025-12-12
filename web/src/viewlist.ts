@@ -1,6 +1,7 @@
 // ViewList - manages a ui-viewlist element (array of object refs)
 // CRC: crc-ViewList.md
-// Spec: viewdefs.md
+// Spec: viewdefs.md, protocol.md
+// Sequence: seq-viewlist-update.md
 
 import { isObjectReference, ObjectReference } from './variable';
 import { View } from './view';
@@ -11,6 +12,40 @@ import { VariableStore } from './connection';
 export interface ViewListDelegate {
   onItemAdd?(view: View, index: number): void;
   onItemRemove?(view: View, index: number): void;
+}
+
+// Parsed path with optional URL parameters
+export interface ParsedViewListPath {
+  path: string;
+  wrapper?: string;
+  item?: string;
+  props: Record<string, string>;
+}
+
+// Parse a ViewList path like "contacts?item=ContactPresenter"
+export function parseViewListPath(fullPath: string): ParsedViewListPath {
+  const [path, queryPart] = fullPath.split('?');
+  const result: ParsedViewListPath = { path, props: {} };
+
+  if (queryPart) {
+    const params = new URLSearchParams(queryPart);
+    params.forEach((value, key) => {
+      if (key === 'wrapper') {
+        result.wrapper = value;
+      } else if (key === 'item') {
+        result.item = value;
+      } else {
+        result.props[key] = value;
+      }
+    });
+
+    // If item is specified but wrapper is not, default wrapper to ViewList
+    if (result.item && !result.wrapper) {
+      result.wrapper = 'ViewList';
+    }
+  }
+
+  return result;
 }
 
 export class ViewList {
@@ -26,6 +61,9 @@ export class ViewList {
   private delegate: ViewListDelegate | null = null;
   private bindCallback?: (element: HTMLElement, variableId: number) => void;
 
+  // Path properties for wrapper configuration
+  private pathConfig: ParsedViewListPath | null = null;
+
   constructor(
     element: HTMLElement,
     viewdefStore: ViewdefStore,
@@ -33,7 +71,9 @@ export class ViewList {
     bindCallback?: (element: HTMLElement, variableId: number) => void
   ) {
     this.element = element;
-    this.namespace = element.getAttribute('ui-namespace') || 'DEFAULT';
+    // ViewList uses list-item namespace by default (not DEFAULT)
+    // per specs/viewdefs.md
+    this.namespace = element.getAttribute('ui-namespace') || 'list-item';
     this.viewdefStore = viewdefStore;
     this.variableStore = variableStore;
     this.bindCallback = bindCallback;
@@ -58,6 +98,39 @@ export class ViewList {
   // Set delegate for notifications
   setDelegate(delegate: ViewListDelegate): void {
     this.delegate = delegate;
+  }
+
+  // Parse and store path configuration from ui-viewlist attribute
+  setPathConfig(fullPath: string): void {
+    this.pathConfig = parseViewListPath(fullPath);
+  }
+
+  // Get properties to set on the variable when created
+  // These include wrapper, item, and any additional props from path
+  getVariableProperties(): Record<string, string> {
+    const props: Record<string, string> = {};
+
+    if (this.pathConfig) {
+      // ViewList always uses ViewList wrapper
+      props['wrapper'] = this.pathConfig.wrapper || 'ViewList';
+
+      if (this.pathConfig.item) {
+        props['item'] = this.pathConfig.item;
+      }
+
+      // Include any additional properties from path
+      Object.assign(props, this.pathConfig.props);
+    } else {
+      // Default wrapper for ViewList elements
+      props['wrapper'] = 'ViewList';
+    }
+
+    return props;
+  }
+
+  // Get the base path (without query parameters)
+  getBasePath(): string {
+    return this.pathConfig?.path || '';
   }
 
   // Set the bound variable (should contain array of object refs)
@@ -97,6 +170,8 @@ export class ViewList {
     }
 
     // Get object reference IDs from array
+    // Note: If wrapper is active on backend, these will be presenter refs
+    // If no wrapper, these will be domain object refs
     const refs: number[] = [];
     for (const item of value) {
       if (isObjectReference(item)) {
@@ -262,5 +337,13 @@ export function createViewList(
   variableStore: VariableStore,
   bindCallback?: (element: HTMLElement, variableId: number) => void
 ): ViewList {
-  return new ViewList(element, viewdefStore, variableStore, bindCallback);
+  const viewList = new ViewList(element, viewdefStore, variableStore, bindCallback);
+
+  // Parse path config from ui-viewlist attribute
+  const path = element.getAttribute('ui-viewlist');
+  if (path) {
+    viewList.setPathConfig(path);
+  }
+
+  return viewList;
 }

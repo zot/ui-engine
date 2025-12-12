@@ -10,13 +10,23 @@ import (
 )
 
 // Variable represents a single variable in the variable tree.
+// Supports dual value architecture: monitored value for change detection,
+// stored value for frontend (potentially transformed by wrapper).
+//
+// When a variable has a wrapper property set:
+// 1. A wrapper instance is created and stored internally (WrapperInstance)
+// 2. On value changes: StoredValue = wrapper.ComputeValue(rawValue)
+// 3. Without wrapper: StoredValue = raw value
 type Variable struct {
-	ID         int64                  `json:"id"`
-	ParentID   int64                  `json:"parentId,omitempty"`
-	Value      json.RawMessage        `json:"value,omitempty"`
-	Properties map[string]string      `json:"properties,omitempty"`
-	Unbound    bool                   `json:"unbound,omitempty"`
-	mu         sync.RWMutex
+	ID              int64             `json:"id"`
+	ParentID        int64             `json:"parentId,omitempty"`
+	Value           json.RawMessage   `json:"value,omitempty"`          // Raw value from path resolution
+	MonitoredValue  json.RawMessage   `json:"-"`                        // For change detection (shallow copy for arrays)
+	StoredValue     json.RawMessage   `json:"-"`                        // Computed value sent to frontend
+	WrapperInstance interface{}       `json:"-"`                        // Internal wrapper object (if wrapper property set)
+	Properties      map[string]string `json:"properties,omitempty"`
+	Unbound         bool              `json:"unbound,omitempty"`
+	mu              sync.RWMutex
 }
 
 // NewVariable creates a new Variable with the given ID.
@@ -25,6 +35,14 @@ func NewVariable(id int64) *Variable {
 		ID:         id,
 		Properties: make(map[string]string),
 	}
+}
+
+// GetID returns the variable's unique identifier.
+// Implements WrapperVariable interface.
+func (v *Variable) GetID() int64 {
+	v.mu.RLock()
+	defer v.mu.RUnlock()
+	return v.ID
 }
 
 // GetValue returns the current value.
@@ -121,6 +139,109 @@ func (v *Variable) IsUnbound() bool {
 	v.mu.RLock()
 	defer v.mu.RUnlock()
 	return v.Unbound
+}
+
+// HasWrapper checks if a wrapper instance is stored internally.
+func (v *Variable) HasWrapper() bool {
+	v.mu.RLock()
+	defer v.mu.RUnlock()
+	return v.WrapperInstance != nil
+}
+
+// GetWrapperTypeName returns the wrapper type name from properties (empty string if unset).
+func (v *Variable) GetWrapperTypeName() string {
+	v.mu.RLock()
+	defer v.mu.RUnlock()
+	return v.Properties["wrapper"]
+}
+
+// SetWrapperInstance stores the wrapper instance internally.
+// Called during variable creation when wrapper property is set.
+func (v *Variable) SetWrapperInstance(wrapper interface{}) {
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	v.WrapperInstance = wrapper
+}
+
+// GetWrapperInstance returns the internal wrapper instance (nil if none).
+func (v *Variable) GetWrapperInstance() interface{} {
+	v.mu.RLock()
+	defer v.mu.RUnlock()
+	return v.WrapperInstance
+}
+
+// GetStoredValue returns the stored value (sent to frontend).
+// This is the result of wrapper.ComputeValue(rawValue) if wrapper exists,
+// or the raw value otherwise.
+func (v *Variable) GetStoredValue() json.RawMessage {
+	v.mu.RLock()
+	defer v.mu.RUnlock()
+	if v.StoredValue != nil {
+		return v.StoredValue
+	}
+	return v.Value
+}
+
+// SetStoredValue sets the stored value (computed from raw value by wrapper).
+func (v *Variable) SetStoredValue(value json.RawMessage) {
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	v.StoredValue = value
+}
+
+// GetMonitoredValue returns the monitored value used for change detection.
+// For arrays, this is a shallow copy to detect content changes.
+func (v *Variable) GetMonitoredValue() json.RawMessage {
+	v.mu.RLock()
+	defer v.mu.RUnlock()
+	return v.MonitoredValue
+}
+
+// SetMonitoredValue sets the monitored value (shallow copy for arrays).
+func (v *Variable) SetMonitoredValue(value json.RawMessage) {
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	v.MonitoredValue = value
+}
+
+// UpdateMonitoredValue creates a shallow copy of the current value for change detection.
+// For arrays, stores the array structure with object refs.
+// For other values, stores the value directly.
+func (v *Variable) UpdateMonitoredValue() {
+	v.mu.Lock()
+	defer v.mu.Unlock()
+
+	if len(v.Value) == 0 {
+		v.MonitoredValue = nil
+		return
+	}
+
+	// Check if it's an array
+	var arr []json.RawMessage
+	if err := json.Unmarshal(v.Value, &arr); err == nil {
+		// It's an array - create shallow copy
+		copied, _ := json.Marshal(arr)
+		v.MonitoredValue = copied
+		return
+	}
+
+	// Not an array - use value directly
+	v.MonitoredValue = v.Value
+}
+
+// DetectChanges compares current value to monitored value.
+// Returns true if the value has changed.
+func (v *Variable) DetectChanges() bool {
+	v.mu.RLock()
+	defer v.mu.RUnlock()
+
+	// If no monitored value, any value is a change
+	if v.MonitoredValue == nil {
+		return v.Value != nil
+	}
+
+	// Compare JSON bytes
+	return string(v.Value) != string(v.MonitoredValue)
 }
 
 // ObjectReference represents a reference to another object.
