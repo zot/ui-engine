@@ -52,6 +52,11 @@
 
 ## Notes
 
+> **Package Reference:** This sequence documents the behavior provided by the
+> `change-tracker` package (`github.com/zot/change-tracker`), not a specification
+> to be re-implemented. The package handles variable tracking, change detection,
+> and update dispatch. See libraries.md for package details.
+
 - Refresh triggered after client messages automatically
 - Background changes throttled to prevent flooding
 - Uses reflection to compute values (no observer pattern needed)

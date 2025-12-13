@@ -54,6 +54,7 @@ func (s *Store) SetVerbosity(level int) {
 
 // CreateOptions holds options for creating a variable.
 type CreateOptions struct {
+	ID         int64 // If non-zero, use this ID instead of generating one
 	ParentID   int64
 	Value      json.RawMessage
 	Properties map[string]string
@@ -63,7 +64,22 @@ type CreateOptions struct {
 
 // Create creates a new variable and returns its ID.
 func (s *Store) Create(opts CreateOptions) (int64, error) {
-	id := s.nextID.Add(1) - 1
+	var id int64
+	if opts.ID != 0 {
+		// Use explicit ID and bump counter past it
+		id = opts.ID
+		for {
+			current := s.nextID.Load()
+			if current > id {
+				break
+			}
+			if s.nextID.CompareAndSwap(current, id+1) {
+				break
+			}
+		}
+	} else {
+		id = s.nextID.Add(1) - 1
+	}
 
 	v := NewVariable(id)
 	v.ParentID = opts.ParentID

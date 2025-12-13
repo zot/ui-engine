@@ -6,12 +6,11 @@
       <div class="contact-phone" ui-value="phone" ui-attr-hidden="noPhone"></div>
     </div>
     <div class="contact-actions">
-      <!-- Note: Actions on child objects would need path navigation to parent's presenter -->
-      <!-- For now, these are placeholders showing the syntax -->
-      <sl-button size="small" ui-action="editContact()">
+      <!-- ContactPresenter has edit() and delete() methods -->
+      <sl-button size="small" ui-action="edit()">
         <sl-icon name="pencil"></sl-icon>
       </sl-button>
-      <sl-button size="small" variant="danger" ui-action="deleteContact()">
+      <sl-button size="small" variant="danger" ui-action="delete()">
         <sl-icon name="trash"></sl-icon>
       </sl-button>
     </div>

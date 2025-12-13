@@ -52,7 +52,10 @@ export class UIApp {
       this.handleMessage(msg);
     });
 
-    // Find and setup ui-app element
+    // Connect to server first
+    await this.connection.connect();
+
+    // Find and setup ui-app element after connection is established
     const appElement = findAppElement();
     if (appElement) {
       this.appView = createAppView(
@@ -61,9 +64,6 @@ export class UIApp {
         (el, varId) => this.binding.bindElement(el, varId)
       );
     }
-
-    // Connect to server
-    await this.connection.connect();
   }
 
   private handleMessage(msg: Message): void {

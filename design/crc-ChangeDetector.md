@@ -2,6 +2,11 @@
 
 **Source Spec:** libraries.md
 
+> **Package Reference:** ChangeDetector is provided by the `change-tracker` package
+> (`github.com/zot/change-tracker`). This CRC documents what the package provides,
+> not a component to be implemented from scratch. The package handles variable
+> tracking, change detection, and update dispatch. See libraries.md for package details.
+
 ## Responsibilities
 
 ### Knows

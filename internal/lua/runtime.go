@@ -12,6 +12,7 @@ import (
 	"strings"
 	"sync"
 
+	changetracker "github.com/zot/change-tracker"
 	lua "github.com/yuin/gopher-lua"
 )
 
@@ -27,22 +28,15 @@ type WorkResult struct {
 	Err   error
 }
 
-// WatchedVariable tracks a variable and its associated Lua object for change detection.
-type WatchedVariable struct {
-	ID          int64       // Variable ID
-	LuaObject   *lua.LTable // Reference to the live Lua object
-	CachedValue string      // Last JSON value sent to frontend
-}
-
 // LuaSession represents a per-frontend-session Lua environment.
 // ID is the vended session ID (compact integer string like "1", "2") for backend communication,
 // not the internal UUID which is used for URL paths.
+// Change detection is handled by the tracker in VariableStore.
 type LuaSession struct {
-	ID               string                      // Vended session ID (e.g., "1", "2", "3")
-	sessionTable     *lua.LTable                 // The session object exposed to Lua
-	appVariableID    int64                       // Variable 1 for this session (set by Lua code)
-	appObject        *lua.LTable                 // Reference to the app Lua object
-	watchedVariables map[int64]*WatchedVariable  // varID -> watched variable info
+	ID            string      // Vended session ID (e.g., "1", "2", "3")
+	sessionTable  *lua.LTable // The session object exposed to Lua
+	appVariableID int64       // Variable 1 for this session (set by Lua code)
+	appObject     *lua.LTable // Reference to the app Lua object
 }
 
 // Runtime manages embedded Lua VM execution with multiple sessions.
@@ -72,11 +66,20 @@ type PresenterType struct {
 
 // VariableStore interface for session operations.
 type VariableStore interface {
-	Create(parentID int64, value json.RawMessage, properties map[string]string) (int64, error)
+	// Session management - each session has its own tracker
+	CreateSession(sessionID string, resolver changetracker.Resolver)
+	DestroySession(sessionID string)
+	GetTracker(sessionID string) *changetracker.Tracker
+
+	// Variable operations (delegate to session's tracker)
+	CreateVariable(sessionID string, parentID int64, luaObject *lua.LTable, properties map[string]string) (int64, error)
 	Get(id int64) (value json.RawMessage, properties map[string]string, ok bool)
 	GetProperty(id int64, name string) (string, bool)
 	Update(id int64, value json.RawMessage, properties map[string]string) error
 	Destroy(id int64) error
+
+	// Change detection
+	DetectChanges(sessionID string) []changetracker.Change
 }
 
 // NewRuntime creates a new Lua runtime with executor goroutine.
@@ -155,6 +158,9 @@ func (r *Runtime) CreateLuaSession(vendedID string) (*LuaSession, error) {
 		return nil, fmt.Errorf("variable store not set")
 	}
 
+	// Create session in variable store with LuaResolver
+	r.variableStore.CreateSession(vendedID, &LuaResolver{L: r.state})
+
 	var luaSession *LuaSession
 	_, err := r.execute(func() (interface{}, error) {
 		L := r.state
@@ -163,9 +169,8 @@ func (r *Runtime) CreateLuaSession(vendedID string) (*LuaSession, error) {
 		sessionTable := r.createSessionTable(L, vendedID)
 
 		luaSession = &LuaSession{
-			ID:               vendedID,
-			sessionTable:     sessionTable,
-			watchedVariables: make(map[int64]*WatchedVariable),
+			ID:           vendedID,
+			sessionTable: sessionTable,
 		}
 
 		// Store in sessions map (keyed by vended ID)
@@ -182,16 +187,13 @@ func (r *Runtime) CreateLuaSession(vendedID string) (*LuaSession, error) {
 			r.mu.Lock()
 			delete(r.sessions, vendedID)
 			r.mu.Unlock()
+			r.variableStore.DestroySession(vendedID)
 			return nil, err
 		}
 
 		if r.verbosity >= 2 {
 			log.Printf("[v2] LuaRuntime: created Lua session %s", vendedID)
 		}
-
-		// Run change detection after main.lua completes
-		// This ensures any modifications made during init are synced to the store
-		r.syncChangesInternal(luaSession)
 
 		return nil, nil
 	})
@@ -267,18 +269,6 @@ func (r *Runtime) createSessionTable(L *lua.LState, vendedID string) *lua.LTable
 		luaObject := L.CheckTable(2)
 		propsTable := L.OptTable(3, nil)
 
-		// Convert Lua object to JSON for initial value
-		goValue := luaToGo(luaObject)
-		var jsonValue json.RawMessage
-		if goValue != nil {
-			data, err := json.Marshal(goValue)
-			if err != nil {
-				L.RaiseError("failed to marshal value: %v", err)
-				return 0
-			}
-			jsonValue = data
-		}
-
 		// Convert properties
 		props := make(map[string]string)
 		if propsTable != nil {
@@ -308,8 +298,8 @@ func (r *Runtime) createSessionTable(L *lua.LState, vendedID string) *lua.LTable
 			}
 		}
 
-		// Create variable 1 with parentID 0
-		id, err := r.variableStore.Create(0, jsonValue, props)
+		// Create variable using tracker (parentID 0 for app variable)
+		id, err := r.variableStore.CreateVariable(vendedID, 0, luaObject, props)
 		if err != nil {
 			L.RaiseError("failed to create app variable: %v", err)
 			return 0
@@ -320,12 +310,6 @@ func (r *Runtime) createSessionTable(L *lua.LState, vendedID string) *lua.LTable
 		if ok {
 			luaSess.appVariableID = id
 			luaSess.appObject = luaObject
-			// Register for change detection
-			luaSess.watchedVariables[id] = &WatchedVariable{
-				ID:          id,
-				LuaObject:   luaObject,
-				CachedValue: string(jsonValue),
-			}
 		}
 
 		if r.verbosity >= 2 {
@@ -374,7 +358,7 @@ func (r *Runtime) createSessionTable(L *lua.LState, vendedID string) *lua.LTable
 
 	// session:createVariable(parentId, object, properties)
 	// Creates a child variable referencing a Lua object
-	// parentId can be a number (variable ID) or a table (looked up via session's watched variables)
+	// parentId can be a number (variable ID) or a table (looked up via tracker's object registry)
 	// If no type property is provided, extracts from object's metatable "type" field
 	L.SetField(session, "createVariable", L.NewFunction(func(L *lua.LState) int {
 		// Parent can be ID (number) or object (table)
@@ -384,18 +368,16 @@ func (r *Runtime) createSessionTable(L *lua.LState, vendedID string) *lua.LTable
 		case lua.LNumber:
 			parentID = int64(p)
 		case *lua.LTable:
-			// Look up parent ID by object reference
-			luaSess, ok := r.GetLuaSession(vendedID)
-			if ok {
-				for id, wv := range luaSess.watchedVariables {
-					if wv.LuaObject == p {
-						parentID = id
-						break
-					}
+			// Look up parent ID by object reference via tracker
+			tracker := r.variableStore.GetTracker(vendedID)
+			if tracker != nil {
+				id, found := tracker.LookupObject(p)
+				if found {
+					parentID = id
 				}
 			}
 			if parentID == 0 {
-				L.RaiseError("parent object not found in watched variables")
+				L.RaiseError("parent object not found in tracker")
 				return 0
 			}
 		default:
@@ -405,18 +387,6 @@ func (r *Runtime) createSessionTable(L *lua.LState, vendedID string) *lua.LTable
 
 		luaObject := L.CheckTable(3)
 		propsTable := L.OptTable(4, nil)
-
-		// Convert Lua object to JSON for initial value
-		goValue := luaToGo(luaObject)
-		var jsonValue json.RawMessage
-		if goValue != nil {
-			data, err := json.Marshal(goValue)
-			if err != nil {
-				L.Push(lua.LNil)
-				return 1
-			}
-			jsonValue = data
-		}
 
 		// Convert properties
 		props := make(map[string]string)
@@ -447,21 +417,11 @@ func (r *Runtime) createSessionTable(L *lua.LState, vendedID string) *lua.LTable
 			}
 		}
 
-		// Create variable
-		id, err := r.variableStore.Create(parentID, jsonValue, props)
+		// Create variable using tracker
+		id, err := r.variableStore.CreateVariable(vendedID, parentID, luaObject, props)
 		if err != nil {
 			L.Push(lua.LNil)
 			return 1
-		}
-
-		// Register for change detection
-		luaSess, ok := r.GetLuaSession(vendedID)
-		if ok {
-			luaSess.watchedVariables[id] = &WatchedVariable{
-				ID:          id,
-				LuaObject:   luaObject,
-				CachedValue: string(jsonValue),
-			}
 		}
 
 		// Return the variable ID
@@ -478,14 +438,12 @@ func (r *Runtime) createSessionTable(L *lua.LState, vendedID string) *lua.LTable
 		case lua.LNumber:
 			id = int64(v)
 		case *lua.LTable:
-			// Look up ID by object reference
-			luaSess, ok := r.GetLuaSession(vendedID)
-			if ok {
-				for varID, wv := range luaSess.watchedVariables {
-					if wv.LuaObject == v {
-						id = varID
-						break
-					}
+			// Look up ID by object reference via tracker
+			tracker := r.variableStore.GetTracker(vendedID)
+			if tracker != nil {
+				foundID, found := tracker.LookupObject(v)
+				if found {
+					id = foundID
 				}
 			}
 			if id == 0 {
@@ -501,12 +459,6 @@ func (r *Runtime) createSessionTable(L *lua.LState, vendedID string) *lua.LTable
 			if r.verbosity >= 2 {
 				log.Printf("[v2] LuaRuntime: destroyVariable error: %v", err)
 			}
-		}
-
-		// Remove from watched variables
-		luaSess, ok := r.GetLuaSession(vendedID)
-		if ok {
-			delete(luaSess.watchedVariables, id)
 		}
 
 		// Remove from cache
@@ -770,69 +722,159 @@ type VariableUpdate struct {
 // Returns a list of variable updates that need to be sent to the frontend.
 // vendedID is the compact session ID (e.g., "1", "2").
 func (r *Runtime) AfterBatch(vendedID string) []VariableUpdate {
-	r.mu.RLock()
-	luaSess, ok := r.sessions[vendedID]
-	r.mu.RUnlock()
-	if !ok || luaSess == nil {
+	// Use tracker's DetectChanges
+	changes := r.variableStore.DetectChanges(vendedID)
+	if len(changes) == 0 {
+		return nil
+	}
+
+	tracker := r.variableStore.GetTracker(vendedID)
+	if tracker == nil {
 		return nil
 	}
 
 	var updates []VariableUpdate
+	for _, change := range changes {
+		if change.ValueChanged {
+			v := tracker.GetVariable(change.VariableID)
+			if v == nil {
+				continue
+			}
 
-	r.execute(func() (interface{}, error) {
-		updates = r.syncChangesInternal(luaSess)
-		return nil, nil
-	})
-
-	return updates
-}
-
-// syncChangesInternal performs change detection for a session.
-// Must be called from within the executor goroutine.
-func (r *Runtime) syncChangesInternal(luaSess *LuaSession) []VariableUpdate {
-	var updates []VariableUpdate
-
-	// Iterate all watched variables and check for changes
-	for varID, wv := range luaSess.watchedVariables {
-		// Compute current JSON value from Lua object
-		goValue := luaToGo(wv.LuaObject)
-		var currentJSON string
-		if goValue != nil {
-			data, err := json.Marshal(goValue)
+			jsonBytes, err := tracker.ToValueJSONBytes(v.Value)
 			if err != nil {
 				if r.verbosity >= 1 {
-					log.Printf("[v1] syncChanges: failed to marshal variable %d: %v", varID, err)
+					log.Printf("[v1] AfterBatch: failed to marshal variable %d: %v", change.VariableID, err)
 				}
 				continue
 			}
-			currentJSON = string(data)
-		}
 
-		// Compare to cached value
-		if currentJSON != wv.CachedValue {
 			if r.verbosity >= 2 {
-				log.Printf("[v2] syncChanges: variable %d changed", varID)
+				log.Printf("[v2] AfterBatch: variable %d changed", change.VariableID)
 			}
 
-			// Update cache
-			wv.CachedValue = currentJSON
-
-			// Queue update
 			updates = append(updates, VariableUpdate{
-				VarID: varID,
-				Value: json.RawMessage(currentJSON),
+				VarID: change.VariableID,
+				Value: json.RawMessage(jsonBytes),
 			})
 
 			// Also update the variable store so watchers get notified
-			if err := r.variableStore.Update(varID, json.RawMessage(currentJSON), nil); err != nil {
+			if err := r.variableStore.Update(change.VariableID, json.RawMessage(jsonBytes), nil); err != nil {
 				if r.verbosity >= 1 {
-					log.Printf("[v1] syncChanges: failed to update store for variable %d: %v", varID, err)
+					log.Printf("[v1] AfterBatch: failed to update store for variable %d: %v", change.VariableID, err)
 				}
 			}
 		}
 	}
 
 	return updates
+}
+
+// HandleFrontendCreate handles a variable create message from the frontend.
+// For path-based variables, it creates the variable in the tracker and resolves the path.
+// Returns the variable ID and resolved value.
+func (r *Runtime) HandleFrontendCreate(parentID int64, properties map[string]string) (int64, json.RawMessage, error) {
+	path := properties["path"]
+	if path == "" {
+		return 0, nil, fmt.Errorf("HandleFrontendCreate: path property required")
+	}
+
+	// Find which session owns the parent variable
+	r.mu.RLock()
+	var sessionID string
+	for sid, sess := range r.sessions {
+		if sess.appVariableID == parentID {
+			sessionID = sid
+			break
+		}
+	}
+	r.mu.RUnlock()
+
+	if sessionID == "" {
+		return 0, nil, fmt.Errorf("parent variable %d not found in any session", parentID)
+	}
+
+	tracker := r.variableStore.GetTracker(sessionID)
+	if tracker == nil {
+		return 0, nil, fmt.Errorf("session %s tracker not found", sessionID)
+	}
+
+	// Create the child variable in the tracker with the path
+	v := tracker.CreateVariable(nil, parentID, path, properties)
+
+	// Resolve the path to get the initial value
+	resolvedValue, err := v.Get()
+	if err != nil {
+		if r.verbosity >= 1 {
+			log.Printf("[v1] HandleFrontendCreate: path resolution failed for %s: %v", path, err)
+		}
+		// Return variable ID but nil value - frontend will see empty
+		return v.ID, nil, nil
+	}
+
+	// Convert to JSON
+	jsonValue, err := tracker.ToValueJSONBytes(resolvedValue)
+	if err != nil {
+		if r.verbosity >= 1 {
+			log.Printf("[v1] HandleFrontendCreate: JSON conversion failed: %v", err)
+		}
+		return v.ID, nil, nil
+	}
+
+	if r.verbosity >= 2 {
+		log.Printf("[v2] HandleFrontendCreate: created var %d for path %s, value=%s", v.ID, path, string(jsonValue))
+	}
+
+	return v.ID, jsonValue, nil
+}
+
+// HandleFrontendUpdate handles an update to a path-based variable from the frontend.
+// Updates the backend object via the variable's path using v.Set().
+// CRC: crc-LuaRuntime.md
+// Sequence: seq-relay-message.md
+func (r *Runtime) HandleFrontendUpdate(varID int64, value json.RawMessage) error {
+	// Find which session owns this variable by checking all trackers
+	r.mu.RLock()
+	var sessionID string
+	var tracker *changetracker.Tracker
+	for sid := range r.sessions {
+		t := r.variableStore.GetTracker(sid)
+		if t != nil && t.GetVariable(varID) != nil {
+			sessionID = sid
+			tracker = t
+			break
+		}
+	}
+	r.mu.RUnlock()
+
+	if sessionID == "" || tracker == nil {
+		return fmt.Errorf("variable %d not found in any session", varID)
+	}
+
+	v := tracker.GetVariable(varID)
+	if v == nil {
+		return fmt.Errorf("variable %d not found in tracker", varID)
+	}
+
+	// Parse the JSON value to a Go value
+	var goValue interface{}
+	if err := json.Unmarshal(value, &goValue); err != nil {
+		return fmt.Errorf("failed to parse value: %w", err)
+	}
+
+	// Update the backend object via the variable's path
+	if err := v.Set(goValue); err != nil {
+		if r.verbosity >= 1 {
+			log.Printf("[v1] HandleFrontendUpdate: Set failed for var %d: %v", varID, err)
+		}
+		return err
+	}
+
+	if r.verbosity >= 2 {
+		log.Printf("[v2] HandleFrontendUpdate: updated var %d with value %s", varID, string(value))
+	}
+
+	return nil
 }
 
 // registerUIModule adds the ui.* API to Lua.

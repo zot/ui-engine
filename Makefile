@@ -90,7 +90,7 @@ vet:
 deps:
 	@echo "Installing dependencies..."
 	$(GO) mod download
-	$(GO) mod tidy
+	$(GO) work sync
 
 # Build unbundled release binaries for all platforms
 release: frontend
@@ -145,9 +145,11 @@ release-archives: release-bundled
 	@echo "Release archives created"
 
 # Build demo binary with demo site bundled
-demo: build
+demo: build frontend
+	@echo "Copying frontend to demo..."
+	@cp $(SITE_DIR)/html/main.js $(SITE_DIR)/html/worker.js demo/html/
 	@echo "Building demo binary..."
-	$(BUILD_DIR)/$(BINARY_NAME) bundle -o $(BUILD_DIR)/$(BINARY_NAME)-demo demo/site
+	$(BUILD_DIR)/$(BINARY_NAME) bundle -o $(BUILD_DIR)/$(BINARY_NAME)-demo demo
 	@echo "Created: $(BUILD_DIR)/$(BINARY_NAME)-demo"
 
 # Run the server (development - uses --dir for live reload)

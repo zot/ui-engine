@@ -53,13 +53,25 @@ export class AppView {
   }
 
   // Handle updates to variable 1
-  private handleRootUpdate(value: unknown, _props: Record<string, string>): void {
-    // Check for viewdefs property in the value
-    if (typeof value === 'object' && value !== null && 'viewdefs' in value) {
-      const viewdefs = (value as { viewdefs: Record<string, string> }).viewdefs;
-      if (typeof viewdefs === 'object' && viewdefs !== null) {
-        this.viewdefStore.processViewdefs(viewdefs);
+  private handleRootUpdate(_value: unknown, props: Record<string, string>): void {
+    console.log('handleRootUpdate called, props:', Object.keys(props));
+
+    // Check for viewdefs property (JSON string containing TYPE.NAMESPACE -> HTML mappings)
+    // Per spec: "Variable 1 has a viewdefs property containing TYPE.NAMESPACE → HTML mappings"
+    const viewdefsJson = props['viewdefs'];
+    if (viewdefsJson) {
+      console.log('Found viewdefs property, length:', viewdefsJson.length);
+      try {
+        const viewdefs = JSON.parse(viewdefsJson) as Record<string, string>;
+        if (typeof viewdefs === 'object' && viewdefs !== null) {
+          console.log('Parsed viewdefs, keys:', Object.keys(viewdefs));
+          this.viewdefStore.processViewdefs(viewdefs);
+        }
+      } catch (e) {
+        console.error('Failed to parse viewdefs property:', e);
       }
+    } else {
+      console.log('No viewdefs property found');
     }
 
     // The View will re-render automatically when type property changes

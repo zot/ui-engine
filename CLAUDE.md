@@ -1,5 +1,15 @@
 # Project Instructions
 
+## Essential Reading: Architecture Overview
+
+**ALWAYS read `ARCHITECTURE.md` before working on frontend/backend integration.**
+
+This document explains the core data flow:
+- Frontend creates most variables (backend only creates variable 1)
+- Viewdef paths like `ui-value="value1"` cause frontend to create child variables with `path` property
+- Backend resolves paths and returns values
+- Wrappers enable value transformation
+
 ## CRC Modeling Workflow
 
 **DO NOT generate code directly from `specs/*.md` files!**

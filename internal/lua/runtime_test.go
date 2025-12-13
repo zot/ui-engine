@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"testing"
 
+	changetracker "github.com/zot/change-tracker"
 	golua "github.com/yuin/gopher-lua"
 )
 
@@ -11,6 +12,7 @@ import (
 type mockVariableStore struct {
 	variables map[int64]*mockVariable
 	nextID    int64
+	trackers  map[string]*changetracker.Tracker
 }
 
 type mockVariable struct {
@@ -24,6 +26,7 @@ func newMockStore() *mockVariableStore {
 	return &mockVariableStore{
 		variables: make(map[int64]*mockVariable),
 		nextID:    1,
+		trackers:  make(map[string]*changetracker.Tracker),
 	}
 }
 
@@ -77,51 +80,94 @@ func (s *mockVariableStore) Destroy(id int64) error {
 	return nil
 }
 
-func TestChangeDetection(t *testing.T) {
-	// Create runtime
+// CreateSession creates a tracker for a session
+func (s *mockVariableStore) CreateSession(sessionID string, resolver changetracker.Resolver) {
+	tracker := changetracker.NewTracker()
+	tracker.Resolver = resolver
+	s.trackers[sessionID] = tracker
+}
+
+// DestroySession removes a session's tracker
+func (s *mockVariableStore) DestroySession(sessionID string) {
+	delete(s.trackers, sessionID)
+}
+
+// GetTracker returns the tracker for a session
+func (s *mockVariableStore) GetTracker(sessionID string) *changetracker.Tracker {
+	return s.trackers[sessionID]
+}
+
+// CreateVariable creates a variable using the tracker
+func (s *mockVariableStore) CreateVariable(sessionID string, parentID int64, luaObject *golua.LTable, properties map[string]string) (int64, error) {
+	tracker := s.trackers[sessionID]
+	if tracker == nil {
+		// Create tracker if not exists
+		tracker = changetracker.NewTracker()
+		s.trackers[sessionID] = tracker
+	}
+
+	// Create variable in tracker
+	v := tracker.CreateVariable(luaObject, parentID, "", properties)
+	id := v.ID
+
+	// Also store in mock
+	jsonValue, _ := tracker.ToValueJSONBytes(luaObject)
+	s.variables[id] = &mockVariable{
+		id:         id,
+		parentID:   parentID,
+		value:      jsonValue,
+		properties: properties,
+	}
+
+	return id, nil
+}
+
+// DetectChanges returns changes for a session
+func (s *mockVariableStore) DetectChanges(sessionID string) []changetracker.Change {
+	tracker := s.trackers[sessionID]
+	if tracker == nil {
+		return nil
+	}
+	return tracker.DetectChanges()
+}
+
+// TestObjectRegistration verifies that Lua tables are registered as objects
+// and their Value JSON is an object reference.
+func TestObjectRegistration(t *testing.T) {
 	rt, err := NewRuntime("/tmp")
 	if err != nil {
 		t.Fatalf("Failed to create runtime: %v", err)
 	}
 	defer rt.Shutdown()
 
-	// Set up mock store
 	store := newMockStore()
 	rt.SetVariableStore(store)
-	rt.SetVerbosity(2)
 
-	// Create a Lua session
 	sess, err := rt.CreateLuaSession("1")
 	if err != nil {
 		t.Fatalf("Failed to create Lua session: %v", err)
 	}
 
-	// Execute Lua code to create app variable
+	// Create app variable
 	rt.execute(func() (interface{}, error) {
 		L := rt.state
-
-		// Set session global
 		L.SetGlobal("session", sess.sessionTable)
 
-		// Create app object and variable
 		code := `
 			local App = {type = "TestApp"}
 			App.__index = App
 			function App:new(tbl)
 				tbl = tbl or {}
 				setmetatable(tbl, self)
-				tbl.title = tbl.title or "Initial Title"
+				tbl.title = tbl.title or "Test App"
 				tbl.count = tbl.count or 0
 				return tbl
 			end
 
-			app = App:new({title = "Test App", count = 0})
+			app = App:new({title = "My App", count = 42})
 			session:createAppVariable(app)
 		`
-		if err := L.DoString(code); err != nil {
-			return nil, err
-		}
-		return nil, nil
+		return nil, L.DoString(code)
 	})
 
 	// Verify app variable was created
@@ -129,127 +175,41 @@ func TestChangeDetection(t *testing.T) {
 		t.Fatalf("Expected app variable ID 1, got %d", sess.appVariableID)
 	}
 
-	// Check initial value in store
-	val, _, _ := store.Get(1)
-	var initial map[string]interface{}
-	json.Unmarshal(val, &initial)
-	if initial["title"] != "Test App" {
-		t.Errorf("Expected title 'Test App', got %v", initial["title"])
+	// Check that ValueJSON is an object reference
+	tracker := store.GetTracker("1")
+	if tracker == nil {
+		t.Fatal("Expected tracker for session 1")
 	}
 
-	// Modify the app object directly (simulate what a method would do)
-	rt.execute(func() (interface{}, error) {
-		L := rt.state
-		appObj := L.GetGlobal("app").(*golua.LTable)
-		L.SetField(appObj, "title", golua.LString("Modified Title"))
-		L.SetField(appObj, "count", golua.LNumber(42))
-		return nil, nil
-	})
-
-	// Run change detection
-	updates := rt.AfterBatch("1")
-
-	// Should detect the change
-	if len(updates) != 1 {
-		t.Fatalf("Expected 1 update, got %d", len(updates))
+	v := tracker.GetVariable(1)
+	if v == nil {
+		t.Fatal("Expected variable 1 in tracker")
 	}
 
-	// Check the update contains the new value
-	var updated map[string]interface{}
-	json.Unmarshal(updates[0].Value, &updated)
-	if updated["title"] != "Modified Title" {
-		t.Errorf("Expected title 'Modified Title', got %v", updated["title"])
+	// ValueJSON should be ObjectRef{Obj: 1}
+	objRef, ok := v.ValueJSON.(changetracker.ObjectRef)
+	if !ok {
+		t.Fatalf("Expected ValueJSON to be ObjectRef, got %T: %v", v.ValueJSON, v.ValueJSON)
 	}
-	if updated["count"] != float64(42) {
-		t.Errorf("Expected count 42, got %v", updated["count"])
-	}
-
-	// Store should also be updated
-	val2, _, _ := store.Get(1)
-	var storeVal map[string]interface{}
-	json.Unmarshal(val2, &storeVal)
-	if storeVal["title"] != "Modified Title" {
-		t.Errorf("Store should have updated value, got %v", storeVal["title"])
+	if objRef.Obj != 1 {
+		t.Errorf("Expected ObjectRef.Obj=1, got %d", objRef.Obj)
 	}
 
-	// Run change detection again - no changes this time
-	updates2 := rt.AfterBatch("1")
-	if len(updates2) != 0 {
-		t.Errorf("Expected 0 updates on second call, got %d", len(updates2))
+	// Serialized form should be {"obj": 1}
+	jsonBytes, err := tracker.ToValueJSONBytes(v.Value)
+	if err != nil {
+		t.Fatalf("ToValueJSONBytes error: %v", err)
+	}
+	expected := `{"obj":1}`
+	if string(jsonBytes) != expected {
+		t.Errorf("Expected JSON %s, got %s", expected, string(jsonBytes))
 	}
 
-	t.Log("Change detection test passed!")
+	t.Log("Object registration test passed!")
 }
 
-func TestPrivateFieldsNotSerialized(t *testing.T) {
-	rt, err := NewRuntime("/tmp")
-	if err != nil {
-		t.Fatalf("Failed to create runtime: %v", err)
-	}
-	defer rt.Shutdown()
-
-	store := newMockStore()
-	rt.SetVariableStore(store)
-
-	sess, err := rt.CreateLuaSession("1")
-	if err != nil {
-		t.Fatalf("Failed to create Lua session: %v", err)
-	}
-
-	// Create app with public and private fields
-	rt.execute(func() (interface{}, error) {
-		L := rt.state
-		L.SetGlobal("session", sess.sessionTable)
-
-		code := `
-			local App = {type = "TestApp"}
-			App.__index = App
-			function App:new(tbl)
-				tbl = tbl or {}
-				setmetatable(tbl, self)
-				tbl.title = tbl.title or "Public Title"
-				tbl.count = tbl.count or 0
-				tbl._privateData = tbl._privateData or "secret"
-				tbl._nextId = tbl._nextId or 1
-				return tbl
-			end
-
-			app = App:new({
-				title = "My App",
-				count = 5,
-				_privateData = "internal data",
-				_nextId = 100
-			})
-			session:createAppVariable(app)
-		`
-		return nil, L.DoString(code)
-	})
-
-	// Check the stored value
-	val, _, _ := store.Get(1)
-	var data map[string]interface{}
-	json.Unmarshal(val, &data)
-
-	// Public fields should be present
-	if data["title"] != "My App" {
-		t.Errorf("Expected title 'My App', got %v", data["title"])
-	}
-	if data["count"] != float64(5) {
-		t.Errorf("Expected count 5, got %v", data["count"])
-	}
-
-	// Private fields (prefixed with _) should NOT be present
-	if _, ok := data["_privateData"]; ok {
-		t.Error("Private field _privateData should not be serialized")
-	}
-	if _, ok := data["_nextId"]; ok {
-		t.Error("Private field _nextId should not be serialized")
-	}
-
-	t.Log("Private fields test passed!")
-}
-
-func TestCreateVariable(t *testing.T) {
+// TestCreateMultipleVariables verifies creating app and child variables
+func TestCreateMultipleVariables(t *testing.T) {
 	rt, err := NewRuntime("/tmp")
 	if err != nil {
 		t.Fatalf("Failed to create runtime: %v", err)
@@ -275,7 +235,6 @@ func TestCreateVariable(t *testing.T) {
 			function App:new(tbl)
 				tbl = tbl or {}
 				setmetatable(tbl, self)
-				tbl.items = tbl.items or {}
 				return tbl
 			end
 
@@ -296,36 +255,123 @@ func TestCreateVariable(t *testing.T) {
 			itemId = session:createVariable(app, item)
 
 			-- Verify item ID
-			assert(itemId == 2, "Expected item ID 2")
+			assert(itemId == 2, "Expected item ID 2, got " .. tostring(itemId))
 		`
 		return nil, L.DoString(code)
 	})
 
-	// Check both variables exist
-	if len(store.variables) != 2 {
-		t.Errorf("Expected 2 variables, got %d", len(store.variables))
+	// Check both variables exist in tracker
+	tracker := store.GetTracker("1")
+	if tracker == nil {
+		t.Fatal("Expected tracker for session 1")
 	}
 
-	// Check watched variables
-	if len(sess.watchedVariables) != 2 {
-		t.Errorf("Expected 2 watched variables, got %d", len(sess.watchedVariables))
+	v1 := tracker.GetVariable(1)
+	if v1 == nil {
+		t.Error("Expected variable 1 (app) in tracker")
 	}
 
-	// Modify the child item and detect changes
-	rt.execute(func() (interface{}, error) {
-		L := rt.state
-		itemObj := L.GetGlobal("item").(*golua.LTable)
-		L.SetField(itemObj, "name", golua.LString("Modified Item"))
-		return nil, nil
-	})
-
-	updates := rt.AfterBatch("1")
-	if len(updates) != 1 {
-		t.Errorf("Expected 1 update for item, got %d", len(updates))
-	}
-	if len(updates) > 0 && updates[0].VarID != 2 {
-		t.Errorf("Expected update for variable 2, got %d", updates[0].VarID)
+	v2 := tracker.GetVariable(2)
+	if v2 == nil {
+		t.Error("Expected variable 2 (item) in tracker")
 	}
 
-	t.Log("CreateVariable test passed!")
+	// Both should have object refs as ValueJSON
+	if _, ok := v1.ValueJSON.(changetracker.ObjectRef); !ok {
+		t.Errorf("Variable 1 ValueJSON should be ObjectRef, got %T", v1.ValueJSON)
+	}
+	if _, ok := v2.ValueJSON.(changetracker.ObjectRef); !ok {
+		t.Errorf("Variable 2 ValueJSON should be ObjectRef, got %T", v2.ValueJSON)
+	}
+
+	// Variable 2 should have parent ID 1
+	if v2.ParentID != 1 {
+		t.Errorf("Expected variable 2 parent ID 1, got %d", v2.ParentID)
+	}
+
+	t.Log("Create multiple variables test passed!")
+}
+
+// TestLuaResolverArrayConversion verifies that Lua arrays convert properly
+// with object elements becoming object refs
+func TestLuaResolverArrayConversion(t *testing.T) {
+	L := golua.NewState()
+	defer L.Close()
+
+	resolver := &LuaResolver{L: L}
+	tracker := changetracker.NewTracker()
+	tracker.Resolver = resolver
+
+	// Create a Lua array with mixed content: number, table (object), string
+	err := L.DoString(`
+		person = {name = "Alice", age = 30}
+		mixedArray = {1, person, "hello"}
+	`)
+	if err != nil {
+		t.Fatalf("Lua error: %v", err)
+	}
+
+	// Get the person table and register it
+	personTbl := L.GetGlobal("person").(*golua.LTable)
+	tracker.RegisterObject(personTbl, 42) // Register with ID 42
+
+	// Get the mixed array
+	arrayTbl := L.GetGlobal("mixedArray").(*golua.LTable)
+
+	// Convert array to Go using resolver
+	goArray, err := resolver.luaValueToGo(arrayTbl)
+	if err != nil {
+		t.Fatalf("luaValueToGo error: %v", err)
+	}
+
+	arr, ok := goArray.([]any)
+	if !ok {
+		t.Fatalf("Expected []any, got %T", goArray)
+	}
+	if len(arr) != 3 {
+		t.Fatalf("Expected 3 elements, got %d", len(arr))
+	}
+
+	// Element 0: number -> float64
+	if arr[0] != float64(1) {
+		t.Errorf("Element 0: expected float64(1), got %T(%v)", arr[0], arr[0])
+	}
+
+	// Element 1: table -> *lua.LTable (kept as ref)
+	if _, ok := arr[1].(*golua.LTable); !ok {
+		t.Errorf("Element 1: expected *lua.LTable, got %T", arr[1])
+	}
+
+	// Element 2: string -> string
+	if arr[2] != "hello" {
+		t.Errorf("Element 2: expected 'hello', got %T(%v)", arr[2], arr[2])
+	}
+
+	// Now convert to Value JSON - the table should become {"obj": 42}
+	valueJSON := tracker.ToValueJSON(arr)
+	jsonArr, ok := valueJSON.([]any)
+	if !ok {
+		t.Fatalf("Expected []any from ToValueJSON, got %T", valueJSON)
+	}
+
+	// Check element 1 is now an ObjectRef
+	objRef, ok := jsonArr[1].(changetracker.ObjectRef)
+	if !ok {
+		t.Errorf("Element 1 in ValueJSON: expected ObjectRef, got %T(%v)", jsonArr[1], jsonArr[1])
+	} else if objRef.Obj != 42 {
+		t.Errorf("Expected ObjectRef.Obj=42, got %d", objRef.Obj)
+	}
+
+	// Serialize to JSON bytes
+	jsonBytes, err := json.Marshal(valueJSON)
+	if err != nil {
+		t.Fatalf("JSON marshal error: %v", err)
+	}
+
+	expected := `[1,{"obj":42},"hello"]`
+	if string(jsonBytes) != expected {
+		t.Errorf("Expected %s, got %s", expected, string(jsonBytes))
+	}
+
+	t.Log("Lua array conversion test passed!")
 }

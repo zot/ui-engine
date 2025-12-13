@@ -116,18 +116,12 @@ export class View {
     // Clone template content
     const fragment = cloneViewdefContent(viewdef);
 
-    // Apply bindings to cloned content
+    // Apply bindings to cloned content - only bind top-level children,
+    // bindElement will handle recursion internally
     if (this.bindCallback) {
-      const elements = fragment.querySelectorAll('*');
-      elements.forEach((el) => {
-        if (el instanceof HTMLElement) {
-          this.bindCallback!(el, this.variableId!);
-        }
-      });
-      // Also bind the direct children
       for (const child of fragment.children) {
         if (child instanceof HTMLElement) {
-          this.bindCallback(child, this.variableId);
+          this.bindCallback(child, this.variableId!);
         }
       }
     }

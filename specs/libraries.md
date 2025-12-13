@@ -13,7 +13,7 @@ The backend library makes integrating with the UI server easy. Provided for **Go
 **Path navigation:**
 - Handles path navigation with reflection
 
-**Change detection:**
+**Change detection** (provided by `change-tracker` package - `github.com/zot/change-tracker`):
 - Variables hold references to backend objects, not copies of data
 - Backend code modifies objects directly - no manual `update()` calls needed
 - After processing a batch of messages, the framework:
@@ -24,6 +24,7 @@ The backend library makes integrating with the UI server easy. Provided for **Go
 - Refreshes happen automatically after receipt of client messages
 - Background-triggered changes are throttled
 - Provides a thread-safe mechanism for interacting with refresh logic
+- **Implementation note**: The `change-tracker` package handles variable tracking, change detection, and update dispatch. Design documents should reference this package rather than re-specifying the algorithm.
 
 **Object registry (Go):**
 - Maps backend objects to variable IDs using weak references (Go 1.25+ `weak` package)
@@ -38,13 +39,14 @@ The backend library makes integrating with the UI server easy. Provided for **Go
 
 The embedded Lua runtime provides a `session` global for variable management. This is available when `main.lua` executes for each new frontend session.
 
-**Automatic Change Detection:**
+**Automatic Change Detection** (via `change-tracker` package):
 
 Variables hold references to Lua objects. The framework automatically detects and propagates changes:
 - Backend methods modify objects directly (e.g., `self.title = "New Title"`)
 - After processing each batch of messages, the framework computes current values for watched variables
 - Changed values are automatically sent to the frontend
 - No manual `update()` calls are needed for value changes
+- See "Change detection" in Backend Library section for implementation details
 
 **Session object:**
 ```lua

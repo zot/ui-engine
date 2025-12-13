@@ -23,13 +23,25 @@ type PendingQueuer interface {
 	Poll(connectionID string, wait time.Duration) []*Message
 }
 
+// PathVariableHandler handles frontend-created path variables.
+type PathVariableHandler interface {
+	// HandleFrontendCreate handles a path-based variable create from frontend.
+	// Returns the variable ID and resolved value.
+	HandleFrontendCreate(parentID int64, properties map[string]string) (int64, json.RawMessage, error)
+
+	// HandleFrontendUpdate handles an update to a path-based variable from frontend.
+	// Updates the backend object via the variable's path and returns error if any.
+	HandleFrontendUpdate(varID int64, value json.RawMessage) error
+}
+
 // Handler processes protocol messages.
 type Handler struct {
-	store     *variable.Store
-	watches   *variable.WatchManager
-	sender    MessageSender
-	pending   PendingQueuer
-	verbosity int
+	store               *variable.Store
+	watches             *variable.WatchManager
+	sender              MessageSender
+	pending             PendingQueuer
+	pathVariableHandler PathVariableHandler // For path-based frontend creates
+	verbosity           int
 }
 
 // NewHandler creates a new protocol handler.
@@ -46,6 +58,11 @@ func (h *Handler) SetPendingQueuer(pending PendingQueuer) {
 	h.pending = pending
 }
 
+// SetPathVariableHandler sets the handler for path-based frontend creates.
+func (h *Handler) SetPathVariableHandler(handler PathVariableHandler) {
+	h.pathVariableHandler = handler
+}
+
 // SetVerbosity sets the verbosity level for message logging.
 func (h *Handler) SetVerbosity(level int) {
 	h.verbosity = level
@@ -53,8 +70,10 @@ func (h *Handler) SetVerbosity(level int) {
 
 // HandleMessage processes an incoming protocol message.
 func (h *Handler) HandleMessage(connectionID string, msg *Message) (*Response, error) {
-	// Log message (verbosity level 2)
-	if h.verbosity >= 2 {
+	// Log message (verbosity level 2: abbreviated, level 4: complete)
+	if h.verbosity >= 4 {
+		log.Printf("[v4] Message: type=%s from=%s data=%s", msg.Type, connectionID, string(msg.Data))
+	} else if h.verbosity >= 2 {
 		log.Printf("[v2] Message: type=%s from=%s", msg.Type, connectionID)
 	}
 
@@ -87,15 +106,42 @@ func (h *Handler) handleCreate(connectionID string, data json.RawMessage) (*Resp
 		return nil, err
 	}
 
-	id, err := h.store.Create(variable.CreateOptions{
-		ParentID:   msg.ParentID,
-		Value:      msg.Value,
-		Properties: msg.Properties,
-		NoWatch:    msg.NoWatch,
-		Unbound:    msg.Unbound,
-	})
-	if err != nil {
-		return &Response{Error: err.Error()}, nil
+	var id int64
+	var initialValue json.RawMessage
+	var err error
+
+	// Check if this is a path-based variable (has path property and parent)
+	pathProp := ""
+	if msg.Properties != nil {
+		pathProp = msg.Properties["path"]
+	}
+
+	if pathProp != "" && msg.ParentID != 0 && h.pathVariableHandler != nil {
+		// Path-based variable: delegate to Lua runtime
+		id, initialValue, err = h.pathVariableHandler.HandleFrontendCreate(msg.ParentID, msg.Properties)
+		if err != nil {
+			return &Response{Error: err.Error()}, nil
+		}
+
+		// Also create in UI server's store for tracking
+		h.store.Create(variable.CreateOptions{
+			ID:         id,
+			ParentID:   msg.ParentID,
+			Value:      initialValue,
+			Properties: msg.Properties,
+		})
+	} else {
+		// Regular variable: create in store
+		id, err = h.store.Create(variable.CreateOptions{
+			ParentID:   msg.ParentID,
+			Value:      msg.Value,
+			Properties: msg.Properties,
+			NoWatch:    msg.NoWatch,
+			Unbound:    msg.Unbound,
+		})
+		if err != nil {
+			return &Response{Error: err.Error()}, nil
+		}
 	}
 
 	// Auto-watch unless nowatch is set
@@ -103,9 +149,22 @@ func (h *Handler) handleCreate(connectionID string, data json.RawMessage) (*Resp
 		h.watches.Watch(id, connectionID)
 	}
 
-	return &Response{
+	// Build response
+	resp := &Response{
 		Result: CreateResponse{ID: id},
-	}, nil
+	}
+
+	// Include initial value as pending update if we have one
+	if initialValue != nil {
+		updateMsg, _ := NewMessage(MsgUpdate, UpdateMessage{
+			VarID:      id,
+			Value:      initialValue,
+			Properties: msg.Properties,
+		})
+		resp.Pending = append(resp.Pending, *updateMsg)
+	}
+
+	return resp, nil
 }
 
 // handleDestroy processes a destroy message.
@@ -134,6 +193,8 @@ func (h *Handler) handleDestroy(connectionID string, data json.RawMessage) (*Res
 }
 
 // handleUpdate processes an update message.
+// CRC: crc-ProtocolHandler.md
+// Sequence: seq-relay-message.md
 func (h *Handler) handleUpdate(connectionID string, data json.RawMessage) (*Response, error) {
 	var msg UpdateMessage
 	if err := json.Unmarshal(data, &msg); err != nil {
@@ -151,6 +212,25 @@ func (h *Handler) handleUpdate(connectionID string, data json.RawMessage) (*Resp
 		h.watches.SetInactive(msg.VarID, inactive != "")
 	}
 
+	// Check if this is a bound variable (has path property) that should be relayed to backend
+	v, ok := h.store.Get(msg.VarID)
+	if ok && !v.IsUnbound() {
+		// Bound variable - relay to backend to update the actual object
+		if h.pathVariableHandler != nil {
+			if _, hasPath := v.GetProperties()["path"]; hasPath {
+				if err := h.pathVariableHandler.HandleFrontendUpdate(msg.VarID, msg.Value); err != nil {
+					if h.verbosity >= 1 {
+						log.Printf("[v1] handleUpdate: backend update failed for var %d: %v", msg.VarID, err)
+					}
+					return &Response{Error: err.Error()}, nil
+				}
+				// Backend will handle change detection and send updates via AfterBatch
+				return &Response{}, nil
+			}
+		}
+	}
+
+	// Unbound variable or no path handler - handle locally
 	if err := h.store.Update(msg.VarID, msg.Value, msg.Properties); err != nil {
 		return &Response{Error: err.Error()}, nil
 	}
@@ -188,12 +268,20 @@ func (h *Handler) handleWatch(connectionID string, data json.RawMessage) (*Respo
 	// Send current value immediately
 	v, ok := h.store.Get(msg.VarID)
 	if ok {
+		props := v.GetProperties()
+		if h.verbosity >= 2 {
+			log.Printf("[v2] handleWatch: sending update for var %d, type=%s, viewdefs=%d chars", msg.VarID, props["type"], len(props["viewdefs"]))
+		}
 		updateMsg, _ := NewMessage(MsgUpdate, UpdateMessage{
 			VarID:      msg.VarID,
 			Value:      v.GetValue(),
 			Properties: v.GetProperties(),
 		})
 		h.sender.Send(connectionID, updateMsg)
+	} else {
+		if h.verbosity >= 2 {
+			log.Printf("[v2] handleWatch: var %d not found in store!", msg.VarID)
+		}
 	}
 
 	resp := &Response{}

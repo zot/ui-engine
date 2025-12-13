@@ -65,6 +65,10 @@ export interface Response<T = unknown> {
   error?: string;
 }
 
+export interface CreateResponse {
+  id: number;
+}
+
 export interface VariableData {
   id: number;
   value?: unknown;

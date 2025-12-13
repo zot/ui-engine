@@ -9,7 +9,7 @@
 - MessageRelay: Message coordinator
 - ProtocolHandler: Message processor
 - VariableStore: Variable storage (for unbound)
-- Backend: External backend
+- Backend: External backend (LuaRuntime or connected backend)
 
 ## Sequence
 
@@ -37,12 +37,19 @@
         |                      |---relayToBackend---->|                      |                      |
         |                      |                      |--------------------------------------msg--->|
         |                      |                      |                      |                      |
-        |                      |                      |     [backend processes and responds]       |
-        |                      |                      |<-----------------------------------update---|
+        |                      |                      |     [backend processes message]            |
+        |                      |                      |<-----------------------------------result---|
+        |                      |                      |                      |                      |
+        |                      |                      |     [after message - trigger change detection]
+        |                      |                      |---afterBatch-------->|--------------------->|
+        |                      |                      |                      |                      |
+        |                      |                      |                      |  [DetectChanges - see seq-backend-refresh.md]
+        |                      |                      |                      |                      |
+        |                      |                      |<------------------------------------updates-|
         |                      |                      |                      |                      |
         |                      |<--relayToFrontend----|                      |                      |
         |                      |                      |                      |                      |
-        |<--update-------------|                      |                      |                      |
+        |<--update(s)----------|                      |                      |                      |
         |                      |                      |                      |                      |
 ```
 
@@ -50,6 +57,8 @@
 
 - Unbound variables handled locally by UI server
 - Bound variables forwarded to backend
-- Backend processes and sends responses back
-- Responses relayed to all watching frontends
+- Backend processes messages (may modify internal state)
+- **Automatic change detection**: After each message, afterBatch triggers DetectChanges
+- DetectChanges uses change-tracker package (see seq-backend-refresh.md for details)
+- Only changed values are sent as updates to watching frontends
 - Message batching can combine multiple updates

@@ -112,7 +112,7 @@ demo/
 Start the server with the demo directory:
 
 ```bash
-ui serve --dir demo/site --lua-path demo/lua
+ui serve --dir demo
 ```
 
 Then open browser to `http://localhost:8080`

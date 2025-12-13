@@ -186,17 +186,25 @@ export class BindingEngine {
 
   // Create a value binding (sets textContent or value, and handles changes)
   // Spec: viewdefs.md - Nullish path handling with error indicators
+  // ARCHITECTURE.md: Frontend creates child variables for paths
   private createValueBinding(element: Element, varId: number, path: string): Binding | null {
     const parsed = parsePath(path);
+    const properties = pathOptionsToProperties(parsed.options);
+    properties['path'] = parsed.segments.join('.');
+
+    // Create a child variable for this path
+    // The server will resolve the path and send back the value
+    let childVarId: number | null = null;
+    let unbindValue: (() => void) | null = null;
+    let unbindError: (() => void) | null = null;
 
     const update = (value: unknown) => {
-      const resolved = resolvePath(value, parsed.segments);
       if (element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement) {
-        element.value = resolved?.toString() ?? '';
+        element.value = value?.toString() ?? '';
       } else if (element instanceof HTMLSelectElement) {
-        element.value = resolved?.toString() ?? '';
+        element.value = value?.toString() ?? '';
       } else {
-        element.textContent = resolved?.toString() ?? '';
+        element.textContent = value?.toString() ?? '';
       }
     };
 
@@ -213,20 +221,41 @@ export class BindingEngine {
       }
     };
 
-    const unbindValue = this.store.watch(varId, (value) => update(value));
-    const unbindError = this.store.watchErrors(varId, updateError);
+    // Two-way binding: listen for input changes
+    const inputHandler = (e: Event) => {
+      if (childVarId !== null) {
+        const target = e.target as HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement;
+        this.store.update(childVarId, target.value);
+      }
+    };
 
-    // Initial update
-    const current = this.store.get(varId);
-    if (current) update(current.value);
+    // Create the child variable asynchronously
+    this.store.create({
+      parentId: varId,
+      properties,
+    }).then((id) => {
+      childVarId = id;
+      // Watch the child variable for value updates
+      unbindValue = this.store.watch(id, (value) => update(value));
+      unbindError = this.store.watchErrors(id, updateError);
 
-    // Two-way binding: listen for ui-value-change events from widgets
+      // Initial update from cached value
+      const current = this.store.get(id);
+      if (current) update(current.value);
+    }).catch((err) => {
+      console.error('Failed to create binding variable:', err);
+    });
+
+    // Add input listener for two-way binding
+    if (element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement || element instanceof HTMLSelectElement) {
+      element.addEventListener('input', inputHandler);
+    }
+
+    // Also listen for ui-value-change events from custom widgets
     const changeHandler = (e: Event) => {
       const customEvent = e as CustomEvent;
-      const { value, path: changePath } = customEvent.detail;
-      if (changePath === path) {
-        // Send update to server with the new value at the path
-        this.updateValueAtPath(varId, parsed.segments, value);
+      if (childVarId !== null) {
+        this.store.update(childVarId, customEvent.detail.value);
       }
     };
     element.addEventListener('ui-value-change', changeHandler);
@@ -234,47 +263,20 @@ export class BindingEngine {
     return {
       element,
       unbind: () => {
-        unbindValue();
-        unbindError();
+        if (unbindValue) unbindValue();
+        if (unbindError) unbindError();
+        element.removeEventListener('input', inputHandler);
         element.removeEventListener('ui-value-change', changeHandler);
+        // Destroy the child variable
+        if (childVarId !== null) {
+          this.store.destroy(childVarId);
+        }
         // Clean up error state on unbind
         element.classList.remove('ui-error');
         element.removeAttribute('data-ui-error-code');
         element.removeAttribute('data-ui-error-description');
       },
     };
-  }
-
-  // Update a value at a path within a variable
-  // Spec: viewdefs.md - Nullish path handling
-  private updateValueAtPath(varId: number, segments: string[], newValue: unknown): void {
-    const current = this.store.get(varId);
-    if (!current) return;
-
-    if (segments.length === 0) {
-      // Direct value update
-      this.store.update(varId, newValue);
-      return;
-    }
-
-    // Clone the value and update at path
-    const value = JSON.parse(JSON.stringify(current.value ?? {}));
-    let target = value;
-
-    for (let i = 0; i < segments.length - 1; i++) {
-      const segment = segments[i];
-      // Nullish path handling: if intermediate segment is null/undefined,
-      // send error message with path-failure code (allows UI to show error indicator)
-      if (target[segment] === null || target[segment] === undefined) {
-        const pathStr = segments.slice(0, i + 1).join('.');
-        this.store.sendError(varId, 'path-failure', `Cannot write to path: '${pathStr}' is ${target[segment]}`);
-        return;
-      }
-      target = target[segment];
-    }
-
-    target[segments[segments.length - 1]] = newValue;
-    this.store.update(varId, value);
   }
 
   // Create an attribute binding

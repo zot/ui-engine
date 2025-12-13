@@ -2,7 +2,7 @@
 // CRC: crc-WebSocketEndpoint.md, crc-SharedWorker.md
 // Spec: interfaces.md
 
-import { Message, Response, encodeMessage, parseMessage, UpdateMessage, ErrorMessage } from './protocol';
+import { Message, Response, CreateResponse, encodeMessage, UpdateMessage, ErrorMessage } from './protocol';
 
 export type MessageHandler = (msg: Message) => void;
 export type ErrorHandler = (error: string) => void;
@@ -20,6 +20,9 @@ export class Connection {
   private disconnectHandlers: ConnectionHandler[] = [];
   private pendingRequests: Map<number, (response: Response) => void> = new Map();
   private requestId = 0;
+  // Callback for response handling (create responses)
+  // Queue of pending create callbacks - responses arrive in order, so we use a FIFO queue
+  private createCallbackQueue: Array<(resp: Response<CreateResponse>) => void> = [];
 
   constructor(sessionId: string) {
     this.sessionId = sessionId;
@@ -40,8 +43,13 @@ export class Connection {
 
       this.ws.onmessage = (event) => {
         try {
-          const msg = parseMessage(event.data);
-          this.handleMessage(msg);
+          const data = JSON.parse(event.data);
+          // Check if it's a Response (has result, error, or pending) vs Message (has type)
+          if ('result' in data || ('error' in data && !('type' in data)) || 'pending' in data) {
+            this.handleResponse(data as Response<CreateResponse>);
+          } else {
+            this.handleMessage(data as Message);
+          }
         } catch (e) {
           console.error('Failed to parse message:', e);
         }
@@ -80,12 +88,40 @@ export class Connection {
     this.messageHandlers.forEach((h) => h(msg));
   }
 
+  private handleResponse(resp: Response<CreateResponse>): void {
+    // Handle pending messages in the response
+    if (resp.pending) {
+      resp.pending.forEach((msg) => this.handleMessage(msg));
+    }
+    // Only call the callback for create responses (those with id in result)
+    // Watch responses have {forward: true} and should not consume the callback
+    const isCreateResponse = resp.result && typeof resp.result === 'object' && 'id' in resp.result;
+    if (isCreateResponse && this.createCallbackQueue.length > 0) {
+      const callback = this.createCallbackQueue.shift()!;
+      callback(resp);
+    }
+  }
+
   send(msg: Message): void {
     if (this.ws && this.ws.readyState === WebSocket.OPEN) {
       this.ws.send(encodeMessage(msg));
     } else {
       console.error('WebSocket not connected');
     }
+  }
+
+  // Send a message and wait for a response (for create operations)
+  // Uses a queue to handle concurrent creates - responses arrive in send order
+  sendAndAwaitResponse(msg: Message): Promise<Response<CreateResponse>> {
+    return new Promise((resolve, reject) => {
+      if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
+        reject(new Error('WebSocket not connected'));
+        return;
+      }
+      // Add callback to queue before sending (maintains FIFO order)
+      this.createCallbackQueue.push(resolve);
+      this.ws.send(encodeMessage(msg));
+    });
   }
 
   async sendRequest<T>(msg: Message): Promise<Response<T>> {
@@ -277,14 +313,22 @@ export class VariableStore {
     return this.variables.get(varId);
   }
 
-  create(options: {
+  // Create a variable and return the assigned ID
+  async create(options: {
     parentId?: number;
     value?: unknown;
     properties?: Record<string, string>;
     nowatch?: boolean;
     unbound?: boolean;
-  }): void {
-    this.connection.send({ type: 'create', data: options });
+  }): Promise<number> {
+    const resp = await this.connection.sendAndAwaitResponse({ type: 'create', data: options });
+    if (resp.error) {
+      throw new Error(resp.error);
+    }
+    if (!resp.result) {
+      throw new Error('No result from create');
+    }
+    return resp.result.id;
   }
 
   update(varId: number, value?: unknown, properties?: Record<string, string>): void {

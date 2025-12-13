@@ -13,6 +13,11 @@ type WatchManager struct {
 	inactiveVariables map[int64]struct{}   // variable IDs marked inactive
 	store             *Store
 	mu                sync.RWMutex
+
+	// OnActiveChanged is called when a variable's active state should change.
+	// Called with (varID, true) on 0->1 watch transition.
+	// Called with (varID, false) on 1->0 unwatch transition.
+	OnActiveChanged func(varID int64, active bool)
 }
 
 // NewWatchManager creates a new WatchManager.
@@ -50,6 +55,11 @@ func (wm *WatchManager) Watch(varID int64, connectionID string) WatchResult {
 	}
 	if !found {
 		wm.watchers[varID] = append(watchers, connectionID)
+	}
+
+	// On 0->1 transition, mark variable as active for change detection
+	if prevCount == 0 && wm.OnActiveChanged != nil {
+		wm.OnActiveChanged(varID, true)
 	}
 
 	// Check if this is a bound variable
@@ -93,6 +103,11 @@ func (wm *WatchManager) Unwatch(varID int64, connectionID string) UnwatchResult 
 	}
 	if len(wm.watchers[varID]) == 0 {
 		delete(wm.watchers, varID)
+	}
+
+	// On 1->0 transition, mark variable as inactive for change detection
+	if prevCount == 1 && wm.OnActiveChanged != nil {
+		wm.OnActiveChanged(varID, false)
 	}
 
 	// Check if this is a bound variable
@@ -174,6 +189,7 @@ func (wm *WatchManager) UnwatchAll(connectionID string) []int64 {
 	defer wm.mu.Unlock()
 
 	var unwatched []int64
+	var deactivated []int64
 
 	for varID, watchers := range wm.watchers {
 		for i, id := range watchers {
@@ -182,6 +198,7 @@ func (wm *WatchManager) UnwatchAll(connectionID string) []int64 {
 				wm.watchCounts[varID]--
 				if wm.watchCounts[varID] <= 0 {
 					delete(wm.watchCounts, varID)
+					deactivated = append(deactivated, varID)
 				}
 				unwatched = append(unwatched, varID)
 				break
@@ -189,6 +206,14 @@ func (wm *WatchManager) UnwatchAll(connectionID string) []int64 {
 		}
 		if len(wm.watchers[varID]) == 0 {
 			delete(wm.watchers, varID)
+		}
+	}
+
+	// Notify about deactivated variables (after releasing lock would be better,
+	// but callback should be fast and not acquire wm.mu)
+	if wm.OnActiveChanged != nil {
+		for _, varID := range deactivated {
+			wm.OnActiveChanged(varID, false)
 		}
 	}
 
