@@ -8,6 +8,7 @@ import (
 	"log"
 	"time"
 
+	"github.com/zot/ui/internal/backend"
 	"github.com/zot/ui/internal/variable"
 )
 
@@ -34,10 +35,18 @@ type PathVariableHandler interface {
 	HandleFrontendUpdate(varID int64, value json.RawMessage) error
 }
 
+// BackendLookup provides per-connection backend lookup.
+// Used by the protocol handler to route watch operations to the correct session's backend.
+type BackendLookup interface {
+	// GetBackendForConnection returns the backend for a connection.
+	// Returns nil if connection is not associated with a session.
+	GetBackendForConnection(connectionID string) backend.Backend
+}
+
 // Handler processes protocol messages.
 type Handler struct {
 	store               *variable.Store
-	watches             *variable.WatchManager
+	backendLookup       BackendLookup
 	sender              MessageSender
 	pending             PendingQueuer
 	pathVariableHandler PathVariableHandler // For path-based frontend creates
@@ -45,12 +54,16 @@ type Handler struct {
 }
 
 // NewHandler creates a new protocol handler.
-func NewHandler(store *variable.Store, watches *variable.WatchManager, sender MessageSender) *Handler {
+func NewHandler(store *variable.Store, sender MessageSender) *Handler {
 	return &Handler{
-		store:   store,
-		watches: watches,
-		sender:  sender,
+		store:  store,
+		sender: sender,
 	}
+}
+
+// SetBackendLookup sets the backend lookup for per-session watch operations.
+func (h *Handler) SetBackendLookup(lookup BackendLookup) {
+	h.backendLookup = lookup
 }
 
 // SetPendingQueuer sets the pending queue manager.
@@ -145,8 +158,10 @@ func (h *Handler) handleCreate(connectionID string, data json.RawMessage) (*Resp
 	}
 
 	// Auto-watch unless nowatch is set
-	if !msg.NoWatch {
-		h.watches.Watch(id, connectionID)
+	if !msg.NoWatch && h.backendLookup != nil {
+		if b := h.backendLookup.GetBackendForConnection(connectionID); b != nil {
+			b.Watch(id, connectionID)
+		}
 	}
 
 	// Build response
@@ -174,8 +189,13 @@ func (h *Handler) handleDestroy(connectionID string, data json.RawMessage) (*Res
 		return nil, err
 	}
 
-	// Get watchers before destroying
-	watchers := h.watches.GetWatchers(msg.VarID)
+	// Get watchers before destroying (via session's backend)
+	var watchers []string
+	if h.backendLookup != nil {
+		if b := h.backendLookup.GetBackendForConnection(connectionID); b != nil {
+			watchers = b.GetWatchers(msg.VarID)
+		}
+	}
 
 	if err := h.store.Destroy(msg.VarID); err != nil {
 		return &Response{Error: err.Error()}, nil
@@ -201,15 +221,21 @@ func (h *Handler) handleUpdate(connectionID string, data json.RawMessage) (*Resp
 		return nil, err
 	}
 
+	// Get backend for this connection
+	var b backend.Backend
+	if h.backendLookup != nil {
+		b = h.backendLookup.GetBackendForConnection(connectionID)
+	}
+
 	// Check if variable is inactive
-	if h.watches.IsInactive(msg.VarID) {
+	if b != nil && b.IsInactive(msg.VarID) {
 		// Silently ignore updates to inactive variables
 		return &Response{}, nil
 	}
 
 	// Handle inactive property
-	if inactive, ok := msg.Properties["inactive"]; ok {
-		h.watches.SetInactive(msg.VarID, inactive != "")
+	if inactive, ok := msg.Properties["inactive"]; ok && b != nil {
+		b.SetInactive(msg.VarID, inactive != "")
 	}
 
 	// Check if this is a bound variable (has path property) that should be relayed to backend
@@ -235,8 +261,11 @@ func (h *Handler) handleUpdate(connectionID string, data json.RawMessage) (*Resp
 		return &Response{Error: err.Error()}, nil
 	}
 
-	// Notify watchers of update
-	watchers := h.watches.GetWatchers(msg.VarID)
+	// Notify watchers of update (via session's backend)
+	var watchers []string
+	if b != nil {
+		watchers = b.GetWatchers(msg.VarID)
+	}
 	if len(watchers) > 0 {
 		v, ok := h.store.Get(msg.VarID)
 		if ok {
@@ -263,7 +292,12 @@ func (h *Handler) handleWatch(connectionID string, data json.RawMessage) (*Respo
 		return nil, err
 	}
 
-	result := h.watches.Watch(msg.VarID, connectionID)
+	var result backend.WatchResult
+	if h.backendLookup != nil {
+		if b := h.backendLookup.GetBackendForConnection(connectionID); b != nil {
+			result = b.Watch(msg.VarID, connectionID)
+		}
+	}
 
 	// Send current value immediately
 	v, ok := h.store.Get(msg.VarID)
@@ -300,7 +334,12 @@ func (h *Handler) handleUnwatch(connectionID string, data json.RawMessage) (*Res
 		return nil, err
 	}
 
-	result := h.watches.Unwatch(msg.VarID, connectionID)
+	var result backend.UnwatchResult
+	if h.backendLookup != nil {
+		if b := h.backendLookup.GetBackendForConnection(connectionID); b != nil {
+			result = b.Unwatch(msg.VarID, connectionID)
+		}
+	}
 
 	resp := &Response{}
 	if result.ShouldForward {

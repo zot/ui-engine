@@ -18,12 +18,11 @@
       <div class="toolbar">
         <sl-input
           placeholder="Search contacts..."
-          ui-value="searchQuery"
-          ui-event-sl-input="search()"
+          ui-value="searchQuery?keypress"
           clearable>
           <sl-icon name="search" slot="prefix"></sl-icon>
         </sl-input>
-        <sl-button variant="primary" ui-action="presenter.addContact()">
+        <sl-button variant="primary" ui-action="addContact()">
           <sl-icon slot="prefix" name="plus-lg"></sl-icon>
           Add Contact
         </sl-button>
@@ -80,8 +79,8 @@
       </div>
 
       <div class="form-actions">
-        <sl-button variant="default" ui-action="presenter.cancelEdit()">Cancel</sl-button>
-        <sl-button variant="primary" ui-action="presenter.saveContact()">
+        <sl-button variant="default" ui-action="cancelEdit()">Cancel</sl-button>
+        <sl-button variant="primary" ui-action="saveContact()">
           <sl-icon slot="prefix" name="check-lg"></sl-icon>
           Save Contact
         </sl-button>

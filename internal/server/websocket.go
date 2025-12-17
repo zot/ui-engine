@@ -225,6 +225,14 @@ func (ws *WebSocketEndpoint) GetSessionID(connectionID string) (string, bool) {
 	return sessionID, ok
 }
 
+// GetSessionIDForConnection returns the session ID for a connection.
+// Returns empty string if connection is not found.
+func (ws *WebSocketEndpoint) GetSessionIDForConnection(connectionID string) string {
+	ws.mu.RLock()
+	defer ws.mu.RUnlock()
+	return ws.sessionBindings[connectionID]
+}
+
 // IsSessionReconnectable checks if a session can be rejoined.
 // A session can be rejoined if it exists and hasn't timed out.
 func (ws *WebSocketEndpoint) IsSessionReconnectable(sessionID string) bool {

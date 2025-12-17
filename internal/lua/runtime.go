@@ -14,6 +14,7 @@ import (
 
 	changetracker "github.com/zot/change-tracker"
 	lua "github.com/yuin/gopher-lua"
+	"github.com/zot/ui/internal/bundle"
 )
 
 // WorkItem represents a unit of work for the executor.
@@ -103,13 +104,40 @@ func NewRuntime(luaDir string) (*Runtime, error) {
 	lua.OpenMath(L)
 	lua.OpenOs(L)
 
+	// Register custom require() that works with both filesystem and bundle
+	r.registerRequire()
+
 	// Register UI module
 	r.registerUIModule()
+
+	// Try to load session module (lib/lua/session.lua) - optional for testing
+	r.loadSessionModule()
 
 	// Start executor goroutine
 	r.startExecutor()
 
 	return r, nil
+}
+
+// loadSessionModule tries to load lib/lua/session.lua and stores the module globally.
+// Returns silently if module not found (allows tests to work without it).
+func (r *Runtime) loadSessionModule() {
+	L := r.state
+
+	// Try to load the session module via require
+	if err := L.DoString(`_SessionModule = require("session")`); err != nil {
+		if r.verbosity >= 2 {
+			log.Printf("[v2] LuaRuntime: session module not found, using inline fallback")
+		}
+		return
+	}
+
+	// Verify we got the module
+	if L.GetGlobal("_SessionModule") == lua.LNil {
+		if r.verbosity >= 2 {
+			log.Printf("[v2] LuaRuntime: session module returned nil")
+		}
+	}
 }
 
 // SetVerbosity sets the verbosity level.
@@ -248,28 +276,194 @@ func (r *Runtime) GetLuaSession(vendedID string) (*LuaSession, bool) {
 	return session, ok
 }
 
-// createSessionTable creates the session object with all methods.
+// createSessionTable creates the session object using lib/lua/session.lua module.
+// Falls back to inline creation if module not loaded (for testing).
 // vendedID is the compact session ID (e.g., "1", "2") exposed to Lua code.
 func (r *Runtime) createSessionTable(L *lua.LState, vendedID string) *lua.LTable {
-	session := L.NewTable()
+	// Get Session class from loaded module
+	sessionModule := L.GetGlobal("_SessionModule")
+	var session *lua.LTable
 
-	// Internal state
-	variables := L.NewTable() // varId -> Variable wrapper
-	watchers := L.NewTable()  // varId -> { property -> callbacks[] }
+	if sessionModule != lua.LNil {
+		// Use session module
+		sessionModTbl := sessionModule.(*lua.LTable)
+		SessionClass := L.GetField(sessionModTbl, "Session").(*lua.LTable)
 
-	L.SetField(session, "_variables", variables)
-	L.SetField(session, "_watchers", watchers)
+		// Call Session.new() to create session instance (no backend = embedded mode)
+		L.Push(L.GetField(SessionClass, "new"))
+		L.Push(SessionClass)
+		if err := L.PCall(1, 1, nil); err != nil {
+			log.Printf("[lua] Session.new() failed: %v", err)
+			session = r.createFallbackSessionTable(L, vendedID)
+		} else {
+			session = L.Get(-1).(*lua.LTable)
+			L.Pop(1)
+		}
+	} else {
+		// Fallback for tests - create minimal session table
+		session = r.createFallbackSessionTable(L, vendedID)
+	}
+
+	// Store session ID
 	L.SetField(session, "_sessionID", lua.LString(vendedID))
 
-	// session:createAppVariable(object, properties)
-	// Creates variable 1 (the app variable) - called by main.lua
-	// The object is a Lua table that the variable references (for change detection)
-	// If no type property is provided, extracts from object's metatable "type" field
+	// Inject Go functions (only if module-based session)
+	if sessionModule != lua.LNil {
+		r.injectSessionFunctions(L, session, vendedID)
+	}
+
+	// Add Go-specific methods that need access to Go structs
+	r.addGoSessionMethods(L, session, vendedID)
+
+	return session
+}
+
+// createFallbackSessionTable creates a minimal session table for testing when module not loaded.
+func (r *Runtime) createFallbackSessionTable(L *lua.LState, vendedID string) *lua.LTable {
+	session := L.NewTable()
+	L.SetField(session, "_variables", L.NewTable())
+	L.SetField(session, "_watchers", L.NewTable())
+	// Create weak-keyed _objectToId table
+	objectToId := L.NewTable()
+	mt := L.NewTable()
+	L.SetField(mt, "__mode", lua.LString("k"))
+	L.SetMetatable(objectToId, mt)
+	L.SetField(session, "_objectToId", objectToId)
+	return session
+}
+
+// injectSessionFunctions injects Go backend functions into a Lua session.
+func (r *Runtime) injectSessionFunctions(L *lua.LState, session *lua.LTable, vendedID string) {
+	// _setGetValueFn - get variable value
+	setGetValueFn := L.GetField(session, "_setGetValueFn")
+	if setGetValueFn != lua.LNil {
+		L.Push(setGetValueFn)
+		L.Push(session)
+		L.Push(L.NewFunction(func(L *lua.LState) int {
+			id := L.CheckInt64(1)
+			value, _, ok := r.variableStore.Get(id)
+			if !ok {
+				L.Push(lua.LNil)
+				return 1
+			}
+			var goVal interface{}
+			if len(value) > 0 {
+				json.Unmarshal(value, &goVal)
+			}
+			L.Push(goToLua(L, goVal))
+			return 1
+		}))
+		L.PCall(2, 0, nil)
+	}
+
+	// _setGetPropertyFn - get variable property
+	setGetPropertyFn := L.GetField(session, "_setGetPropertyFn")
+	if setGetPropertyFn != lua.LNil {
+		L.Push(setGetPropertyFn)
+		L.Push(session)
+		L.Push(L.NewFunction(func(L *lua.LState) int {
+			id := L.CheckInt64(1)
+			name := L.CheckString(2)
+			prop, ok := r.variableStore.GetProperty(id, name)
+			if !ok {
+				L.Push(lua.LNil)
+				return 1
+			}
+			L.Push(lua.LString(prop))
+			return 1
+		}))
+		L.PCall(2, 0, nil)
+	}
+
+	// _setCreateFn - create variable (basic version, used by session.lua createVariable)
+	setCreateFn := L.GetField(session, "_setCreateFn")
+	if setCreateFn != lua.LNil {
+		L.Push(setCreateFn)
+		L.Push(session)
+		L.Push(L.NewFunction(func(L *lua.LState) int {
+			parentID := L.CheckInt64(1)
+			luaObject := L.CheckTable(2)
+			propsTable := L.OptTable(3, nil)
+
+			props := make(map[string]string)
+			if propsTable != nil {
+				propsTable.ForEach(func(k, v lua.LValue) {
+					if ks, ok := k.(lua.LString); ok {
+						props[string(ks)] = lua.LVAsString(v)
+					}
+				})
+			}
+
+			// Extract type from metatable (frictionless convention)
+			r.extractTypeProperty(L, luaObject, props)
+
+			id, err := r.variableStore.CreateVariable(vendedID, parentID, luaObject, props)
+			if err != nil {
+				L.Push(lua.LNil)
+				return 1
+			}
+			L.Push(lua.LNumber(id))
+			return 1
+		}))
+		L.PCall(2, 0, nil)
+	}
+
+	// _setUpdateFn - update variable
+	setUpdateFn := L.GetField(session, "_setUpdateFn")
+	if setUpdateFn != lua.LNil {
+		L.Push(setUpdateFn)
+		L.Push(session)
+		L.Push(L.NewFunction(func(L *lua.LState) int {
+			id := L.CheckInt64(1)
+			value := L.Get(2)
+			propsTable := L.OptTable(3, nil)
+
+			var jsonValue json.RawMessage
+			if value != lua.LNil {
+				goValue := luaToGo(value)
+				if goValue != nil {
+					data, _ := json.Marshal(goValue)
+					jsonValue = data
+				}
+			}
+
+			var props map[string]string
+			if propsTable != nil {
+				props = make(map[string]string)
+				propsTable.ForEach(func(k, v lua.LValue) {
+					if ks, ok := k.(lua.LString); ok {
+						props[string(ks)] = lua.LVAsString(v)
+					}
+				})
+			}
+
+			r.variableStore.Update(id, jsonValue, props)
+			return 0
+		}))
+		L.PCall(2, 0, nil)
+	}
+
+	// _setDestroyFn - destroy variable
+	setDestroyFn := L.GetField(session, "_setDestroyFn")
+	if setDestroyFn != lua.LNil {
+		L.Push(setDestroyFn)
+		L.Push(session)
+		L.Push(L.NewFunction(func(L *lua.LState) int {
+			id := L.CheckInt64(1)
+			r.variableStore.Destroy(id)
+			return 0
+		}))
+		L.PCall(2, 0, nil)
+	}
+}
+
+// addGoSessionMethods adds Go-specific methods that need access to Go structs.
+func (r *Runtime) addGoSessionMethods(L *lua.LState, session *lua.LTable, vendedID string) {
+	// createAppVariable - creates variable 1 and stores reference in Go struct
 	L.SetField(session, "createAppVariable", L.NewFunction(func(L *lua.LState) int {
 		luaObject := L.CheckTable(2)
 		propsTable := L.OptTable(3, nil)
 
-		// Convert properties
 		props := make(map[string]string)
 		if propsTable != nil {
 			propsTable.ForEach(func(k, v lua.LValue) {
@@ -279,50 +473,38 @@ func (r *Runtime) createSessionTable(L *lua.LState, vendedID string) *lua.LTable
 			})
 		}
 
-		// Extract type from metatable's "type" field (frictionless convention)
-		if props["type"] == "" {
-			// First check metatable
-			mt := L.GetMetatable(luaObject)
-			if mt != lua.LNil {
-				if mtTbl, ok := mt.(*lua.LTable); ok {
-					if typeVal := L.GetField(mtTbl, "type"); typeVal != lua.LNil {
-						props["type"] = lua.LVAsString(typeVal)
-					}
-				}
-			}
-			// Fall back to direct "type" field on object
-			if props["type"] == "" {
-				if typeVal := L.GetField(luaObject, "type"); typeVal != lua.LNil {
-					props["type"] = lua.LVAsString(typeVal)
-				}
-			}
-		}
+		r.extractTypeProperty(L, luaObject, props)
 
-		// Create variable using tracker (parentID 0 for app variable)
+		// Create app variable (parentID 0)
 		id, err := r.variableStore.CreateVariable(vendedID, 0, luaObject, props)
 		if err != nil {
 			L.RaiseError("failed to create app variable: %v", err)
 			return 0
 		}
 
-		// Store app variable ID and object reference in session
+		// Store in Go struct for getApp() access
 		luaSess, ok := r.GetLuaSession(vendedID)
 		if ok {
 			luaSess.appVariableID = id
 			luaSess.appObject = luaObject
 		}
 
+		// Track in session's _objectToId
+		objectToId := L.GetField(session, "_objectToId")
+		if objectToId != lua.LNil {
+			L.SetField(objectToId.(*lua.LTable), "", lua.LNumber(id)) // weak key
+			L.RawSet(objectToId.(*lua.LTable), luaObject, lua.LNumber(id))
+		}
+
 		if r.verbosity >= 2 {
 			log.Printf("[v2] LuaRuntime: created app variable %d for session %s", id, vendedID)
 		}
 
-		// Return the variable ID (not a wrapper - Lua code should use getApp() to access the object)
 		L.Push(lua.LNumber(id))
 		return 1
 	}))
 
-	// session:getApp()
-	// Returns the actual Lua app object (not a wrapper) for direct modification
+	// getApp - returns the Lua app object directly (not a wrapper)
 	L.SetField(session, "getApp", L.NewFunction(func(L *lua.LState) int {
 		luaSess, ok := r.GetLuaSession(vendedID)
 		if !ok || luaSess.appObject == nil {
@@ -333,47 +515,22 @@ func (r *Runtime) createSessionTable(L *lua.LState, vendedID string) *lua.LTable
 		return 1
 	}))
 
-	// session:getAppVariable() - DEPRECATED, use getApp() instead
-	// Returns a variable wrapper for backward compatibility
-	L.SetField(session, "getAppVariable", L.NewFunction(func(L *lua.LState) int {
-		// Get app variable ID from session
-		luaSess, ok := r.GetLuaSession(vendedID)
-		if !ok || luaSess.appVariableID == 0 {
-			L.Push(lua.LNil)
-			return 1
-		}
-		// Return variable wrapper for backward compatibility
-		varWrapper := r.getOrCreateVariableWrapper(L, session, luaSess.appVariableID)
-		L.Push(varWrapper)
-		return 1
-	}))
-
-	// session:getVariable(id)
-	L.SetField(session, "getVariable", L.NewFunction(func(L *lua.LState) int {
-		id := L.CheckInt64(2)
-		varWrapper := r.getOrCreateVariableWrapper(L, session, id)
-		L.Push(varWrapper)
-		return 1
-	}))
-
-	// session:createVariable(parentId, object, properties)
-	// Creates a child variable referencing a Lua object
-	// parentId can be a number (variable ID) or a table (looked up via tracker's object registry)
-	// If no type property is provided, extracts from object's metatable "type" field
+	// Override createVariable to support parent lookup by object reference
 	L.SetField(session, "createVariable", L.NewFunction(func(L *lua.LState) int {
-		// Parent can be ID (number) or object (table)
 		var parentID int64
 		parentArg := L.Get(2)
 		switch p := parentArg.(type) {
 		case lua.LNumber:
 			parentID = int64(p)
 		case *lua.LTable:
-			// Look up parent ID by object reference via tracker
+			// Look up variable ID by object reference
 			tracker := r.variableStore.GetTracker(vendedID)
 			if tracker != nil {
-				id, found := tracker.LookupObject(p)
-				if found {
-					parentID = id
+				for _, v := range tracker.RootVariables() {
+					if v.Value == p {
+						parentID = v.ID
+						break
+					}
 				}
 			}
 			if parentID == 0 {
@@ -388,7 +545,6 @@ func (r *Runtime) createSessionTable(L *lua.LState, vendedID string) *lua.LTable
 		luaObject := L.CheckTable(3)
 		propsTable := L.OptTable(4, nil)
 
-		// Convert properties
 		props := make(map[string]string)
 		if propsTable != nil {
 			propsTable.ForEach(func(k, v lua.LValue) {
@@ -398,39 +554,25 @@ func (r *Runtime) createSessionTable(L *lua.LState, vendedID string) *lua.LTable
 			})
 		}
 
-		// Extract type from metatable's "type" field (frictionless convention)
-		if props["type"] == "" {
-			// First check metatable
-			mt := L.GetMetatable(luaObject)
-			if mt != lua.LNil {
-				if mtTbl, ok := mt.(*lua.LTable); ok {
-					if typeVal := L.GetField(mtTbl, "type"); typeVal != lua.LNil {
-						props["type"] = lua.LVAsString(typeVal)
-					}
-				}
-			}
-			// Fall back to direct "type" field on object
-			if props["type"] == "" {
-				if typeVal := L.GetField(luaObject, "type"); typeVal != lua.LNil {
-					props["type"] = lua.LVAsString(typeVal)
-				}
-			}
-		}
+		r.extractTypeProperty(L, luaObject, props)
 
-		// Create variable using tracker
 		id, err := r.variableStore.CreateVariable(vendedID, parentID, luaObject, props)
 		if err != nil {
 			L.Push(lua.LNil)
 			return 1
 		}
 
-		// Return the variable ID
+		// Track in session's _objectToId
+		objectToId := L.GetField(session, "_objectToId")
+		if objectToId != lua.LNil {
+			L.RawSet(objectToId.(*lua.LTable), luaObject, lua.LNumber(id))
+		}
+
 		L.Push(lua.LNumber(id))
 		return 1
 	}))
 
-	// session:destroyVariable(idOrObject)
-	// Destroys a variable by ID or by object reference
+	// Override destroyVariable to support object reference lookup
 	L.SetField(session, "destroyVariable", L.NewFunction(func(L *lua.LState) int {
 		var id int64
 		arg := L.Get(2)
@@ -438,7 +580,6 @@ func (r *Runtime) createSessionTable(L *lua.LState, vendedID string) *lua.LTable
 		case lua.LNumber:
 			id = int64(v)
 		case *lua.LTable:
-			// Look up ID by object reference via tracker
 			tracker := r.variableStore.GetTracker(vendedID)
 			if tracker != nil {
 				foundID, found := tracker.LookupObject(v)
@@ -447,188 +588,46 @@ func (r *Runtime) createSessionTable(L *lua.LState, vendedID string) *lua.LTable
 				}
 			}
 			if id == 0 {
-				// Object not found - nothing to destroy
-				return 0
+				return 0 // Object not found - nothing to destroy
 			}
 		default:
 			L.RaiseError("destroyVariable: argument must be a number or table")
 			return 0
 		}
 
-		if err := r.variableStore.Destroy(id); err != nil {
-			if r.verbosity >= 2 {
-				log.Printf("[v2] LuaRuntime: destroyVariable error: %v", err)
-			}
+		if err := r.variableStore.Destroy(id); err != nil && r.verbosity >= 2 {
+			log.Printf("[v2] LuaRuntime: destroyVariable error: %v", err)
 		}
 
-		// Remove from cache
-		variables := L.GetField(session, "_variables").(*lua.LTable)
-		L.SetField(variables, fmt.Sprintf("%d", id), lua.LNil)
+		// Remove from session's _variables cache
+		variables := L.GetField(session, "_variables")
+		if variables != lua.LNil {
+			L.SetField(variables.(*lua.LTable), fmt.Sprintf("%d", id), lua.LNil)
+		}
 
 		return 0
 	}))
-
-	// session:watchVariable(id, callback)
-	L.SetField(session, "watchVariable", L.NewFunction(func(L *lua.LState) int {
-		id := L.CheckInt64(2)
-		callback := L.CheckFunction(3)
-		r.addPropertyWatcher(L, session, id, "*", callback)
-		return 0
-	}))
-
-	// session:watchProperty(id, property, callback)
-	L.SetField(session, "watchProperty", L.NewFunction(func(L *lua.LState) int {
-		id := L.CheckInt64(2)
-		property := L.CheckString(3)
-		callback := L.CheckFunction(4)
-		r.addPropertyWatcher(L, session, id, property, callback)
-		return 0
-	}))
-
-	return session
 }
 
-// getOrCreateVariableWrapper gets or creates a Variable wrapper for an ID.
-func (r *Runtime) getOrCreateVariableWrapper(L *lua.LState, session *lua.LTable, id int64) *lua.LTable {
-	variables := L.GetField(session, "_variables").(*lua.LTable)
-	key := fmt.Sprintf("%d", id)
-	existing := L.GetField(variables, key)
-	if existing != lua.LNil {
-		return existing.(*lua.LTable)
+// extractTypeProperty extracts type from metatable or direct field (frictionless convention).
+func (r *Runtime) extractTypeProperty(L *lua.LState, obj *lua.LTable, props map[string]string) {
+	if props["type"] != "" {
+		return
 	}
-
-	// Create new wrapper
-	wrapper := r.createVariableWrapper(L, session, id)
-	L.SetField(variables, key, wrapper)
-	return wrapper
-}
-
-// createVariableWrapper creates a Variable wrapper object.
-func (r *Runtime) createVariableWrapper(L *lua.LState, session *lua.LTable, id int64) *lua.LTable {
-	wrapper := L.NewTable()
-	L.SetField(wrapper, "_id", lua.LNumber(id))
-	L.SetField(wrapper, "_session", session)
-
-	// var:getId()
-	L.SetField(wrapper, "getId", L.NewFunction(func(L *lua.LState) int {
-		self := L.CheckTable(1)
-		varID := L.GetField(self, "_id")
-		L.Push(varID)
-		return 1
-	}))
-
-	// var:getValue()
-	L.SetField(wrapper, "getValue", L.NewFunction(func(L *lua.LState) int {
-		self := L.CheckTable(1)
-		varID := int64(L.GetField(self, "_id").(lua.LNumber))
-		value, _, ok := r.variableStore.Get(varID)
-		if !ok {
-			L.Push(lua.LNil)
-			return 1
-		}
-		// Parse JSON value
-		var goVal interface{}
-		if len(value) > 0 {
-			json.Unmarshal(value, &goVal)
-		}
-		L.Push(goToLua(L, goVal))
-		return 1
-	}))
-
-	// var:getProperty(name)
-	L.SetField(wrapper, "getProperty", L.NewFunction(func(L *lua.LState) int {
-		self := L.CheckTable(1)
-		name := L.CheckString(2)
-		varID := int64(L.GetField(self, "_id").(lua.LNumber))
-		prop, ok := r.variableStore.GetProperty(varID, name)
-		if !ok {
-			L.Push(lua.LNil)
-			return 1
-		}
-		L.Push(lua.LString(prop))
-		return 1
-	}))
-
-	// var:update(value, properties)
-	L.SetField(wrapper, "update", L.NewFunction(func(L *lua.LState) int {
-		self := L.CheckTable(1)
-		value := L.Get(2)
-		propsTable := L.OptTable(3, nil)
-		varID := int64(L.GetField(self, "_id").(lua.LNumber))
-
-		// Convert value to JSON
-		var jsonValue json.RawMessage
-		if value != lua.LNil {
-			goValue := luaToGo(value)
-			if goValue != nil {
-				data, _ := json.Marshal(goValue)
-				jsonValue = data
+	// First check metatable
+	mt := L.GetMetatable(obj)
+	if mt != lua.LNil {
+		if mtTbl, ok := mt.(*lua.LTable); ok {
+			if typeVal := L.GetField(mtTbl, "type"); typeVal != lua.LNil {
+				props["type"] = lua.LVAsString(typeVal)
+				return
 			}
 		}
-
-		// Convert properties
-		var props map[string]string
-		if propsTable != nil {
-			props = make(map[string]string)
-			propsTable.ForEach(func(k, v lua.LValue) {
-				if ks, ok := k.(lua.LString); ok {
-					props[string(ks)] = lua.LVAsString(v)
-				}
-			})
-		}
-
-		if err := r.variableStore.Update(varID, jsonValue, props); err != nil {
-			if r.verbosity >= 2 {
-				log.Printf("[v2] LuaRuntime: update error: %v", err)
-			}
-		}
-		return 0
-	}))
-
-	// var:updateProperties(properties)
-	L.SetField(wrapper, "updateProperties", L.NewFunction(func(L *lua.LState) int {
-		self := L.CheckTable(1)
-		propsTable := L.CheckTable(2)
-		varID := int64(L.GetField(self, "_id").(lua.LNumber))
-
-		props := make(map[string]string)
-		propsTable.ForEach(func(k, v lua.LValue) {
-			if ks, ok := k.(lua.LString); ok {
-				props[string(ks)] = lua.LVAsString(v)
-			}
-		})
-
-		if err := r.variableStore.Update(varID, nil, props); err != nil {
-			if r.verbosity >= 2 {
-				log.Printf("[v2] LuaRuntime: updateProperties error: %v", err)
-			}
-		}
-		return 0
-	}))
-
-	return wrapper
-}
-
-// addPropertyWatcher adds a watcher for a property on a variable.
-func (r *Runtime) addPropertyWatcher(L *lua.LState, session *lua.LTable, varID int64, property string, callback *lua.LFunction) {
-	watchers := L.GetField(session, "_watchers").(*lua.LTable)
-	key := fmt.Sprintf("%d", varID)
-
-	varWatchers := L.GetField(watchers, key)
-	if varWatchers == lua.LNil {
-		varWatchers = L.NewTable()
-		L.SetField(watchers, key, varWatchers)
 	}
-
-	propWatchers := L.GetField(varWatchers.(*lua.LTable), property)
-	if propWatchers == lua.LNil {
-		propWatchers = L.NewTable()
-		L.SetField(varWatchers.(*lua.LTable), property, propWatchers)
+	// Fall back to direct "type" field
+	if typeVal := L.GetField(obj, "type"); typeVal != lua.LNil {
+		props["type"] = lua.LVAsString(typeVal)
 	}
-
-	// Append callback to list
-	tbl := propWatchers.(*lua.LTable)
-	tbl.Append(callback)
 }
 
 // NotifyPropertyChange notifies Lua watchers of a property change for a session.
@@ -772,6 +771,7 @@ func (r *Runtime) AfterBatch(vendedID string) []VariableUpdate {
 
 // HandleFrontendCreate handles a variable create message from the frontend.
 // For path-based variables, it creates the variable in the tracker and resolves the path.
+// If a wrapper property is set, the wrapper transforms the value.
 // Returns the variable ID and resolved value.
 func (r *Runtime) HandleFrontendCreate(parentID int64, properties map[string]string) (int64, json.RawMessage, error) {
 	path := properties["path"]
@@ -821,11 +821,60 @@ func (r *Runtime) HandleFrontendCreate(parentID int64, properties map[string]str
 		return v.ID, nil, nil
 	}
 
+	// Check for wrapper and apply transformation
+	wrapperType := properties["wrapper"]
+	if wrapperType != "" {
+		factory, ok := GetGlobalWrapperFactory(wrapperType)
+		if ok {
+			// Create a WrapperVariable adapter for the tracker variable
+			wrapperVar := &trackerVariableAdapter{
+				v:          v,
+				jsonValue:  jsonValue,
+				properties: properties,
+			}
+			wrapper := factory(r, wrapperVar)
+			if wrapper != nil {
+				transformedValue, err := wrapper.ComputeValue(jsonValue)
+				if err != nil {
+					if r.verbosity >= 1 {
+						log.Printf("[v1] HandleFrontendCreate: wrapper %s ComputeValue failed: %v", wrapperType, err)
+					}
+				} else {
+					jsonValue = transformedValue
+					if r.verbosity >= 2 {
+						log.Printf("[v2] HandleFrontendCreate: wrapper %s transformed value to %s", wrapperType, string(jsonValue))
+					}
+				}
+			}
+		} else if r.verbosity >= 1 {
+			log.Printf("[v1] HandleFrontendCreate: wrapper type %s not found", wrapperType)
+		}
+	}
+
 	if r.verbosity >= 2 {
 		log.Printf("[v2] HandleFrontendCreate: created var %d for path %s, value=%s", v.ID, path, string(jsonValue))
 	}
 
 	return v.ID, jsonValue, nil
+}
+
+// trackerVariableAdapter adapts a change-tracker Variable to WrapperVariable interface
+type trackerVariableAdapter struct {
+	v          *changetracker.Variable
+	jsonValue  json.RawMessage
+	properties map[string]string
+}
+
+func (a *trackerVariableAdapter) GetID() int64 {
+	return a.v.ID
+}
+
+func (a *trackerVariableAdapter) GetValue() json.RawMessage {
+	return a.jsonValue
+}
+
+func (a *trackerVariableAdapter) GetProperty(name string) string {
+	return a.properties[name]
 }
 
 // HandleFrontendUpdate handles an update to a path-based variable from the frontend.
@@ -875,6 +924,73 @@ func (r *Runtime) HandleFrontendUpdate(varID int64, value json.RawMessage) error
 	}
 
 	return nil
+}
+
+// registerRequire adds a custom require() function that works with both
+// filesystem (--dir mode) and embedded bundle.
+func (r *Runtime) registerRequire() {
+	L := r.state
+
+	// Table to cache loaded modules (like package.loaded)
+	loaded := L.NewTable()
+
+	requireFn := L.NewFunction(func(L *lua.LState) int {
+		modName := L.CheckString(1)
+
+		// Check if already loaded
+		if cached := L.GetField(loaded, modName); cached != lua.LNil {
+			L.Push(cached)
+			return 1
+		}
+
+		// Convert module name to filename (e.g., "foo.bar" -> "foo/bar.lua")
+		filename := strings.ReplaceAll(modName, ".", string(filepath.Separator)) + ".lua"
+
+		var code string
+
+		// Try filesystem first (works for --dir mode)
+		filePath := filepath.Join(r.luaDir, filename)
+		content, fsErr := os.ReadFile(filePath)
+		if fsErr == nil {
+			code = string(content)
+		} else {
+			// Try bundle (works for bundled binaries)
+			bundlePath := "lua/" + strings.ReplaceAll(modName, ".", "/") + ".lua"
+			bundleContent, bundleErr := bundle.ReadFile(bundlePath)
+			if bundleErr == nil {
+				code = string(bundleContent)
+			} else {
+				L.RaiseError("module '%s' not found:\n\tno file '%s'\n\tno bundled file '%s'",
+					modName, filePath, bundlePath)
+				return 0
+			}
+		}
+
+		// Execute the module code
+		if err := L.DoString(code); err != nil {
+			L.RaiseError("error loading module '%s': %v", modName, err)
+			return 0
+		}
+
+		// Get the return value (module table) or true if nothing returned
+		result := L.Get(-1)
+		if result == lua.LNil {
+			result = lua.LTrue
+		}
+
+		// Cache and return
+		L.SetField(loaded, modName, result)
+		L.Push(result)
+		return 1
+	})
+
+	// Set as global require
+	L.SetGlobal("require", requireFn)
+
+	// Also expose package.loaded for compatibility
+	pkg := L.NewTable()
+	L.SetField(pkg, "loaded", loaded)
+	L.SetGlobal("package", pkg)
 }
 
 // registerUIModule adds the ui.* API to Lua.
@@ -1001,44 +1117,6 @@ func (r *Runtime) LoadCode(name, code string) error {
 		return nil, nil
 	})
 	return err
-}
-
-// LoadDirectory loads all .lua files from a directory via executor.
-func (r *Runtime) LoadDirectory(dir string) error {
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		return err
-	}
-
-	for _, entry := range entries {
-		if entry.IsDir() {
-			continue
-		}
-		if filepath.Ext(entry.Name()) != ".lua" {
-			continue
-		}
-
-		path := filepath.Join(dir, entry.Name())
-		_, err := r.execute(func() (interface{}, error) {
-			r.mu.Lock()
-			defer r.mu.Unlock()
-
-			if r.loadedModules[path] {
-				return nil, nil
-			}
-
-			if err := r.state.DoFile(path); err != nil {
-				return nil, fmt.Errorf("failed to load %s: %w", path, err)
-			}
-			r.loadedModules[path] = true
-			return nil, nil
-		})
-		if err != nil {
-			return err
-		}
-	}
-
-	return nil
 }
 
 // GetPresenterType returns a registered presenter type.

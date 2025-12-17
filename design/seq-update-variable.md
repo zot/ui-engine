@@ -6,48 +6,46 @@
 ## Participants
 
 - Sender: Frontend or backend initiating update
-- ProtocolHandler: Message processor
+- Session: Frontend layer session
+- LuaBackend: Per-session backend (implements Backend interface)
 - VariableStore: Variable storage
-- WatchManager: Watch subscription manager
 - MessageRelay: Message forwarding
 
 ## Sequence
 
 ```
-     Sender            ProtocolHandler         VariableStore          WatchManager          MessageRelay
-        |                      |                      |                      |                      |
-        |--update(varId,------>|                      |                      |                      |
-        |   value?,props?)     |                      |                      |                      |
-        |                      |                      |                      |                      |
-        |                      |---parseProps-------->|                      |                      |
-        |                      |   (extract priority) |                      |                      |
-        |                      |                      |                      |                      |
-        |                      |---get(varId)-------->|                      |                      |
-        |                      |                      |                      |                      |
-        |                      |<--variable-----------|                      |                      |
-        |                      |                      |                      |                      |
-        |                      |     [if value provided]                     |                      |
-        |                      |---setValue---------->|                      |                      |
-        |                      |                      |                      |                      |
-        |                      |     [if props provided]                     |                      |
-        |                      |---setProps---------->|                      |                      |
-        |                      |   (by priority)      |                      |                      |
-        |                      |                      |                      |                      |
-        |                      |                      |---store()----------->|                      |
-        |                      |                      |                      |                      |
-        |                      |     [if variable is watched]                |                      |
-        |                      |---getWatchers------->|                      |                      |
-        |                      |                      |---getWatchers------->|                      |
-        |                      |                      |                      |                      |
-        |                      |                      |<--watcher list-------|                      |
-        |                      |                      |                      |                      |
-        |                      |     [if not inactive]                       |                      |
-        |                      |---notifyWatchers---->|                      |                      |
-        |                      |                      |                      |---send update------->|
-        |                      |                      |                      |                      |
-        |                      |          [relay to other side]              |                      |
-        |                      |----------------------------------------relay update-------------->|
-        |                      |                      |                      |                      |
+     Sender              Session            LuaBackend           VariableStore         MessageRelay
+        |                   |                   |                      |                      |
+        |--update(varId,--->|                   |                      |                      |
+        |   value?,props?)  |                   |                      |                      |
+        |                   |                   |                      |                      |
+        |                   |--HandleMessage--->|                      |                      |
+        |                   |                   |                      |                      |
+        |                   |                   |---parseProps-------->|                      |
+        |                   |                   |   (extract priority) | (self)               |
+        |                   |                   |                      |                      |
+        |                   |                   |---get(varId)-------->|                      |
+        |                   |                   |                      |                      |
+        |                   |                   |<--variable-----------|                      |
+        |                   |                   |                      |                      |
+        |                   |                   |     [if value provided]                     |
+        |                   |                   |---setValue---------->|                      |
+        |                   |                   |                      |                      |
+        |                   |                   |     [if props provided]                     |
+        |                   |                   |---setProps---------->|                      |
+        |                   |                   |   (by priority)      |                      |
+        |                   |                   |                      |                      |
+        |                   |                   |                      |---store()----------->|
+        |                   |                   |                      |                      | (self)
+        |                   |                   |                      |                      |
+        |                   |                   |     [after batch - change detection]        |
+        |                   |                   |---DetectChanges()--->|                      |
+        |                   |                   |   (tracker)          | (self)               |
+        |                   |                   |                      |                      |
+        |                   |                   |     [for changed vars with watchers]        |
+        |                   |                   |---send(update)------>|                      |
+        |                   |                   |                      |---------------send-->|
+        |                   |                   |                      |                      |
 ```
 
 ## Notes
@@ -55,5 +53,6 @@
 - Property priority suffixes determine processing order
 - Value and properties both optional in update
 - Inactive variables suppress update notifications
-- Updates relayed bidirectionally (frontend <-> backend)
+- **Per-session change detection**: LuaBackend.DetectChanges() after batch processing
+- **Per-session watchers**: Watchers map is in LuaBackend, not global
 - Source of truth holder stores changes; relay-only forwards

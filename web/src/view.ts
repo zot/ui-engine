@@ -6,6 +6,7 @@ import { isObjectReference } from './variable';
 import { ViewdefStore } from './viewdef_store';
 import { cloneViewdefContent } from './viewdef';
 import { VariableStore } from './connection';
+import { ViewList, createViewList } from './viewlist';
 
 // Counter for unique HTML ids
 let nextHtmlId = 1;
@@ -25,6 +26,8 @@ export class View {
   private variableStore: VariableStore;
   private unwatch: (() => void) | null = null;
   private bindCallback?: (element: HTMLElement, variableId: number) => void;
+  private viewLists: ViewList[] = [];
+  private childViews: View[] = [];
 
   constructor(
     element: HTMLElement,
@@ -116,6 +119,13 @@ export class View {
     // Clone template content
     const fragment = cloneViewdefContent(viewdef);
 
+    // Process ui-viewlist elements before binding
+    // Spec: viewdefs.md - Path Resolution: Server-Side Only
+    this.processViewLists(fragment, this.variableId!);
+
+    // Process ui-view elements before binding
+    this.processChildViews(fragment, this.variableId!);
+
     // Apply bindings to cloned content - only bind top-level children,
     // bindElement will handle recursion internally
     if (this.bindCallback) {
@@ -135,8 +145,108 @@ export class View {
     return true;
   }
 
+  // Process ui-viewlist elements in a fragment
+  // Spec: viewdefs.md - Path Resolution: Server-Side Only
+  private processViewLists(fragment: DocumentFragment, contextVarId: number): void {
+    const viewListElements = fragment.querySelectorAll('[ui-viewlist]');
+    for (const el of viewListElements) {
+      if (el instanceof HTMLElement) {
+        this.setupViewList(el, contextVarId);
+      }
+    }
+  }
+
+  // Setup a ui-viewlist element
+  // Spec: viewdefs.md - Path Resolution: Server-Side Only
+  private setupViewList(element: HTMLElement, contextVarId: number): void {
+    const viewList = createViewList(
+      element,
+      this.viewdefStore,
+      this.variableStore,
+      this.bindCallback
+    );
+
+    // Get path and create child variable for backend path resolution
+    const path = element.getAttribute('ui-viewlist');
+    if (path) {
+      // Get the base path and additional properties from ViewList
+      const basePath = viewList.getBasePath();
+      const props = viewList.getVariableProperties();
+
+      // Create child variable with path and ViewList properties (wrapper, item, etc.)
+      const properties: Record<string, string> = {
+        path: basePath,
+        ...props,
+      };
+
+      this.variableStore.create({
+        parentId: contextVarId,
+        properties,
+      }).then((childVarId) => {
+        viewList.setVariable(childVarId);
+      }).catch((err) => {
+        console.error('Failed to create viewlist variable:', err);
+      });
+    }
+
+    this.viewLists.push(viewList);
+  }
+
+  // Process ui-view elements in a fragment
+  private processChildViews(fragment: DocumentFragment, contextVarId: number): void {
+    const viewElements = fragment.querySelectorAll('[ui-view]');
+    for (const el of viewElements) {
+      if (el instanceof HTMLElement) {
+        this.setupChildView(el, contextVarId);
+      }
+    }
+  }
+
+  // Setup a ui-view element
+  // Spec: viewdefs.md - Path Resolution: Server-Side Only
+  private setupChildView(element: HTMLElement, contextVarId: number): void {
+    const view = new View(
+      element,
+      this.viewdefStore,
+      this.variableStore,
+      this.bindCallback
+    );
+
+    // Get path and create child variable for backend path resolution
+    const path = element.getAttribute('ui-view');
+    if (path) {
+      // Parse path to extract base path (without query params)
+      const [basePath] = path.split('?');
+
+      // Create child variable with path property
+      this.variableStore.create({
+        parentId: contextVarId,
+        properties: { path: basePath },
+      }).then((childVarId) => {
+        view.setVariable(childVarId);
+      }).catch((err) => {
+        console.error('Failed to create view variable:', err);
+      });
+    }
+
+    this.childViews.push(view);
+  }
+
   // Clear rendered content
   clear(): void {
+    // Destroy viewLists
+    for (const viewList of this.viewLists) {
+      viewList.destroy();
+    }
+    this.viewLists = [];
+
+    // Destroy child views
+    for (const view of this.childViews) {
+      view.destroy();
+    }
+    this.childViews = [];
+
+    // Clear DOM
     while (this.element.firstChild) {
       this.element.removeChild(this.element.firstChild);
     }

@@ -9,11 +9,14 @@
 - crc-AppPresenter.md
 - crc-ListPresenter.md
 - crc-Session.md
+- crc-Backend.md (UI Server Architecture section)
+- crc-LuaBackend.md (UI Server Architecture - Hosted Backend)
 
 **Sequence Diagrams:**
 - seq-app-startup.md
 - seq-create-presenter.md
 - seq-navigate-page.md
+- seq-session-create-backend.md
 
 **UI Specs:**
 - ui-app-shell.md
@@ -26,11 +29,11 @@
 - crc-Variable.md
 - crc-VariableStore.md
 - crc-ProtocolHandler.md
-- crc-WatchManager.md
 - crc-Wrapper.md
 - crc-ObjectReference.md
 - crc-PathSyntax.md
 - crc-MessageBatcher.md
+- crc-LuaBackend.md (Session-Based Communication)
 
 **Sequence Diagrams:**
 - seq-create-variable.md
@@ -41,6 +44,11 @@
 - seq-relay-message.md
 - seq-path-resolve.md
 - seq-viewdef-delivery.md
+- seq-backend-watch.md
+- seq-backend-detect-changes.md
+
+**Notes:**
+- WatchManager removed - watch functionality merged into LuaBackend (per-session)
 
 ---
 
@@ -51,7 +59,7 @@
 - crc-ViewdefStore.md
 - crc-View.md
 - crc-ViewList.md
-- crc-ViewItem.md
+- crc-ViewListItem.md
 - crc-AppView.md
 - crc-BindingEngine.md
 - crc-ValueBinding.md
@@ -108,6 +116,7 @@
 
 **Sequence Diagrams:**
 - seq-create-session.md
+- seq-session-create-backend.md
 - seq-frontend-connect.md
 - seq-frontend-reconnect.md
 - seq-activate-tab.md
@@ -139,6 +148,7 @@
 
 **CRC Cards:**
 - crc-PathNavigator.md
+- crc-PathSyntax.md (path property defaults)
 - crc-ChangeDetector.md
 - crc-ObjectRegistry.md
 - crc-BackendConnection.md
@@ -146,6 +156,8 @@
 - crc-SPANavigator.md
 - crc-ViewRenderer.md
 - crc-WidgetBinder.md
+- crc-BindingEngine.md (input update behavior)
+- crc-ValueBinding.md (input event selection)
 - crc-MessageRelay.md
 - crc-LuaSession.md
 - crc-LuaVariable.md
@@ -156,11 +168,14 @@
 - seq-lua-session-init.md
 - seq-backend-refresh.md
 - seq-object-registry.md
+- seq-input-value-binding.md
 
 **Notes:**
 - BackendConnection used by external Go backends (connected backend mode)
 - Embedded Lua uses LuaSession instead of BackendConnection
 - ObjectRegistry provides identity-based serialization for Go backends (requires Go 1.25+)
+- Path properties without values default to `true` (e.g., `?keypress` equals `?keypress=true`)
+- Input elements use blur-based events by default; `keypress` property switches to keystroke events
 
 ---
 
@@ -194,10 +209,20 @@
 - [x] `internal/protocol/handler.go` - Protocol message handling
 - [x] `web/src/protocol.ts` - Frontend protocol types and encoding
 
-### crc-WatchManager.md
-**Source Spec:** protocol.md
+### crc-Backend.md
+**Source Spec:** main.md (UI Server Architecture)
 **Implementation:**
-- [x] `internal/variable/watch.go` - Watch subscription management
+- [ ] `internal/backend/backend.go` - Backend interface
+
+### crc-LuaBackend.md
+**Source Spec:** main.md (UI Server Architecture), protocol.md (Session-Based Communication)
+**Implementation:**
+- [ ] `internal/backend/lua.go` - LuaBackend with per-session change-tracker
+
+**Notes:**
+- Merges WatchManager functionality (watchCounts, watchers maps are per-session)
+- Owns change-tracker.Tracker instance (per-session, not global)
+- Fixes bug where global WatchManager maps caused variable ID collisions between sessions
 
 ### crc-Presenter.md
 **Source Spec:** main.md
@@ -240,10 +265,10 @@
 - [x] `web/src/viewlist.ts` - ViewList class for ui-viewlist elements (frontend)
 - [x] `internal/lua/viewlist_wrapper.go` - ViewList wrapper (backend)
 
-### crc-ViewItem.md
+### crc-ViewListItem.md
 **Source Spec:** viewdefs.md
 **Implementation:**
-- [ ] `internal/lua/viewitem.go` - ViewItem struct (baseItem, item, list, index)
+- [ ] `internal/lua/viewlistitem.go` - ViewListItem struct (item, list, index)
 
 ### crc-AppView.md
 **Source Spec:** viewdefs.md
@@ -253,12 +278,12 @@
 ### crc-BindingEngine.md
 **Source Spec:** viewdefs.md, libraries.md
 **Implementation:**
-- [x] `web/src/binding.ts` - Binding engine (includes value and event bindings)
+- [x] `web/src/binding.ts` - Binding engine with child variable architecture (all bindings create child variables for server-side path resolution)
 
 ### crc-ValueBinding.md
-**Source Spec:** viewdefs.md
+**Source Spec:** viewdefs.md, libraries.md
 **Implementation:**
-- [x] `web/src/binding.ts` - Value bindings (combined with BindingEngine)
+- [x] `web/src/binding.ts` - Value bindings with child variable creation, event selection based on keypress property
 
 ### crc-EventBinding.md
 **Source Spec:** viewdefs.md
@@ -266,9 +291,10 @@
 - [x] `web/src/binding.ts` - Event bindings (combined with BindingEngine)
 
 ### crc-Session.md
-**Source Spec:** main.md, interfaces.md
+**Source Spec:** main.md (UI Server Architecture - Frontend Layer), interfaces.md
 **Implementation:**
 - [x] `internal/session/session.go` - Session struct
+- [ ] `internal/session/session.go` - Add backend field, delegate to Backend
 
 ### crc-SessionManager.md
 **Source Spec:** interfaces.md, protocol.md
@@ -382,7 +408,7 @@
 **Source Spec:** libraries.md
 **Implementation:**
 - [x] `lib/go/change.go` - Go change detection
-- [x] `lib/lua/change.lua` - Lua change detection
+- [x] `lib/lua/change.lua` - Lua change detection (to be removed - superseded by Go change-tracker)
 
 ### crc-ObjectRegistry.md
 **Source Spec:** libraries.md
@@ -408,7 +434,7 @@
 ### crc-WidgetBinder.md
 **Source Spec:** libraries.md, components.md
 **Implementation:**
-- [x] `web/src/widgets.ts` - Widget bindings
+- [x] `web/src/binding.ts` - Widget bindings for Shoelace inputs (sl-input/sl-textarea event selection based on keypress) integrated into BindingEngine
 
 ### crc-ObjectReference.md
 **Source Spec:** protocol.md
@@ -417,10 +443,10 @@
 - [x] `web/src/variable.ts` - Frontend ObjectReference type
 
 ### crc-PathSyntax.md
-**Source Spec:** protocol.md, viewdefs.md
+**Source Spec:** protocol.md, viewdefs.md, libraries.md
 **Implementation:**
 - [x] `internal/path/syntax.go` - Path parsing
-- [x] `web/src/binding.ts` - Frontend path parsing (in parsePath/resolvePath)
+- [x] `web/src/binding.ts` - Frontend path parsing (properties without values default to true)
 
 ### crc-BackendSocket.md
 **Source Spec:** deployment.md, interfaces.md
@@ -444,3 +470,14 @@
 - [x] `internal/lua/wrapper.go` - Wrapper interface and registry
 - [x] `internal/lua/viewlist_wrapper.go` - ViewList wrapper implementation
 - [ ] `lib/wrapper.lua` - Lua wrapper base (optional - Go implementation complete)
+
+---
+
+## Removed Design Elements
+
+### crc-WatchManager.md (REMOVED)
+**Status:** Functionality merged into crc-LuaBackend.md
+**Reason:** WatchManager used global maps keyed by varID, but variable IDs are only unique within a session. Per-session watch management is now handled by LuaBackend.
+**Implementation to remove:**
+- [ ] `internal/variable/watch.go` - WatchManager (remove)
+- [ ] `lib/lua/change.lua` - Lua change detection (remove - superseded by Go change-tracker)

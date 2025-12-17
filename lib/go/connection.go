@@ -178,7 +178,7 @@ func (c *Connection) Create(parentID int64, value interface{}, props map[string]
 	}
 
 	if resp.Error != "" {
-		return 0, fmt.Errorf(resp.Error)
+		return 0, fmt.Errorf("%s", resp.Error)
 	}
 
 	// Result should contain the new variable ID
@@ -246,7 +246,7 @@ func (c *Connection) Get(ids ...int64) ([]interface{}, error) {
 	}
 
 	if resp.Error != "" {
-		return nil, fmt.Errorf(resp.Error)
+		return nil, fmt.Errorf("%s", resp.Error)
 	}
 
 	if result, ok := resp.Result.([]interface{}); ok {

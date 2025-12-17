@@ -22,7 +22,8 @@ export interface ParsedPath {
 }
 
 // Parse a path like "father.name?create=Person&wrapper=ViewList&item=ContactPresenter"
-// Spec: protocol.md - Path property syntax
+// Properties without values default to "true": "name?keypress" equals "name?keypress=true"
+// Spec: protocol.md - Path property syntax, libraries.md - View rendering
 export function parsePath(path: string): ParsedPath {
   const [pathPart, queryPart] = path.split('?');
   const segments = pathPart.split('.');
@@ -31,22 +32,28 @@ export function parsePath(path: string): ParsedPath {
   if (queryPart) {
     const params = new URLSearchParams(queryPart);
 
+    // Helper to get value, defaulting empty to "true"
+    const getValue = (key: string): string => {
+      const val = params.get(key);
+      return val === '' ? 'true' : val!;
+    };
+
     // Extract well-known properties
     if (params.has('create')) {
-      options.create = params.get('create')!;
+      options.create = getValue('create');
     }
     if (params.has('wrapper')) {
-      options.wrapper = params.get('wrapper')!;
+      options.wrapper = getValue('wrapper');
     }
     if (params.has('item')) {
-      options.item = params.get('item')!;
+      options.item = getValue('item');
     }
 
-    // Collect remaining properties
+    // Collect remaining properties (empty values become "true")
     const props: Record<string, string> = {};
     params.forEach((value, key) => {
       if (key !== 'create' && key !== 'wrapper' && key !== 'item') {
-        props[key] = value;
+        props[key] = value === '' ? 'true' : value;
       }
     });
     if (Object.keys(props).length > 0) {
@@ -186,11 +193,15 @@ export class BindingEngine {
 
   // Create a value binding (sets textContent or value, and handles changes)
   // Spec: viewdefs.md - Nullish path handling with error indicators
+  // Spec: libraries.md - Input update behavior (blur by default, keypress for immediate)
   // ARCHITECTURE.md: Frontend creates child variables for paths
   private createValueBinding(element: Element, varId: number, path: string): Binding | null {
     const parsed = parsePath(path);
     const properties = pathOptionsToProperties(parsed.options);
     properties['path'] = parsed.segments.join('.');
+
+    // Check if keypress mode is enabled (send updates on every keypress vs blur)
+    const useKeypress = parsed.options.props?.['keypress'] === 'true';
 
     // Create a child variable for this path
     // The server will resolve the path and send back the value
@@ -246,12 +257,40 @@ export class BindingEngine {
       console.error('Failed to create binding variable:', err);
     });
 
-    // Add input listener for two-way binding
-    if (element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement || element instanceof HTMLSelectElement) {
-      element.addEventListener('input', inputHandler);
+    // Determine which events to listen for based on element type and keypress setting
+    // Native inputs: use 'input' for keypress mode, 'blur' for default
+    // Shoelace inputs: use 'sl-input' for keypress mode, 'sl-change' for default
+    const isNativeInput = element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement || element instanceof HTMLSelectElement;
+    const tagLower = element.tagName.toLowerCase();
+    const isShoelaceInput = tagLower === 'sl-input' || tagLower === 'sl-textarea';
+
+    let nativeEventType: string | null = null;
+    let shoelaceEventType: string | null = null;
+
+    if (isNativeInput) {
+      nativeEventType = useKeypress ? 'input' : 'blur';
+    }
+    if (isShoelaceInput) {
+      shoelaceEventType = useKeypress ? 'sl-input' : 'sl-change';
     }
 
-    // Also listen for ui-value-change events from custom widgets
+    // Add native input listener
+    if (nativeEventType) {
+      element.addEventListener(nativeEventType, inputHandler);
+    }
+
+    // Add Shoelace event listener
+    const shoelaceHandler = (e: Event) => {
+      if (childVarId !== null) {
+        const target = e.target as HTMLInputElement;
+        this.store.update(childVarId, target.value);
+      }
+    };
+    if (shoelaceEventType) {
+      element.addEventListener(shoelaceEventType, shoelaceHandler);
+    }
+
+    // Also listen for ui-value-change events from other custom widgets
     const changeHandler = (e: Event) => {
       const customEvent = e as CustomEvent;
       if (childVarId !== null) {
@@ -265,7 +304,15 @@ export class BindingEngine {
       unbind: () => {
         if (unbindValue) unbindValue();
         if (unbindError) unbindError();
-        element.removeEventListener('input', inputHandler);
+        // Remove native input listener
+        if (nativeEventType) {
+          element.removeEventListener(nativeEventType, inputHandler);
+        }
+        // Remove Shoelace listener
+        if (shoelaceEventType) {
+          element.removeEventListener(shoelaceEventType, shoelaceHandler);
+        }
+        // Remove custom widget listener
         element.removeEventListener('ui-value-change', changeHandler);
         // Destroy the child variable
         if (childVarId !== null) {
@@ -280,6 +327,7 @@ export class BindingEngine {
   }
 
   // Create an attribute binding
+  // Spec: viewdefs.md - Path Resolution: Server-Side Only
   private createAttrBinding(
     element: Element,
     varId: number,
@@ -287,25 +335,48 @@ export class BindingEngine {
     targetAttr: string
   ): Binding | null {
     const parsed = parsePath(path);
+    const properties = pathOptionsToProperties(parsed.options);
+    properties['path'] = parsed.segments.join('.');
+
+    let childVarId: number | null = null;
+    let unbindValue: (() => void) | null = null;
 
     const update = (value: unknown) => {
-      const resolved = resolvePath(value, parsed.segments);
-      if (resolved !== null && resolved !== undefined && resolved !== false) {
-        element.setAttribute(targetAttr, resolved.toString());
+      if (value !== null && value !== undefined && value !== false) {
+        element.setAttribute(targetAttr, value.toString());
       } else {
         element.removeAttribute(targetAttr);
       }
     };
 
-    const unbind = this.store.watch(varId, (value) => update(value));
+    // Create a child variable for this path
+    this.store.create({
+      parentId: varId,
+      properties,
+    }).then((id) => {
+      childVarId = id;
+      unbindValue = this.store.watch(id, (value) => update(value));
 
-    const current = this.store.get(varId);
-    if (current) update(current.value);
+      // Initial update from cached value
+      const current = this.store.get(id);
+      if (current) update(current.value);
+    }).catch((err) => {
+      console.error('Failed to create attr binding variable:', err);
+    });
 
-    return { element, unbind };
+    return {
+      element,
+      unbind: () => {
+        if (unbindValue) unbindValue();
+        if (childVarId !== null) {
+          this.store.destroy(childVarId);
+        }
+      },
+    };
   }
 
   // Create a class binding
+  // Spec: viewdefs.md - Path Resolution: Server-Side Only
   private createClassBinding(
     element: Element,
     varId: number,
@@ -313,25 +384,48 @@ export class BindingEngine {
     className: string
   ): Binding | null {
     const parsed = parsePath(path);
+    const properties = pathOptionsToProperties(parsed.options);
+    properties['path'] = parsed.segments.join('.');
+
+    let childVarId: number | null = null;
+    let unbindValue: (() => void) | null = null;
 
     const update = (value: unknown) => {
-      const resolved = resolvePath(value, parsed.segments);
-      if (resolved) {
+      if (value) {
         element.classList.add(className);
       } else {
         element.classList.remove(className);
       }
     };
 
-    const unbind = this.store.watch(varId, (value) => update(value));
+    // Create a child variable for this path
+    this.store.create({
+      parentId: varId,
+      properties,
+    }).then((id) => {
+      childVarId = id;
+      unbindValue = this.store.watch(id, (value) => update(value));
 
-    const current = this.store.get(varId);
-    if (current) update(current.value);
+      // Initial update from cached value
+      const current = this.store.get(id);
+      if (current) update(current.value);
+    }).catch((err) => {
+      console.error('Failed to create class binding variable:', err);
+    });
 
-    return { element, unbind };
+    return {
+      element,
+      unbind: () => {
+        if (unbindValue) unbindValue();
+        if (childVarId !== null) {
+          this.store.destroy(childVarId);
+        }
+      },
+    };
   }
 
   // Create a style binding
+  // Spec: viewdefs.md - Path Resolution: Server-Side Only
   private createStyleBinding(
     element: Element,
     varId: number,
@@ -339,75 +433,161 @@ export class BindingEngine {
     styleProp: string
   ): Binding | null {
     const parsed = parsePath(path);
+    const properties = pathOptionsToProperties(parsed.options);
+    properties['path'] = parsed.segments.join('.');
     const htmlElement = element as HTMLElement;
 
+    let childVarId: number | null = null;
+    let unbindValue: (() => void) | null = null;
+
     const update = (value: unknown) => {
-      const resolved = resolvePath(value, parsed.segments);
-      if (resolved !== null && resolved !== undefined) {
-        htmlElement.style.setProperty(styleProp, resolved.toString());
+      if (value !== null && value !== undefined) {
+        htmlElement.style.setProperty(styleProp, value.toString());
       } else {
         htmlElement.style.removeProperty(styleProp);
       }
     };
 
-    const unbind = this.store.watch(varId, (value) => update(value));
+    // Create a child variable for this path
+    this.store.create({
+      parentId: varId,
+      properties,
+    }).then((id) => {
+      childVarId = id;
+      unbindValue = this.store.watch(id, (value) => update(value));
 
-    const current = this.store.get(varId);
-    if (current) update(current.value);
+      // Initial update from cached value
+      const current = this.store.get(id);
+      if (current) update(current.value);
+    }).catch((err) => {
+      console.error('Failed to create style binding variable:', err);
+    });
 
-    return { element, unbind };
+    return {
+      element,
+      unbind: () => {
+        if (unbindValue) unbindValue();
+        if (childVarId !== null) {
+          this.store.destroy(childVarId);
+        }
+      },
+    };
   }
 
-  // Create an event binding
+  // Create an event binding (custom events like ui-event="action?eventName")
+  // Creates an action variable and invokes it when the specified event fires
   private createEventBinding(
     element: Element,
     varId: number,
     actionExpr: string,
     eventName: string
   ): Binding | null {
-    const handler = (event: Event) => {
-      this.executeAction(varId, actionExpr, event);
+    // Parse action expression to build path (same as createActionBinding)
+    const match = actionExpr.match(/^([\w.]+)\((.*)\)$/);
+    if (!match) {
+      console.error('Invalid action expression:', actionExpr);
+      return null;
+    }
+
+    const [, methodPath, argsStr] = match;
+    const hasArgPlaceholder = argsStr === '_';
+    const path = hasArgPlaceholder ? `${methodPath}(_)` : `${methodPath}()`;
+
+    const properties: Record<string, string> = {
+      path,
+      access: 'action',
+    };
+
+    let actionVarId: number | null = null;
+
+    this.store.create({
+      parentId: varId,
+      properties,
+    }).then((id) => {
+      actionVarId = id;
+    }).catch((err) => {
+      console.error('Failed to create action variable:', err);
+    });
+
+    const handler = (_event: Event) => {
+      if (actionVarId !== null) {
+        this.store.update(actionVarId, null);
+      }
     };
 
     element.addEventListener(eventName, handler);
 
     return {
       element,
-      unbind: () => element.removeEventListener(eventName, handler),
+      unbind: () => {
+        element.removeEventListener(eventName, handler);
+        if (actionVarId !== null) {
+          this.store.destroy(actionVarId);
+        }
+      },
     };
   }
 
   // Create an action binding (click)
+  // Creates an action variable for the method path and invokes it on click
+  // Spec: resolver.md - Variable Access Property, Path Semantics
   private createActionBinding(element: Element, varId: number, actionExpr: string): Binding | null {
+    // Parse action expression: methodName() or path.to.method()
+    // The () is required for actions and indicates a method call
+    const match = actionExpr.match(/^([\w.]+)\((.*)\)$/);
+    if (!match) {
+      console.error('Invalid action expression:', actionExpr);
+      return null;
+    }
+
+    const [, methodPath, argsStr] = match;
+
+    // Build the path for the action variable
+    // For methods without args: path() (calls method for side effects)
+    // For methods with args placeholder: path(_) (calls method with value)
+    const hasArgPlaceholder = argsStr === '_';
+    const path = hasArgPlaceholder ? `${methodPath}(_)` : `${methodPath}()`;
+
+    // Properties for the action variable
+    // Use "action" access: initial value not computed (avoids premature method invocation)
+    const properties: Record<string, string> = {
+      path,
+      access: 'action',
+    };
+
+    let actionVarId: number | null = null;
+
+    // Create the action variable asynchronously
+    this.store.create({
+      parentId: varId,
+      properties,
+    }).then((id) => {
+      actionVarId = id;
+    }).catch((err) => {
+      console.error('Failed to create action variable:', err);
+    });
+
     const handler = (event: Event) => {
       event.preventDefault();
-      this.executeAction(varId, actionExpr, event);
+      if (actionVarId !== null) {
+        // Invoke the action by updating the action variable
+        // For () paths: the method is called for side effects (value ignored)
+        // For (_) paths: the value is passed to the method
+        this.store.update(actionVarId, null);
+      }
     };
 
     element.addEventListener('click', handler);
 
     return {
       element,
-      unbind: () => element.removeEventListener('click', handler),
+      unbind: () => {
+        element.removeEventListener('click', handler);
+        // Destroy the action variable
+        if (actionVarId !== null) {
+          this.store.destroy(actionVarId);
+        }
+      },
     };
-  }
-
-  // Execute an action expression like "submit()" or "deleteItem(id)"
-  private executeAction(varId: number, actionExpr: string, _event: Event): void {
-    // Parse action expression: methodName(args)
-    const match = actionExpr.match(/^(\w+)\((.*)\)$/);
-    if (!match) {
-      console.error('Invalid action expression:', actionExpr);
-      return;
-    }
-
-    const [, methodName, argsStr] = match;
-    const args = argsStr ? argsStr.split(',').map((s) => s.trim()) : [];
-
-    // For now, send an update with the action in properties
-    this.store.update(varId, undefined, {
-      action: methodName,
-      'action-args': JSON.stringify(args),
-    });
   }
 }

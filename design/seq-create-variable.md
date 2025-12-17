@@ -6,48 +6,51 @@
 ## Participants
 
 - Sender: Frontend or backend initiating create
-- ProtocolHandler: Message processor
+- Session: Frontend layer session
+- LuaBackend: Per-session backend (implements Backend interface)
 - VariableStore: Variable storage
-- WatchManager: Watch subscription manager
-- MessageRelay: Message forwarding
+- Tracker: change-tracker.Tracker instance (per-session)
 
 ## Sequence
 
 ```
-     Sender            ProtocolHandler         VariableStore          WatchManager          MessageRelay
-        |                      |                      |                      |                      |
-        |--create(parent,val,--|                      |                      |                      |
-        |   props,nowatch,     |                      |                      |                      |
-        |   unbound)---------->|                      |                      |                      |
-        |                      |                      |                      |                      |
-        |                      |---parseProps-------->|                      |                      |
-        |                      |   (extract :high/    |                      |                      |
-        |                      |    :med/:low)        |                      |                      |
-        |                      |                      |                      |                      |
-        |                      |---create(parent,---->|                      |                      |
-        |                      |    val,props,unbound)|                      |                      |
-        |                      |                      |                      |                      |
-        |                      |                      |---allocateId()------>|                      |
-        |                      |                      |                      |                      |
-        |                      |                      |<--newId--------------|                      |
-        |                      |                      |                      |                      |
-        |                      |                      |---processProps------>|                      |
-        |                      |                      |   (by priority)      |                      |
-        |                      |                      |                      |                      |
-        |                      |                      |---store()----------->|                      |
-        |                      |                      |                      |                      |
-        |                      |<--variable-----------|                      |                      |
-        |                      |                      |                      |                      |
-        |                      |          [if not nowatch]                   |                      |
-        |                      |---watch(varId)------>|                      |                      |
-        |                      |                      |---addWatch---------->|                      |
-        |                      |                      |                      |                      |
-        |                      |          [if bound and tally 0->1]          |                      |
-        |                      |                      |                      |---relay watch------->|
-        |                      |                      |                      |                      |
-        |                      |          [relay to other side]              |                      |
-        |                      |----------------------------------------relay create-------------->|
-        |                      |                      |                      |                      |
+     Sender              Session            LuaBackend           VariableStore           Tracker
+        |                   |                   |                      |                      |
+        |--create(parent,-->|                   |                      |                      |
+        |   val,props,      |                   |                      |                      |
+        |   nowatch,unbound)|                   |                      |                      |
+        |                   |                   |                      |                      |
+        |                   |--HandleMessage--->|                      |                      |
+        |                   |                   |                      |                      |
+        |                   |                   |---parseProps-------->|                      |
+        |                   |                   |   (extract :high/    | (self)               |
+        |                   |                   |    :med/:low)        |                      |
+        |                   |                   |                      |                      |
+        |                   |                   |---create(parent,---->|                      |
+        |                   |                   |    val,props,unbound)|                      |
+        |                   |                   |                      |                      |
+        |                   |                   |                      |---allocateId()------>|
+        |                   |                   |                      |                      | (self)
+        |                   |                   |                      |                      |
+        |                   |                   |                      |<--newId--------------|
+        |                   |                   |                      |                      |
+        |                   |                   |                      |---processProps------>|
+        |                   |                   |                      |   (by priority)      | (self)
+        |                   |                   |                      |                      |
+        |                   |                   |                      |---store()----------->|
+        |                   |                   |                      |                      | (self)
+        |                   |                   |                      |                      |
+        |                   |                   |<--variable-----------|                      |
+        |                   |                   |                      |                      |
+        |                   |                   |          [if not nowatch]                   |
+        |                   |                   |---addWatcher-------->|                      |
+        |                   |                   |   (watchers map)     | (self)               |
+        |                   |                   |                      |                      |
+        |                   |                   |          [if tally 0->1]                    |
+        |                   |                   |---Watch(varId)------>|                      |
+        |                   |                   |                      |                      |
+        |                   |                   |<--ok-----------------|                      |
+        |                   |                   |                      |                      |
 ```
 
 ## Notes
@@ -56,4 +59,5 @@
 - `create` property in props causes object instantiation
 - `unbound` flag determines UI server vs backend source of truth
 - `nowatch` flag skips automatic watch subscription
-- Watch forwarding uses tally to avoid duplicate backend notifications
+- **Per-session watch management**: Watchers map and tally are in LuaBackend
+- Watch registration with change-tracker occurs on tally 0->1 transition

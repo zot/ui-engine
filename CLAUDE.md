@@ -10,6 +10,16 @@ This document explains the core data flow:
 - Backend resolves paths and returns values
 - Wrappers enable value transformation
 
+### Running the demo
+From the project directory, this command runs the demo `./build/ui-demo --port 8000 --dir demo -vvvv`
+You can use the playwright browser to connect to it.
+
+## 🎯 Core Principles
+- Use **SOLID principles** in all implementations
+- Create comprehensive **unit tests** for all components
+- code and specs are as MINIMAL as POSSIBLE
+- **Never commit without user permission**
+
 ## CRC Modeling Workflow
 
 **DO NOT generate code directly from `specs/*.md` files!**

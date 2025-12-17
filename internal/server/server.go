@@ -10,11 +10,11 @@ import (
 	"log"
 	"net/http"
 	"path/filepath"
-	"strings"
 	"sync"
 	"time"
 
 	changetracker "github.com/zot/change-tracker"
+	"github.com/zot/ui/internal/backend"
 	"github.com/zot/ui/internal/bundle"
 	"github.com/zot/ui/internal/config"
 	"github.com/zot/ui/internal/lua"
@@ -26,10 +26,10 @@ import (
 )
 
 // Server is the main UI server.
+// CRC: crc-Server.md
 type Server struct {
 	config          *config.Config
 	store           *variable.Store
-	watches         *variable.WatchManager
 	sessions        *session.Manager
 	handler         *protocol.Handler
 	pendingQueues   *PendingQueueManager
@@ -48,7 +48,6 @@ type Server struct {
 // New creates a new server with the given configuration.
 func New(cfg *config.Config) *Server {
 	store := variable.NewStore()
-	watches := variable.NewWatchManager(store)
 
 	sessions := session.NewManager(
 		store,
@@ -58,7 +57,6 @@ func New(cfg *config.Config) *Server {
 	s := &Server{
 		config:        cfg,
 		store:         store,
-		watches:       watches,
 		sessions:      sessions,
 		pendingQueues: NewPendingQueueManager(),
 	}
@@ -88,10 +86,13 @@ func New(cfg *config.Config) *Server {
 
 	// Create message sender that wraps WebSocket endpoint
 	sender := &serverMessageSender{server: s}
-	s.handler = protocol.NewHandler(store, watches, sender)
+	s.handler = protocol.NewHandler(store, sender)
 
 	// Set up pending queue for CLI/REST clients
 	s.handler.SetPendingQueuer(s.pendingQueues)
+
+	// Set up backend lookup for per-session watch management
+	s.handler.SetBackendLookup(&serverBackendLookup{server: s})
 
 	// Create WebSocket endpoint
 	s.wsEndpoint = NewWebSocketEndpoint(sessions, s.handler)
@@ -135,20 +136,16 @@ func New(cfg *config.Config) *Server {
 			s.storeAdapter.SetViewdefManager(s.viewdefManager)
 		}
 
-		// Wire up watch manager to set active flag on tracker variables
-		if s.storeAdapter != nil {
-			watches.OnActiveChanged = s.storeAdapter.SetVariableActive
-		}
-
 		// Note: Go wrappers (like ViewList) auto-register via init() - no explicit registration needed
 
 		// Set session callbacks for Lua session management
 		// Callbacks receive vended IDs (compact integers) for backend communication
-		sessions.SetOnSessionCreated(func(vendedID string) error {
-			return s.CreateLuaSessionForFrontend(vendedID)
+		// Each session gets its own LuaBackend for per-session watch management
+		sessions.SetOnSessionCreated(func(vendedID string, sess *session.Session) error {
+			return s.CreateLuaBackendForSession(vendedID, sess)
 		})
-		sessions.SetOnSessionDestroyed(func(vendedID string) {
-			s.DestroyLuaSessionForFrontend(vendedID)
+		sessions.SetOnSessionDestroyed(func(vendedID string, sess *session.Session) {
+			s.DestroyLuaBackendForSession(vendedID, sess)
 		})
 
 		// Set up afterBatch callback for automatic change detection
@@ -303,7 +300,31 @@ func (sms *serverMessageSender) Broadcast(sessionID string, msg *protocol.Messag
 	return sms.server.wsEndpoint.Broadcast(sessionID, msg)
 }
 
+// serverBackendLookup implements protocol.BackendLookup.
+// It looks up the session's backend for a given connection ID.
+type serverBackendLookup struct {
+	server *Server
+}
+
+func (sbl *serverBackendLookup) GetBackendForConnection(connectionID string) backend.Backend {
+	// Look up session by connection ID via WebSocket endpoint
+	sessionID := sbl.server.wsEndpoint.GetSessionIDForConnection(connectionID)
+	if sessionID == "" {
+		return nil
+	}
+
+	// Get session
+	sess := sbl.server.sessions.Get(sessionID)
+	if sess == nil {
+		return nil
+	}
+
+	return sess.GetBackend()
+}
+
 // setupLua initializes the Lua runtime.
+// Only main.lua is auto-loaded per session. Other Lua files are loaded
+// on-demand via require() or the lua property on variable 1.
 func (s *Server) setupLua(cfg *config.Config, verbosity int) {
 	// Determine Lua directory
 	luaDir := cfg.Lua.Path
@@ -328,37 +349,66 @@ func (s *Server) setupLua(cfg *config.Config, verbosity int) {
 	// Set wrapper registry on runtime (allows ui.registerWrapper from Lua)
 	runtime.SetWrapperRegistry(s.wrapperRegistry)
 
-	// Pre-load main.lua from bundle if available (for bundle mode)
-	// When sessions connect, this will be executed per-session
-	s.preloadMainLuaFromBundle(runtime)
-
-	// Auto-load library Lua files (not main.lua - that's loaded per session)
-	// These are shared libraries available to all sessions
-	if err := runtime.LoadDirectory(luaDir); err != nil {
-		// Try loading libraries from bundle
-		s.loadLuaLibrariesFromBundle(runtime)
+	// In bundle mode, pre-cache main.lua content for per-session execution
+	// In --dir mode, main.lua is read from filesystem per-session
+	if cfg.Server.Dir == "" {
+		s.preloadMainLuaFromBundle(runtime)
 	}
 
 	log.Printf("Lua runtime initialized (dir: %s)", luaDir)
 }
 
-// CreateLuaSessionForFrontend creates a Lua session for a new frontend session.
+// CreateLuaBackendForSession creates a LuaBackend for a new session.
 // vendedID is the compact integer ID (e.g., "1", "2") for backend communication.
-func (s *Server) CreateLuaSessionForFrontend(vendedID string) error {
+// The backend is attached to the session for per-session watch management.
+// CRC: crc-LuaBackend.md
+// Sequence: seq-session-create-backend.md
+func (s *Server) CreateLuaBackendForSession(vendedID string, sess *session.Session) error {
 	if s.luaRuntime == nil {
 		return nil // Lua not enabled
 	}
+
+	// Create LuaBackend with resolver
+	lb := backend.NewLuaBackend(vendedID, &lua.LuaResolver{L: nil}) // Resolver will be set by runtime
+
+	// Attach backend to session
+	sess.SetBackend(lb)
+
+	// Also track in store adapter for variable operations
+	if s.storeAdapter != nil {
+		s.storeAdapter.SetBackend(vendedID, lb)
+	}
+
+	// Create Lua session (executes main.lua)
 	_, err := s.luaRuntime.CreateLuaSession(vendedID)
-	return err
+	if err != nil {
+		sess.SetBackend(nil)
+		return err
+	}
+
+	return nil
 }
 
-// DestroyLuaSessionForFrontend destroys a Lua session.
+// DestroyLuaBackendForSession destroys a session's LuaBackend.
 // vendedID is the compact integer ID (e.g., "1", "2") for backend communication.
-func (s *Server) DestroyLuaSessionForFrontend(vendedID string) {
+func (s *Server) DestroyLuaBackendForSession(vendedID string, sess *session.Session) {
 	if s.luaRuntime == nil {
 		return
 	}
+
+	// Clean up Lua runtime state
 	s.luaRuntime.DestroyLuaSession(vendedID)
+
+	// Shutdown backend
+	if b := sess.GetBackend(); b != nil {
+		b.Shutdown()
+	}
+	sess.SetBackend(nil)
+
+	// Remove from store adapter
+	if s.storeAdapter != nil {
+		s.storeAdapter.RemoveBackend(vendedID)
+	}
 }
 
 // AfterBatch triggers Lua change detection after processing a message batch.
@@ -369,6 +419,17 @@ func (s *Server) DestroyLuaSessionForFrontend(vendedID string) {
 // Sequence: seq-relay-message.md, seq-backend-refresh.md
 func (s *Server) AfterBatch(internalSessionID string) {
 	if s.luaRuntime == nil {
+		return
+	}
+
+	// Get session and its backend
+	sess := s.sessions.Get(internalSessionID)
+	if sess == nil {
+		return
+	}
+
+	b := sess.GetBackend()
+	if b == nil {
 		return
 	}
 
@@ -383,9 +444,9 @@ func (s *Server) AfterBatch(internalSessionID string) {
 		return
 	}
 
-	// Send updates to watchers
+	// Send updates to watchers (via session's backend)
 	for _, update := range updates {
-		watchers := s.watches.GetWatchers(update.VarID)
+		watchers := b.GetWatchers(update.VarID)
 		if len(watchers) == 0 {
 			continue
 		}
@@ -422,57 +483,14 @@ func (s *Server) preloadMainLuaFromBundle(runtime *lua.Runtime) {
 	log.Printf("Preloaded main.lua from bundle")
 }
 
-// loadLuaLibrariesFromBundle loads library Lua files from embedded bundle.
-// Skips main.lua which is loaded per-session.
-func (s *Server) loadLuaLibrariesFromBundle(runtime *lua.Runtime) {
-	files, err := bundle.ListFilesInDir("lua")
-	if err != nil {
-		// No bundle or no lua directory in bundle
-		return
-	}
-
-	loaded := 0
-	for _, filePath := range files {
-		if !strings.HasSuffix(filePath, ".lua") {
-			continue
-		}
-		// Skip backup/temp files
-		filename := filepath.Base(filePath)
-		if strings.HasPrefix(filename, ".") {
-			continue
-		}
-		// Skip main.lua - loaded per-session
-		if filename == "main.lua" {
-			continue
-		}
-
-		content, err := bundle.ReadFile(filePath)
-		if err != nil {
-			log.Printf("Warning: failed to read bundled Lua file %s: %v", filePath, err)
-			continue
-		}
-
-		if err := runtime.LoadCode(filename, string(content)); err != nil {
-			log.Printf("Warning: failed to load bundled Lua file %s: %v", filename, err)
-		} else {
-			loaded++
-			log.Printf("Loaded bundled Lua library: %s", filename)
-		}
-	}
-
-	if loaded > 0 {
-		log.Printf("Loaded %d Lua library files from bundle", loaded)
-	}
-}
-
 // luaStoreAdapter adapts variable.Store to lua.VariableStore interface.
-// It holds a tracker per session for change detection.
+// It coordinates with per-session LuaBackends for change detection.
 type luaStoreAdapter struct {
 	store          *variable.Store
 	wrapperManager *lua.WrapperManager
 	viewdefManager *ViewdefManager
-	trackers       map[string]*changetracker.Tracker // sessionID -> tracker
-	varToSession   map[int64]string                  // variableID -> sessionID
+	backends       map[string]*backend.LuaBackend // vendedID -> backend
+	varToSession   map[int64]string               // variableID -> sessionID
 	mu             sync.RWMutex
 }
 
@@ -486,25 +504,51 @@ func (a *luaStoreAdapter) SetViewdefManager(vm *ViewdefManager) {
 	a.viewdefManager = vm
 }
 
+// SetBackend sets the backend for a session.
+func (a *luaStoreAdapter) SetBackend(sessionID string, lb *backend.LuaBackend) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.backends == nil {
+		a.backends = make(map[string]*backend.LuaBackend)
+		a.varToSession = make(map[int64]string)
+	}
+	a.backends[sessionID] = lb
+}
+
+// RemoveBackend removes the backend for a session.
+func (a *luaStoreAdapter) RemoveBackend(sessionID string) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	delete(a.backends, sessionID)
+	// Clean up varToSession
+	for varID, sid := range a.varToSession {
+		if sid == sessionID {
+			delete(a.varToSession, varID)
+		}
+	}
+}
+
 // CreateSession creates a new tracker for a session.
+// Note: The tracker is now managed by LuaBackend, this just sets up the resolver.
 func (a *luaStoreAdapter) CreateSession(sessionID string, resolver changetracker.Resolver) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	if a.trackers == nil {
-		a.trackers = make(map[string]*changetracker.Tracker)
+	if a.backends == nil {
+		a.backends = make(map[string]*backend.LuaBackend)
 		a.varToSession = make(map[int64]string)
 	}
-	tracker := changetracker.NewTracker()
-	tracker.Resolver = resolver
-	a.trackers[sessionID] = tracker
+	// If we have a backend for this session, set its resolver
+	if lb, ok := a.backends[sessionID]; ok {
+		lb.GetTracker().Resolver = resolver
+	}
 }
 
 // DestroySession removes a session's tracker.
 func (a *luaStoreAdapter) DestroySession(sessionID string) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	delete(a.trackers, sessionID)
-	// Clean up varToSession
+	// Backend removal is handled separately via RemoveBackend
+	// Just clean up varToSession
 	for varID, sid := range a.varToSession {
 		if sid == sessionID {
 			delete(a.varToSession, varID)
@@ -516,18 +560,22 @@ func (a *luaStoreAdapter) DestroySession(sessionID string) {
 func (a *luaStoreAdapter) GetTracker(sessionID string) *changetracker.Tracker {
 	a.mu.RLock()
 	defer a.mu.RUnlock()
-	return a.trackers[sessionID]
+	if lb, ok := a.backends[sessionID]; ok {
+		return lb.GetTracker()
+	}
+	return nil
 }
 
 // CreateVariable creates a variable using the session's tracker.
 func (a *luaStoreAdapter) CreateVariable(sessionID string, parentID int64, luaObject *gopher.LTable, properties map[string]string) (int64, error) {
 	a.mu.RLock()
-	tracker := a.trackers[sessionID]
+	lb := a.backends[sessionID]
 	a.mu.RUnlock()
 
-	if tracker == nil {
+	if lb == nil {
 		return 0, fmt.Errorf("session %s not found", sessionID)
 	}
+	tracker := lb.GetTracker()
 
 	// Create variable in tracker - it handles object registration
 	v := tracker.CreateVariable(luaObject, parentID, "", properties)
@@ -537,6 +585,9 @@ func (a *luaStoreAdapter) CreateVariable(sessionID string, parentID int64, luaOb
 	a.mu.Lock()
 	a.varToSession[id] = sessionID
 	a.mu.Unlock()
+
+	// Track in backend for cleanup
+	lb.TrackVariable(id)
 
 	// Also create in store for persistence and property watchers
 	// Use same ID as tracker to keep them in sync
@@ -593,12 +644,13 @@ func (a *luaStoreAdapter) CreatePathVariable(parentID int64, path string, proper
 		a.mu.RUnlock()
 		return 0, nil, fmt.Errorf("parent variable %d not found in any session", parentID)
 	}
-	tracker := a.trackers[sessionID]
+	lb := a.backends[sessionID]
 	a.mu.RUnlock()
 
-	if tracker == nil {
-		return 0, nil, fmt.Errorf("session %s tracker not found", sessionID)
+	if lb == nil {
+		return 0, nil, fmt.Errorf("session %s backend not found", sessionID)
 	}
+	tracker := lb.GetTracker()
 
 	// Ensure path is in properties
 	if properties == nil {
@@ -644,13 +696,14 @@ func (a *luaStoreAdapter) CreatePathVariable(parentID int64, path string, proper
 
 // Get retrieves a variable's value and properties.
 func (a *luaStoreAdapter) Get(id int64) (json.RawMessage, map[string]string, bool) {
-	// First try the tracker
+	// First try the backend's tracker
 	a.mu.RLock()
 	sessionID, ok := a.varToSession[id]
 	if ok {
-		tracker := a.trackers[sessionID]
+		lb := a.backends[sessionID]
 		a.mu.RUnlock()
-		if tracker != nil {
+		if lb != nil {
+			tracker := lb.GetTracker()
 			v := tracker.GetVariable(id)
 			if v != nil {
 				jsonBytes, _ := tracker.ToValueJSONBytes(v.Value)
@@ -671,13 +724,14 @@ func (a *luaStoreAdapter) Get(id int64) (json.RawMessage, map[string]string, boo
 
 // GetProperty retrieves a property value.
 func (a *luaStoreAdapter) GetProperty(id int64, name string) (string, bool) {
-	// First try the tracker
+	// First try the backend's tracker
 	a.mu.RLock()
 	sessionID, ok := a.varToSession[id]
 	if ok {
-		tracker := a.trackers[sessionID]
+		lb := a.backends[sessionID]
 		a.mu.RUnlock()
-		if tracker != nil {
+		if lb != nil {
+			tracker := lb.GetTracker()
 			v := tracker.GetVariable(id)
 			if v != nil {
 				val := v.GetProperty(name)
@@ -704,12 +758,13 @@ func (a *luaStoreAdapter) Update(id int64, value json.RawMessage, properties map
 
 // Destroy removes a variable.
 func (a *luaStoreAdapter) Destroy(id int64) error {
-	// Remove from tracker
+	// Remove from backend's tracker
 	a.mu.Lock()
 	sessionID, ok := a.varToSession[id]
 	if ok {
-		if tracker := a.trackers[sessionID]; tracker != nil {
-			tracker.DestroyVariable(id)
+		if lb := a.backends[sessionID]; lb != nil {
+			lb.GetTracker().DestroyVariable(id)
+			lb.UntrackVariable(id)
 		}
 		delete(a.varToSession, id)
 	}
@@ -722,36 +777,14 @@ func (a *luaStoreAdapter) Destroy(id int64) error {
 // DetectChanges returns changes for a session.
 func (a *luaStoreAdapter) DetectChanges(sessionID string) []changetracker.Change {
 	a.mu.RLock()
-	tracker := a.trackers[sessionID]
+	lb := a.backends[sessionID]
 	a.mu.RUnlock()
 
-	if tracker == nil {
+	if lb == nil {
 		return nil
 	}
 
-	return tracker.DetectChanges()
-}
-
-// SetVariableActive sets the active flag on a tracker variable.
-// Called by WatchManager on watch/unwatch transitions.
-func (a *luaStoreAdapter) SetVariableActive(varID int64, active bool) {
-	a.mu.RLock()
-	sessionID, ok := a.varToSession[varID]
-	if !ok {
-		a.mu.RUnlock()
-		return
-	}
-	tracker := a.trackers[sessionID]
-	a.mu.RUnlock()
-
-	if tracker == nil {
-		return
-	}
-
-	v := tracker.GetVariable(varID)
-	if v != nil {
-		v.SetActive(active)
-	}
+	return lb.GetTracker().DetectChanges()
 }
 
 // updateVariable1Viewdefs updates variable 1's viewdefs property with new viewdefs.

@@ -3,7 +3,6 @@
 // Spec: viewdefs.md, protocol.md
 // Sequence: seq-viewlist-update.md
 
-import { isObjectReference, ObjectReference } from './variable';
 import { View } from './view';
 import { ViewdefStore } from './viewdef_store';
 import { VariableStore } from './connection';
@@ -153,6 +152,7 @@ export class ViewList {
   }
 
   // Update views to match the bound array
+  // Creates child variables with index paths (1, 2, 3...) for each item
   update(): void {
     if (this.variableId === null) {
       return;
@@ -169,41 +169,38 @@ export class ViewList {
       return;
     }
 
-    // Get object reference IDs from array
-    // Note: If wrapper is active on backend, these will be presenter refs
-    // If no wrapper, these will be domain object refs
-    const refs: number[] = [];
-    for (const item of value) {
-      if (isObjectReference(item)) {
-        refs.push(item.obj);
-      }
+    const itemCount = value.length;
+
+    // Build map of current views by index
+    const existingViewsByIndex = new Map<number, View>();
+    for (let i = 0; i < this.views.length; i++) {
+      existingViewsByIndex.set(i, this.views[i]);
     }
 
-    // Build map of current views by variable ID
-    const existingViews = new Map<number, View>();
-    for (const view of this.views) {
-      const varId = view.getVariableId();
-      if (varId !== null) {
-        existingViews.set(varId, view);
-      }
-    }
-
-    // Build new views array
+    // Build new views array - one per array index
     const newViews: View[] = [];
-    const newViewSet = new Set<number>();
 
-    for (const refId of refs) {
-      newViewSet.add(refId);
-
-      let view = existingViews.get(refId);
+    for (let index = 0; index < itemCount; index++) {
+      let view = existingViewsByIndex.get(index);
       if (view) {
-        // Reuse existing view
+        // Reuse existing view at this index
         newViews.push(view);
+        existingViewsByIndex.delete(index);
       } else {
-        // Create new view
+        // Create new view with child variable for this index
         view = this.createItemView();
-        view.setVariable(refId);
         newViews.push(view);
+
+        // Create child variable with path = index (1-based per protocol)
+        const indexPath = String(index + 1);
+        this.variableStore.create({
+          parentId: this.variableId!,
+          properties: { path: indexPath },
+        }).then((childVarId) => {
+          view!.setVariable(childVarId);
+        }).catch((err) => {
+          console.error('Failed to create viewlist item variable:', err);
+        });
 
         // Notify delegate
         if (this.delegate?.onItemAdd) {
@@ -212,19 +209,15 @@ export class ViewList {
       }
     }
 
-    // Remove views that are no longer in the list
-    for (let i = this.views.length - 1; i >= 0; i--) {
-      const view = this.views[i];
-      const varId = view.getVariableId();
-      if (varId !== null && !newViewSet.has(varId)) {
-        // Notify delegate before removing
-        if (this.delegate?.onItemRemove) {
-          this.delegate.onItemRemove(view, i);
-        }
-        view.destroy();
-        if (view.element.parentNode) {
-          view.element.parentNode.removeChild(view.element);
-        }
+    // Remove views that are beyond the new array length
+    for (const [index, view] of existingViewsByIndex) {
+      // Notify delegate before removing
+      if (this.delegate?.onItemRemove) {
+        this.delegate.onItemRemove(view, index);
+      }
+      view.destroy();
+      if (view.element.parentNode) {
+        view.element.parentNode.removeChild(view.element);
       }
     }
 
@@ -256,12 +249,26 @@ export class ViewList {
     }
   }
 
-  // Add an item manually (creates variable for ref)
-  addItem(ref: ObjectReference): View {
+  // Add an item manually at the end of the list
+  // Creates a child variable with the next index path
+  addItem(): View {
     const view = this.createItemView();
-    view.setVariable(ref.obj);
+    const index = this.views.length;
     this.views.push(view);
     this.element.appendChild(view.element);
+
+    // Create child variable with path = index (1-based per protocol)
+    if (this.variableId !== null) {
+      const indexPath = String(index + 1);
+      this.variableStore.create({
+        parentId: this.variableId,
+        properties: { path: indexPath },
+      }).then((childVarId) => {
+        view.setVariable(childVarId);
+      }).catch((err) => {
+        console.error('Failed to create viewlist item variable:', err);
+      });
+    }
 
     if (this.delegate?.onItemAdd) {
       this.delegate.onItemAdd(view, this.views.length - 1);

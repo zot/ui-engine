@@ -80,6 +80,7 @@ export class ViewRenderer {
   private processFragment(fragment: DocumentFragment, contextVarId: number): void {
     // Find and process ui-view elements
     const viewElements = fragment.querySelectorAll('[ui-view]');
+    console.log('[DEBUG] processFragment: found', viewElements.length, 'ui-view elements');
     for (const el of viewElements) {
       if (el instanceof HTMLElement) {
         this.setupView(el, contextVarId);
@@ -88,7 +89,9 @@ export class ViewRenderer {
 
     // Find and process ui-viewlist elements
     const viewListElements = fragment.querySelectorAll('[ui-viewlist]');
+    console.log('[DEBUG] processFragment: found', viewListElements.length, 'ui-viewlist elements');
     for (const el of viewListElements) {
+      console.log('[DEBUG] ui-viewlist element:', el.getAttribute('ui-viewlist'));
       if (el instanceof HTMLElement) {
         this.setupViewList(el, contextVarId);
       }
@@ -96,6 +99,7 @@ export class ViewRenderer {
   }
 
   // Setup a ui-view element
+  // Spec: viewdefs.md - Path Resolution: Server-Side Only
   private setupView(element: HTMLElement, contextVarId: number): void {
     const view = createView(
       element,
@@ -104,20 +108,32 @@ export class ViewRenderer {
       (el, varId) => this.bindElement(el, varId)
     );
 
-    // Get path and resolve variable
+    // Get path and create child variable for backend path resolution
     const path = element.getAttribute('ui-view');
     if (path) {
-      const varId = this.resolvePathToVariable(path, contextVarId);
-      if (varId !== null) {
-        view.setVariable(varId);
-      }
+      // Parse path to extract base path (without query params)
+      const [basePath] = path.split('?');
+
+      // Create child variable with path property
+      this.variableStore.create({
+        parentId: contextVarId,
+        properties: { path: basePath },
+      }).then((childVarId) => {
+        view.setVariable(childVarId);
+        // Store cleanup info
+        (view as unknown as { childVarId: number }).childVarId = childVarId;
+      }).catch((err) => {
+        console.error('Failed to create view variable:', err);
+      });
     }
 
     this.views.set(view.htmlId, view);
   }
 
   // Setup a ui-viewlist element
+  // Spec: viewdefs.md - Path Resolution: Server-Side Only
   private setupViewList(element: HTMLElement, contextVarId: number): void {
+    console.log('[DEBUG] setupViewList called for contextVarId:', contextVarId);
     const viewList = createViewList(
       element,
       this.viewdefStore,
@@ -125,13 +141,33 @@ export class ViewRenderer {
       (el, varId) => this.bindElement(el, varId)
     );
 
-    // Get path and resolve variable
+    // Get path and create child variable for backend path resolution
     const path = element.getAttribute('ui-viewlist');
+    console.log('[DEBUG] setupViewList path:', path);
     if (path) {
-      const varId = this.resolvePathToVariable(path, contextVarId);
-      if (varId !== null) {
-        viewList.setVariable(varId);
-      }
+      // Get the base path and additional properties from ViewList
+      const basePath = viewList.getBasePath();
+      const props = viewList.getVariableProperties();
+      console.log('[DEBUG] setupViewList basePath:', basePath, 'props:', props);
+
+      // Create child variable with path and ViewList properties (wrapper, item, etc.)
+      const properties: Record<string, string> = {
+        path: basePath,
+        ...props,
+      };
+
+      console.log('[DEBUG] Creating viewlist variable with properties:', properties);
+      this.variableStore.create({
+        parentId: contextVarId,
+        properties,
+      }).then((childVarId) => {
+        console.log('[DEBUG] ViewList variable created with id:', childVarId);
+        viewList.setVariable(childVarId);
+        // Store cleanup info
+        (viewList as unknown as { childVarId: number }).childVarId = childVarId;
+      }).catch((err) => {
+        console.error('Failed to create viewlist variable:', err);
+      });
     }
 
     // Generate unique ID for tracking
@@ -140,41 +176,6 @@ export class ViewRenderer {
       element.id = id;
     }
     this.viewLists.set(id, viewList);
-  }
-
-  // Resolve a path to a variable ID
-  // For now, just handles direct object references in the value
-  private resolvePathToVariable(path: string, contextVarId: number): number | null {
-    const data = this.variableStore.get(contextVarId);
-    if (!data) return null;
-
-    const value = data.value;
-    if (typeof value !== 'object' || value === null) return null;
-
-    // Navigate path
-    const segments = path.split('.');
-    let current: unknown = value;
-
-    for (const segment of segments) {
-      if (current === null || current === undefined) return null;
-
-      if (typeof current === 'object') {
-        if (Array.isArray(current) && /^\d+$/.test(segment)) {
-          current = current[parseInt(segment, 10)];
-        } else {
-          current = (current as Record<string, unknown>)[segment];
-        }
-      } else {
-        return null;
-      }
-    }
-
-    // Check if result is an object reference
-    if (typeof current === 'object' && current !== null && 'obj' in current) {
-      return (current as { obj: number }).obj;
-    }
-
-    return null;
   }
 
   // Bind an element and its children

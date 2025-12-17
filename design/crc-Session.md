@@ -1,45 +1,44 @@
 # Session
 
-**Source Spec:** main.md, interfaces.md
+**Source Spec:** main.md (UI Server Architecture - Frontend Layer), interfaces.md
 
 ## Responsibilities
 
 ### Knows
 - id: Unique session identifier (URL path component)
-- appVariable: Reference to variable 1 (root app variable, created by Lua)
+- backend: Backend instance (LuaBackend or ProxiedBackend)
 - connections: List of connected frontend connections
 - createdAt: Session creation timestamp
 - lastActivity: Last activity timestamp
-- luaSession: Reference to corresponding LuaSession (when --lua enabled)
 
 ### Does
 - getId: Return session ID
-- getAppVariable: Return root variable reference (may be nil until Lua creates it)
-- setAppVariable: Set root variable reference (called when Lua creates variable 1)
+- getBackend: Return backend instance
 - addConnection: Register new frontend connection
-- removeConnection: Unregister frontend connection
+- removeConnection: Unregister frontend connection, call backend.UnwatchAll for connection
 - isActive: Check if session has any connections
 - getConnectionCount: Return number of active connections
 - touch: Update lastActivity timestamp
-- getLuaSession: Return corresponding LuaSession
+- handleMessage: Delegate to backend.HandleMessage
 
 ## Collaborators
 
 - SessionManager: Creates and destroys sessions based on timeout
-- LuaSession: Corresponding Lua session (creates variable 1)
-- Variable: Variable 1 is session root (created by Lua, not server)
+- Backend: Handles all protocol messages (LuaBackend or ProxiedBackend)
 - WebSocketEndpoint: Frontend connections
 
 ## Sequences
 
-- seq-create-session.md: Session creation flow (triggers Lua session creation)
+- seq-session-create-backend.md: Session creation with backend initialization
 - seq-frontend-connect.md: Frontend connecting to session
 - seq-frontend-reconnect.md: Frontend reconnecting to existing session
 
 ## Notes
 
+- **Lightweight frontend layer**: Session is part of the frontend layer; it routes messages to backend
+- **No direct variable access**: Session does not manage variables - that is backend's responsibility
+- **Backend delegation**: All watch/unwatch/protocol messages delegated to backend
+- **Connection cleanup**: When connection removed, calls backend.UnwatchAll to clean up watches
 - Sessions can be reconnected to at any time before session timeout expires
 - Session timeout (default 24h) controls when inactive sessions are cleaned up
 - Session ID is embedded in URL path for bookmarking and sharing
-- **Variable 1 creation**: main.lua creates variable 1 via session:createAppVariable() - the server does NOT create it
-- **Embedded Lua only**: External backend sockets removed; all backend logic runs in embedded Lua

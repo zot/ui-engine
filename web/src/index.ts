@@ -53,6 +53,5 @@ export {
   getWidgetHandler,
   hasWidgetHandler,
   bindWidget,
-  updateWidget,
 } from './widgets';
 export type { WidgetHandler } from './widgets';

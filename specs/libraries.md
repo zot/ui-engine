@@ -132,6 +132,64 @@ session:createAppVariable(app)
 - Internal/private fields should be prefixed with `_` (e.g., `_contactData`) - these are not serialized
 - **No manual update() calls** - just modify objects directly and changes are auto-detected
 
+## Lua Wrapper Types
+
+Wrappers stand in for variable values when child variables navigate paths. The wrapper object itself is registered and becomes the navigation value. Lua wrappers follow a convention similar to regular types:
+
+1. **`new(variable)` constructor**: Wrapper receives the change-tracker Variable object
+2. **`variable` property**: Store the variable for later access
+3. **`value` property**: Store the variable's Value for convenience
+
+```lua
+-- Define a wrapper type
+local MyWrapper = {type = "MyWrapper"}
+MyWrapper.__index = MyWrapper
+
+function MyWrapper:new(variable)
+  local wrapper = {
+    variable = variable,        -- store the Variable object
+    value = variable:getValue() -- store Value for convenience
+  }
+  setmetatable(wrapper, self)
+  return wrapper
+end
+
+-- The wrapper's fields are accessible via child variable paths
+-- Use in viewdef: ui-view="item?wrapper=MyWrapper"
+```
+
+The wrapper's `variable` property provides access to:
+- `variable:getID()` - variable ID
+- `variable:getValue()` - current Value (same as stored `value`)
+- `variable:getProperty(name)` - variable properties (e.g., "item", "path")
+- `variable:getWrapper()` - existing wrapper if any (for reuse)
+
+When a variable has a wrapper, child variable paths navigate from the wrapper object instead of the raw value.
+
+**Wrapper reuse pattern:**
+
+`CreateWrapper` is called whenever the variable's value changes. Stateful wrappers (like ViewList) should check for an existing wrapper and reuse it to preserve internal state:
+
+```lua
+function MyListWrapper:new(variable)
+  -- Check for existing wrapper to preserve state
+  local existing = variable:getWrapper()
+  if existing then
+    existing.value = variable:getValue()  -- update value reference
+    return existing
+  end
+
+  -- Create new wrapper only if none exists
+  local wrapper = {
+    variable = variable,
+    value = variable:getValue(),
+    selectedIndex = 0  -- internal state preserved on reuse
+  }
+  setmetatable(wrapper, self)
+  return wrapper
+end
+```
+
 ## Frontend Library
 
 The frontend library connects to the UI server and supports remote UIs:
@@ -145,6 +203,7 @@ The frontend library connects to the UI server and supports remote UIs:
 - The top-level view displays the value of `currentPage()`, a child of variable `1`
 - Parses and binds `ui-*` attributes for known widgets
 - Values of `ui-*` attributes are paths and can contain property values with URL syntax: `a.b?create=Person&prop=value`
+- Properties without values default to `true`: `x?a&b` is equivalent to `x?a=true&b=true`
 
 **Custom widgets (Div):**
 - Dynamic Content: `ui-content` attribute - holds HTML
@@ -154,6 +213,11 @@ The frontend library connects to the UI server and supports remote UIs:
   - ViewList uses the `wrapper` variable property to transform domain objects
   - Path properties configure wrapping: `ui-viewlist="contacts?item=ContactPresenter"`
   - See viewdefs.md for full ViewList documentation
+
+**Input update behavior:**
+- By default, input elements (both native `<input>` and `<sl-input>`) send updates on blur (when the user tabs out)
+- Add `keypress` property to send updates on every keypress: `ui-value="name?keypress"`
+- This applies to `<input>`, `<textarea>`, `<sl-input>`, and `<sl-textarea>`
 
 **Shoelace widget bindings:**
 - Input: `ui-value`, `ui-disabled`

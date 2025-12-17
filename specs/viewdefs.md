@@ -39,12 +39,43 @@ The frontend parses viewdefs by placing them in a scratch div's innerHTML, then 
 ## Value Bindings (variable → element)
 
 - `ui-value` - Bind a variable to the element's "value" (input field, file name, etc.)
-  - The attribute value becomes the variable's "path" property for backend use
 - `ui-attr-*` - Bind a variable value to an HTML attribute (e.g., `ui-attr-disabled`)
 - `ui-class-*` - Bind a variable value to CSS classes (value is a class string)
 - `ui-style-*-*` - Bind a variable value to a CSS style property
 
 Variable values are used directly; variable properties can specify transformations.
+
+### Path Resolution: Server-Side Only
+
+**Critical: All path-based bindings MUST create child variables for backend path resolution.**
+
+Variable values sent to the frontend are **object references** (e.g., `{"obj": 1}`), not actual object contents. Object references are stable identifiers that only change when the variable points to a different object entirely. This means:
+
+- The frontend receives `{"obj": 1}` for a view variable, not `{name: "...", isActive: false, ...}`
+- Client-side path resolution (extracting `isActive` from `{"obj": 1}`) is **impossible**
+- All paths must be resolved by the backend, which has access to the actual object data
+
+**Implementation requirement:**
+
+Every binding that uses a path (`ui-value`, `ui-attr-*`, `ui-class-*`, `ui-style-*-*`) must:
+
+1. Parse the path from the attribute value
+2. Create a **child variable** under the context variable with `path` property set
+3. Watch the **child variable** (not the parent) for value updates
+4. The backend resolves the path and sends the actual value (boolean, string, number, etc.)
+5. Destroy the child variable when the binding is unbound
+
+**Example:**
+
+```html
+<div ui-attr-hidden="isEditView">
+```
+
+The binding engine must:
+1. Create child variable: `{parentId: contextVarId, properties: {path: "isEditView"}}`
+2. Watch the child variable for updates
+3. Backend resolves `isEditView` on the parent object and sends `true` or `false`
+4. Binding updates the `hidden` attribute based on the boolean value
 
 ## Event Bindings (element → variable)
 
@@ -184,35 +215,43 @@ The `?item=PresenterType` property tells ViewList which presenter type to wrap e
 
 ViewList is a wrapper type (see protocol.md). When `ui-viewlist="path"` is used:
 1. Frontend creates a variable with `wrapper=ViewList` in path properties
-2. Backend instantiates a ViewList wrapper object: `ViewList(variable)`
-3. The wrapper is stored internally in the variable
-4. When the monitored value (domain array) changes, `viewList.computeValue(rawArray)` is called
-5. ViewList maintains a parallel array of presenter objects and returns presenter refs as the stored value
+2. Backend calls `ViewList:new(variable)` via `Resolver.CreateWrapper`
+3. The ViewList wrapper stores the variable (the array is accessed via `variable:getValue()`)
+4. The wrapper is registered in the object registry and stands in for child path navigation
+5. ViewList maintains:
+   - `items` - array of ViewListItem objects, one per array element
+   - `selectionIndex` - current selection index for frontend use (default: 0 or -1 for no selection)
+
+**Wrapper reuse and sync:** When the bound array changes, `CreateWrapper` is called again. ViewList returns the existing wrapper and syncs its ViewListItems with the new array:
+1. For each item in the array, assign it to the corresponding ViewListItem's `item` property
+2. If the ViewListItem array is longer than the item array, trim excess ViewListItems
+3. If the ViewListItem array is shorter, create new ViewListItems for the additional items
+
+This preserves internal state (like selection) while keeping ViewListItems in sync with the array.
 
 The ViewList can access path properties like `item=ContactPresenter` from the variable's properties.
 
-**ViewItem objects:**
+**ViewListItem objects:**
 
-ViewList creates a ViewItem object for each array element. Each ViewItem has:
-- `baseItem` - Reference to the domain object (`{obj: ID}`)
-- `item` - Either same as `baseItem`, or if `item=ItemWrapper` property is set, the result of `ItemWrapper(viewItem)`
-- `list` - Reference to the ViewList object
+ViewList creates a ViewListItem object for each array element. Each ViewListItem has:
+- `item` - Pointer to the domain object from the array (resolved on the backend to a real object)
+- `list` - Pointer to the ViewList object
 - `index` - Position in the list (0-based)
 
-**Item wrapping (optional):**
+**Custom ViewListItems (optional):**
 
-When `item=PresenterType` is specified in path properties, the ViewItem's `item` property holds a wrapped presenter instead of the raw domain object. The ItemWrapper is constructed with the ViewItem: `ItemWrapper(viewItem)`.
+When `item=PresenterType` is specified in path properties, ViewList creates instances of that type instead of plain ViewListItems. The custom type is constructed with the ViewList and index: `PresenterType:new(viewList, index)`.
 
-This allows presenters to have UI-specific methods like `delete()` that can:
-- Access the domain object via `viewItem.baseItem`
-- Remove itself via `viewItem.list.removeAt(viewItem.index)`
+This allows custom ViewListItems to have UI-specific methods like `delete()` that can:
+- Access the domain object via `self.item`
+- Remove itself via `self.list:removeAt(self.index)`
 
-**ViewItem viewdef:**
+**ViewListItem viewdef:**
 
-ViewList uses the `list-item` namespace by default for its ViewItems. The ViewItem's `list-item` viewdef contains a view on `item` that also uses the `list-item` namespace, plus a delete button:
+ViewList uses the `list-item` namespace by default for its ViewListItems. A typical viewdef renders the `item` (the domain object) with a delete button:
 
 ```html
-<!-- ViewItem.list-item viewdef -->
+<!-- ViewListItem.list-item viewdef -->
 <template>
   <div style="display: flex; align-items: center;">
     <div ui-view="item" ui-namespace="list-item" style="flex: 1;"></div>
@@ -221,31 +260,21 @@ ViewList uses the `list-item` namespace by default for its ViewItems. The ViewIt
 </template>
 ```
 
-Developers can specify a custom `ui-namespace` on the ViewList to use a different ViewItem viewdef (e.g., one without the delete button):
+Developers can specify a custom `ui-namespace` on the ViewList to use a different viewdef (e.g., one without the delete button):
 
 ```html
-<!-- ViewItem.readonly viewdef (no delete button) -->
+<!-- ViewListItem.readonly viewdef (no delete button) -->
 <template>
   <div ui-view="item" ui-namespace="list-item"></div>
 </template>
 ```
 
-**ViewList properties:**
-- Has an **exemplar element** that gets cloned for each item (default: `<div>`)
-- Maintains a parallel array of View elements (these don't have `ui-view` attributes - the ViewList creates their variables)
-- Has a delegate for add/remove notifications
+**ViewList frontend behavior:**
 
-**Example:**
-```html
-<div ui-viewlist="contacts" ui-namespace="COMPACT"></div>
-```
-
-**Update behavior:**
-
-When the bound array changes:
-- **Items added:** Clone the exemplar, create a variable for the new item, render and append
-- **Items removed:** Destroy the variable, remove the element from DOM
-- **Items reordered:** Reorder the parallel View elements to match
+The frontend ViewList widget:
+- Has an **exemplar element** that gets cloned for each ViewListItem (default: `<div>`)
+- Maintains a parallel array of View elements for the ViewListItems
+- When ViewListItems are added/removed, updates the DOM accordingly
 
 ## Select Views
 

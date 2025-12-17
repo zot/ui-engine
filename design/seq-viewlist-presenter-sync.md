@@ -1,139 +1,164 @@
 # Sequence: ViewList Presenter Sync
 
-**Source Spec:** viewdefs.md, protocol.md
-**Use Case:** ViewList wrapper syncs ViewItem objects when source array changes
+**Source Spec:** viewdefs.md, protocol.md, libraries.md
+**Use Case:** ViewList wrapper syncs ViewListItem objects when source array changes
 
 ## Participants
 
-- Variable: Array variable with wrapperInstance=ViewList
-- ViewList: Wrapper stored in variable, manages ViewItem objects
-- ViewItem: Holds baseItem, item, list, index for each array element
-- LuaRuntime: Creates ViewItem and ItemWrapper instances
-- VariableStore: Stores ViewItem and presenter objects
+- Variable: Array variable with wrapper=ViewList
+- Resolver: Calls CreateWrapper on value changes
+- ViewList: Wrapper stored in variable, manages ViewListItem objects
+- ViewListItem: Holds item, list, index for each array element
+- ObjectRegistry: Registers ViewList and ViewListItems for navigation
+- LuaRuntime: Creates ViewListItem instances
 
 ## Sequence
 
 ```
-     Variable              ViewList              ViewItem              LuaRuntime           VariableStore
+     Variable              Resolver               ViewList           ViewListItem         ObjectRegistry
         |                      |                      |                      |                      |
         |   [on variable create with wrapper=ViewList]                                              |
         |                      |                      |                      |                      |
-        |---new ViewList------>|                      |                      |                      |
+        |---CreateWrapper----->|                      |                      |                      |
         |   (variable)         |                      |                      |                      |
         |                      |                      |                      |                      |
-        |                      |---getProperty------->|                      |                      |
-        |                      |   ("item" type)      |                      |                      |
+        |                      |---new(variable)----->|                      |                      |
+        |                      |                      |                      |                      |
+        |                      |                      |---getWrapper()------>|                      |
+        |                      |                      |   (returns nil)      |                      |
+        |                      |                      |                      |                      |
+        |                      |                      |---getValue()-------->|                      |
+        |                      |                      |   (get array)        |                      |
+        |                      |                      |                      |                      |
+        |                      |                      |---getProperty------->|                      |
+        |                      |                      |   ("item" type)      |                      |
+        |                      |                      |                      |                      |
+        |                      |                      |---sync()------------>|                      |
+        |                      |                      |   (initial sync)     |                      |
+        |                      |                      |                      |                      |
+        |                      |                      |     [for each array item, create ViewListItem]
+        |                      |                      |                      |                      |
+        |                      |                      |---new(list, idx)--->|                      |
+        |                      |                      |                      |                      |
+        |                      |                      |---item = array[i]-->|                      |
+        |                      |                      |                      |                      |
+        |                      |                      |                      |---register---------->|
+        |                      |                      |                      |   (ViewListItem)     |
+        |                      |                      |                      |                      |
+        |                      |<--viewList-----------|                      |                      |
+        |                      |   (new instance)     |                      |                      |
+        |                      |                      |                      |                      |
+        |                      |---register-----------|--------------------------------------------->|
+        |                      |   (ViewList as       |                      |                      |
+        |                      |    navigation value) |                      |                      |
         |                      |                      |                      |                      |
         |---storeWrapper------>|                      |                      |                      |
         |   (internal field)   |                      |                      |                      |
         |                      |                      |                      |                      |
-        |   [on value change, Variable calls computeValue]                                          |
+        |   [on value change - wrapper reuse and sync]                                              |
         |                      |                      |                      |                      |
-        |---computeValue------>|                      |                      |                      |
-        |   (rawArray)         |                      |                      |                      |
+        |---CreateWrapper----->|                      |                      |                      |
+        |   (variable)         |                      |                      |                      |
         |                      |                      |                      |                      |
-        |                      |---compareArrays----->|                      |                      |
-        |                      |   (old vs new refs)  |                      |                      |
+        |                      |---new(variable)----->|                      |                      |
         |                      |                      |                      |                      |
-        |                      |     [for each added item]                                          |
+        |                      |                      |---getWrapper()------>|                      |
+        |                      |                      |   (returns existing) |                      |
         |                      |                      |                      |                      |
-        |                      |---createViewItem---->|                      |                      |
-        |                      |   ({obj:101}, 0)     |                      |                      |
+        |                      |                      |---getValue()-------->|                      |
+        |                      |                      |   (get new array)    |                      |
         |                      |                      |                      |                      |
-        |                      |                      |---new ViewItem------>|                      |
-        |                      |                      |   (baseItem, list,   |                      |
-        |                      |                      |    index)            |                      |
+        |                      |                      |---sync()------------>|                      |
         |                      |                      |                      |                      |
-        |                      |                      |   [if item property set]                    |
+        |                      |                      |     [1. assign items to existing ViewListItems]
         |                      |                      |                      |                      |
-        |                      |                      |---ItemWrapper------->|                      |
-        |                      |                      |   (viewItem)         |                      |
+        |                      |                      |---item = array[i]-->|                      |
+        |                      |                      |---index = i-------->|                      |
         |                      |                      |                      |                      |
-        |                      |                      |                      |---CreateInstance---->|
-        |                      |                      |                      |   (itemType, viewItem)
+        |                      |                      |     [2. trim excess ViewListItems if array shrunk]
         |                      |                      |                      |                      |
-        |                      |                      |<--presenter ref------|                      |
-        |                      |                      |   (viewItem.item =   |                      |
-        |                      |                      |    {obj: P1})        |                      |
+        |                      |                      |---remove(items[n])-->|                      |
+        |                      |                      |                      |---unregister-------->|
         |                      |                      |                      |                      |
-        |                      |                      |                      |---registerObject---->|
-        |                      |<--viewItem ref-------|                      |   (ViewItem obj ID)  |
-        |                      |   ({obj: VI1})       |                      |                      |
+        |                      |                      |     [3. add new ViewListItems if array grew]
         |                      |                      |                      |                      |
-        |                      |     [for each removed item]                                        |
+        |                      |                      |---new(list, idx)--->|                      |
+        |                      |                      |---item = array[i]-->|                      |
+        |                      |                      |                      |---register---------->|
         |                      |                      |                      |                      |
-        |                      |---destroyViewItem--->|                      |                      |
-        |                      |   (viewItemRef)      |                      |                      |
-        |                      |                      |                      |                      |
-        |                      |                      |---destroy presenter->|                      |
-        |                      |                      |   (if item wrapped)  |                      |
-        |                      |                      |                      |                      |
-        |                      |                      |                      |---unregisterObject-->|
-        |                      |                      |                      |                      |
-        |                      |     [for reordered items]                                          |
-        |                      |                      |                      |                      |
-        |                      |---updateIndex------->|                      |                      |
-        |                      |   (viewItem, newIdx) |                      |                      |
-        |                      |                      |                      |                      |
-        |                      |                      |---setIndex---------->|                      |
-        |                      |                      |   (newIdx)           |                      |
-        |                      |                      |                      |                      |
-        |                      |---buildStoredValue-->|                      |                      |
-        |                      |   (viewItem refs)    |                      |                      |
-        |                      |                      |                      |                      |
-        |<--[{obj:VI1},--------|                      |                      |                      |
-        |    {obj:VI2},        |                      |                      |                      |
-        |    {obj:VI3}]        |                      |                      |                      |
+        |                      |<--viewList-----------|                      |                      |
+        |                      |   (same instance)    |                      |                      |
         |                      |                      |                      |                      |
 ```
 
 ## Notes
 
-### Wrapper Initialization
+### Wrapper Reuse Pattern
 
-ViewList constructor:
-1. Receives variable reference
-2. Reads `item` property from variable to get presenter type
-3. Stores variable reference for later property access
-4. Wrapper instance is stored internally in the variable
+ViewList constructor checks for existing wrapper:
+1. `variable:getWrapper()` returns existing wrapper if any
+2. If existing, update `value` reference and call `sync()`
+3. If none, create new wrapper and call `sync()`
+4. Return wrapper (existing or new)
 
-### ViewItem Object Structure
+This preserves internal state like `selectionIndex` across array changes.
 
-Each ViewItem created by ViewList has:
-- `baseItem`: Reference to the domain object (`{obj: ID}`)
-- `item`: Either same as baseItem, or `ItemWrapper(viewItem)` result
+### ViewListItem Sync Algorithm
+
+ViewList.sync() performs three steps:
+
+1. **Assign items**: For each item in the array, assign it to the corresponding ViewListItem's `item` property
+2. **Trim excess**: If the ViewListItem array is longer than the item array, remove excess ViewListItems
+3. **Add new**: If the ViewListItem array is shorter, create new ViewListItems for additional items
+
+```lua
+function ViewList:sync()
+    local array = self.value or {}
+    -- 1. Assign items to existing ViewListItems
+    for i, item in ipairs(array) do
+        if self.items[i] then
+            self.items[i].item = item
+            self.items[i].index = i - 1  -- 0-based
+        end
+    end
+    -- 2. Trim excess ViewListItems
+    while #self.items > #array do
+        table.remove(self.items)
+    end
+    -- 3. Add new ViewListItems
+    while #self.items < #array do
+        local idx = #self.items
+        local vli = ViewListItem:new(self, idx)
+        vli.item = array[idx + 1]
+        table.insert(self.items, vli)
+    end
+end
+```
+
+### ViewListItem Object Structure
+
+Each ViewListItem created by ViewList has:
+- `item`: Reference to the domain object (`{obj: ID}`)
 - `list`: Reference to the ViewList wrapper object
 - `index`: Position in the list (0-based)
 
-### Item Wrapping
+### Custom ViewListItems
 
-When `item=PresenterType` is specified in path properties:
-1. ViewItem is created with `baseItem` = domain ref
-2. ItemWrapper is constructed: `ItemWrapper(viewItem)`
-3. ItemWrapper receives the ViewItem, can access baseItem, list, index
-4. `viewItem.item` is set to the presenter ref
+When `item=PresenterType` is specified in path properties, ViewList creates instances of that custom type instead of plain ViewListItems:
+- `PresenterType:new(viewList, index)` is called
+- `item` property is assigned after construction
 
-The presenter can then:
-- Access domain object via `viewItem.baseItem`
-- Remove itself via `viewItem.list.removeAt(viewItem.index)`
+Custom ViewListItems can have UI-specific methods like `delete()` that access `self.item` and `self.list`.
 
-### Change Detection
+### State Preservation
 
-ViewList compares old and new arrays by object reference IDs:
-- New refs: Create ViewItem
-- Missing refs: Destroy ViewItem (and presenter if wrapped)
-- Same refs, different order: Update ViewItem index property
-
-### Stored Value
-
-The stored value is an array of ViewItem refs, not domain refs:
-- Raw: `[{obj:101}, {obj:102}, {obj:103}]` (domain objects)
-- Stored: `[{obj:VI1}, {obj:VI2}, {obj:VI3}]` (ViewItem objects)
-
-Each ViewItem contains the domain ref in `baseItem` and optionally a presenter in `item`.
+On wrapper reuse:
+- `selectionIndex` is preserved (not reset)
+- ViewListItem objects may be reused (same object, different `item`)
+- ViewListItem indices are updated to match array positions
 
 ### Frontend Rendering
 
-Frontend receives ViewItem refs and renders using ViewItem's type viewdef.
-ViewItem viewdef uses `ui-view="item"` to display the (possibly wrapped) item.
-The item's viewdef paths like `ui-value="name"` work directly on the presenter or domain object.
+Frontend receives ViewListItem refs and renders using ViewListItem's type viewdef.
+ViewListItem viewdef uses `ui-view="item"` to display the domain object.
+The item's viewdef paths like `ui-value="name"` work directly on the domain object.

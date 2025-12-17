@@ -10,9 +10,10 @@ import (
 )
 
 // MessageRelay forwards messages between frontend and backend connections.
+// NOTE: This is placeholder code for future proxied backend support.
+// Currently not used - watch functionality is now per-session via Backend interface.
 type MessageRelay struct {
 	store   *variable.Store
-	watches *variable.WatchManager
 	pending *PendingQueueManager
 
 	// Track which variables are bound to backends
@@ -21,10 +22,9 @@ type MessageRelay struct {
 }
 
 // NewMessageRelay creates a new message relay.
-func NewMessageRelay(store *variable.Store, watches *variable.WatchManager, pending *PendingQueueManager) *MessageRelay {
+func NewMessageRelay(store *variable.Store, pending *PendingQueueManager) *MessageRelay {
 	return &MessageRelay{
 		store:          store,
-		watches:        watches,
 		pending:        pending,
 		boundVariables: make(map[int64]string),
 	}
@@ -135,8 +135,9 @@ func (r *MessageRelay) EnqueuePending(connectionID string, msg *protocol.Message
 }
 
 // EnqueuePendingToWatchers enqueues a message to all watchers of a variable.
-func (r *MessageRelay) EnqueuePendingToWatchers(varID int64, msg *protocol.Message, excludeConnID string) {
-	watchers := r.watches.GetWatchers(varID)
+// NOTE: This needs backend-specific implementation for proxied backends.
+// For hosted (Lua) backends, use session.GetBackend().GetWatchers() instead.
+func (r *MessageRelay) EnqueuePendingToWatchers(varID int64, msg *protocol.Message, excludeConnID string, watchers []string) {
 	for _, connID := range watchers {
 		if connID != excludeConnID {
 			r.EnqueuePending(connID, msg)

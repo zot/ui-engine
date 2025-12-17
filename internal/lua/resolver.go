@@ -264,6 +264,129 @@ func (r *LuaResolver) tableToSlice(tbl *lua.LTable) ([]any, error) {
 	return result, nil
 }
 
+// CreateWrapper creates a wrapper object for the given variable.
+// The wrapper stands in for the variable's value when child variables navigate paths.
+// Returns the existing wrapper if one exists (for wrapper reuse).
+// CRC: crc-LuaResolver.md
+// Spec: protocol.md (Variable Wrappers section)
+func (r *LuaResolver) CreateWrapper(variable *changetracker.Variable) any {
+	// Check if wrapper property is set
+	wrapperType := variable.GetProperty("wrapper")
+	if wrapperType == "" {
+		return nil
+	}
+
+	// Check for existing wrapper
+	if existing := variable.WrapperValue; existing != nil {
+		// Update wrapper's value property (reuse pattern)
+		if luaWrapper, ok := existing.(*lua.LTable); ok {
+			r.L.SetField(luaWrapper, "value", r.goToLuaValue(variable.Value))
+			// Call sync() if it exists (for ViewList sync)
+			syncFn := r.L.GetField(luaWrapper, "sync")
+			if syncFn != lua.LNil {
+				if fn, ok := syncFn.(*lua.LFunction); ok {
+					r.L.Push(fn)
+					r.L.Push(luaWrapper)
+					r.L.PCall(1, 0, nil) // ignore errors
+				}
+			}
+		}
+		return existing
+	}
+
+	// Look up wrapper type in Lua globals
+	wrapperClass := r.L.GetGlobal(wrapperType)
+	if wrapperClass == lua.LNil {
+		return nil // Wrapper type not found
+	}
+
+	wrapperTable, ok := wrapperClass.(*lua.LTable)
+	if !ok {
+		return nil // Not a table
+	}
+
+	// Check for 'new' method
+	newFn := r.L.GetField(wrapperTable, "new")
+	if newFn == lua.LNil {
+		return nil // No new() method
+	}
+
+	fn, ok := newFn.(*lua.LFunction)
+	if !ok {
+		return nil // new is not a function
+	}
+
+	// Create a LuaVariable wrapper to pass to the constructor
+	luaVar := r.createLuaVariableWrapper(variable)
+
+	// Call WrapperType:new(variable)
+	r.L.Push(fn)
+	r.L.Push(wrapperTable) // self (the class table)
+	r.L.Push(luaVar)       // variable argument
+
+	if err := r.L.PCall(2, 1, nil); err != nil {
+		return nil // Constructor failed
+	}
+
+	// Get the result
+	result := r.L.Get(-1)
+	r.L.Pop(1)
+
+	if result == lua.LNil {
+		return nil
+	}
+
+	// Store wrapper on variable for reuse
+	if luaWrapper, ok := result.(*lua.LTable); ok {
+		variable.WrapperValue = luaWrapper
+		return luaWrapper
+	}
+
+	return result
+}
+
+// createLuaVariableWrapper creates a Lua table that wraps a change-tracker Variable.
+// This provides the Lua-accessible interface to the Variable.
+func (r *LuaResolver) createLuaVariableWrapper(v *changetracker.Variable) *lua.LTable {
+	wrapper := r.L.NewTable()
+
+	// Store the variable ID for reference
+	r.L.SetField(wrapper, "_id", lua.LNumber(v.ID))
+
+	// getValue() - returns the current value
+	r.L.SetField(wrapper, "getValue", r.L.NewFunction(func(L *lua.LState) int {
+		L.Push(r.goToLuaValue(v.Value))
+		return 1
+	}))
+
+	// getProperty(name) - returns a property value
+	r.L.SetField(wrapper, "getProperty", r.L.NewFunction(func(L *lua.LState) int {
+		name := L.CheckString(1)
+		prop := v.GetProperty(name)
+		if prop == "" {
+			L.Push(lua.LNil)
+		} else {
+			L.Push(lua.LString(prop))
+		}
+		return 1
+	}))
+
+	// getWrapper() - returns existing wrapper or nil
+	r.L.SetField(wrapper, "getWrapper", r.L.NewFunction(func(L *lua.LState) int {
+		existing := v.WrapperValue
+		if existing == nil {
+			L.Push(lua.LNil)
+		} else if tbl, ok := existing.(*lua.LTable); ok {
+			L.Push(tbl)
+		} else {
+			L.Push(lua.LNil)
+		}
+		return 1
+	}))
+
+	return wrapper
+}
+
 // goToLuaValue converts a Go value to a Lua value.
 func (r *LuaResolver) goToLuaValue(value any) lua.LValue {
 	if value == nil {

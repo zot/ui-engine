@@ -6,46 +6,46 @@
 ## Participants
 
 - Sender: Frontend or backend initiating destroy
-- ProtocolHandler: Message processor
+- Session: Frontend layer session
+- LuaBackend: Per-session backend (implements Backend interface)
+- Tracker: change-tracker.Tracker instance (per-session)
 - VariableStore: Variable storage
-- WatchManager: Watch subscription manager
-- MessageRelay: Message forwarding
 
 ## Sequence
 
 ```
-     Sender            ProtocolHandler         VariableStore          WatchManager          MessageRelay
-        |                      |                      |                      |                      |
-        |---destroy(varId)---->|                      |                      |                      |
-        |                      |                      |                      |                      |
-        |                      |---getChildren------->|                      |                      |
-        |                      |   (varId)            |                      |                      |
-        |                      |                      |                      |                      |
-        |                      |<--childIds-----------|                      |                      |
-        |                      |                      |                      |                      |
-        |                      |     [for each child, recursively]           |                      |
-        |                      |---destroy(childId)-->|                      |                      |
-        |                      |                      |                      |                      |
-        |                      |---removeWatchers---->|                      |                      |
-        |                      |   (varId)            |                      |                      |
-        |                      |                      |---removeAll--------->|                      |
-        |                      |                      |                      |                      |
-        |                      |          [if bound and had watchers]        |                      |
-        |                      |                      |---forwardUnwatch---->|                      |
-        |                      |                      |                      |                      |
-        |                      |---delete(varId)----->|                      |                      |
-        |                      |                      |                      |                      |
-        |                      |                      |---delete()---------->|                      |
-        |                      |                      |                      |                      |
-        |                      |          [relay to other side]              |                      |
-        |                      |----------------------------------------relay destroy------------>|
-        |                      |                      |                      |                      |
+     Sender              Session            LuaBackend             Tracker           VariableStore
+        |                   |                   |                      |                      |
+        |---destroy(varId)->|                   |                      |                      |
+        |                   |                   |                      |                      |
+        |                   |--HandleMessage--->|                      |                      |
+        |                   |                   |                      |                      |
+        |                   |                   |---getChildren------->|                      |
+        |                   |                   |   (varId)            |                      |
+        |                   |                   |                      |                      |
+        |                   |                   |<--childIds-----------|                      |
+        |                   |                   |                      |                      |
+        |                   |                   |     [for each child, recursively]           |
+        |                   |                   |---destroy(childId)-->|                      |
+        |                   |                   |                      | (self)               |
+        |                   |                   |                      |                      |
+        |                   |                   |---removeWatchers---->|                      |
+        |                   |                   |   (varId)            | (self)               |
+        |                   |                   |                      |                      |
+        |                   |                   |     [if had watchers]|                      |
+        |                   |                   |---Unwatch(varId)---->|                      |
+        |                   |                   |                      |                      |
+        |                   |                   |<--ok-----------------|                      |
+        |                   |                   |                      |                      |
+        |                   |                   |---delete(varId)----->|                      |
+        |                   |                   |                      |---delete()---------->|
+        |                   |                   |                      |                      |
 ```
 
 ## Notes
 
 - Destruction is recursive - all children destroyed first
-- Watchers automatically cleaned up before deletion
-- Unwatch forwarded to backend if bound variable had observers
-- Destroy relayed bidirectionally like other messages
+- Watchers automatically cleaned up before deletion (per-session watchers map)
+- Unwatch removes from change-tracker if variable had observers
+- **Per-session scope**: Variable IDs and watcher maps are session-scoped
 - Source of truth holder removes from storage

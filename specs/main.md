@@ -19,6 +19,39 @@ The platform implements a **UI server** that connects static frontend code (a "p
   - The UI server itself (via embedded Lua)
   - Both (hybrid model)
 
+## UI Server Architecture
+
+The UI server has two conceptual layers:
+
+### Frontend Layer (Session Management)
+
+The frontend layer manages browser connections and sessions:
+- **Session**: Represents a user's session with the UI server
+  - Tracks connected browser tabs (multiple tabs can share one session)
+  - Routes messages to the appropriate backend
+  - Lightweight - does not manage variables directly
+- **SessionManager**: Creates/destroys sessions, manages session lifecycle
+
+### Backend Layer (Variable Management)
+
+Each session has an associated backend that handles variable management. All protocol messages (create, update, watch, etc.) are forwarded to the backend within a session-identifying batch wrapper.
+
+**Hosted Backend (Lua)**
+- Runs embedded Lua code per session
+- Owns a `change-tracker.Tracker` for variable management
+- Manages watch subscriptions (which connections watch which variables)
+- Detects changes and sends updates to watching connections
+- Variable IDs are scoped to the session (each session has its own variable 1)
+
+**Proxied Backend**
+- Relays all messages to/from an external backend program
+- Messages are wrapped with session ID for routing
+- External backend is source of truth for variables
+
+This separation allows the UI server to support both:
+- Self-contained Lua applications (hosted)
+- External backend integration (proxied)
+
 ## Design Principles
 
 ### Frictionless Development

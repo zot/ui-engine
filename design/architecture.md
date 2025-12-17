@@ -6,6 +6,27 @@
 
 ---
 
+## Server Layers
+
+The UI server has two conceptual layers (see main.md "UI Server Architecture"):
+
+### Frontend Layer (Session Management)
+
+Manages browser connections and sessions. Lightweight - routes messages to backends.
+
+**Components**: Session, SessionManager, WebSocketEndpoint, HTTPEndpoint
+
+### Backend Layer (Variable Management)
+
+Each session has an associated Backend that handles variable management. Two implementations:
+
+- **LuaBackend**: Hosted Lua with per-session change-tracker (processes messages locally)
+- **ProxiedBackend**: Relays messages to external backend (future)
+
+**Components**: Backend (interface), LuaBackend
+
+---
+
 ## Systems
 
 ### Variable Protocol System
@@ -16,7 +37,6 @@
 - crc-Variable.md
 - crc-VariableStore.md
 - crc-ProtocolHandler.md
-- crc-WatchManager.md
 - crc-Wrapper.md
 - seq-create-variable.md
 - seq-update-variable.md
@@ -44,7 +64,7 @@
 - crc-ViewdefStore.md
 - crc-View.md
 - crc-ViewList.md
-- crc-ViewItem.md
+- crc-ViewListItem.md
 - crc-AppView.md
 - crc-BindingEngine.md
 - crc-ValueBinding.md
@@ -56,8 +76,9 @@
 - seq-viewlist-presenter-sync.md
 - seq-bind-element.md
 - seq-handle-event.md
+- seq-input-value-binding.md
 
-### Session System
+### Session System (Frontend Layer)
 
 **Purpose**: Session management, URL routing, and tab coordination
 
@@ -66,9 +87,31 @@
 - crc-SessionManager.md
 - crc-Router.md
 - seq-create-session.md
+- seq-session-create-backend.md
 - seq-activate-tab.md
 - seq-navigate-url.md
 - seq-frontend-reconnect.md
+
+**Notes**:
+- Session is lightweight frontend layer component
+- Delegates all protocol messages to Backend
+- Backend field holds LuaBackend or ProxiedBackend instance
+
+### Backend System
+
+**Purpose**: Per-session backend implementations for variable management and change detection
+
+**Design Elements**:
+- crc-Backend.md
+- crc-LuaBackend.md
+- seq-backend-watch.md
+- seq-backend-detect-changes.md
+
+**Notes**:
+- Backend is an interface; LuaBackend is the hosted implementation
+- Each LuaBackend owns its own change-tracker.Tracker (per-session, not global)
+- Watch tallies and watcher maps are per-session, fixing the global map collision bug
+- ProxiedBackend (future) will relay messages to external backend
 
 ### Communication System
 
@@ -137,6 +180,10 @@
 - seq-lua-execute.md
 - seq-load-lua-code.md
 - seq-lua-handle-action.md
+
+**Notes**:
+- LuaBackend uses LuaRuntime for Lua execution
+- LuaSession is the Lua-side session API exposed to main.lua
 
 ### Backend Library System
 

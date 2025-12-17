@@ -14,6 +14,7 @@ Each variable has
 
 - Each variable has a unique **id** (integer, counting up from 1)
 - ID of 0 or absent indicates "no variable" / null reference
+- **Variable IDs are scoped to a session** - multiple sessions can each have their own variable 1
 - **Standard variables** are registered with `@NAME` ids (e.g., `@app`, `@customers`)
   - These provide well-known entry points into the variable tree
 
@@ -48,6 +49,10 @@ Variable metadata properties with special meaning:
 - `rw` = readable and writeable
 - `action` = writeable, triggers a function call (like a button click)
 
+**Method path constraints:**
+- Paths ending in `()` (no argument) must have access `r` or `action`
+- Paths ending in `(_)` (with argument) must have access `w` or `action`
+
 **Path syntax:**
 - Property access: `name`
 - Array indexing: `1`, `2` (1-based)
@@ -75,38 +80,36 @@ This follows the [frictionless development](main.md#frictionless-development) pr
 3. The wrapper object is stored internally in the variable (not as a property)
 4. The wrapper persists for the lifetime of the variable
 
-**Wrapper interface:**
-```
-Wrapper {
-    computeValue(rawValue) → storedValue
-}
-```
+**Wrapper behavior:**
 
-When the monitored value changes, `wrapper.computeValue(rawValue)` is called to compute the new stored value. The wrapper can maintain state (e.g., ViewList keeps a parallel array of presenter objects).
+The wrapper object itself stands in for the variable's value when child variables navigate paths. The wrapper is registered in the object registry and becomes the variable's navigation value.
+
+**Wrapper creation and reuse:**
+
+`Resolver.CreateWrapper(variable)` is called whenever the variable's value changes. The resolver can:
+- Return a **new wrapper** if none exists yet
+- Return the **existing wrapper** if it should be reused (to preserve internal state like selection)
+- Return `nil` if no wrapper is needed
+
+This allows stateful wrappers like ViewList to update their internal state when the underlying array changes, rather than being replaced and losing state (e.g., selection index, scroll position).
+
+**Lua wrapper convention:**
+- Constructor receives the Variable object: `Wrapper:new(variable)`
+- Store `variable` property for later access to the Variable
+- Store `value` property (from `variable:getValue()`) for convenience
+- See `libraries.md` for full Lua wrapper documentation
 
 Wrappers are created via path property syntax (e.g., `contacts?wrapper=ViewList&item=ContactPresenter`).
 
 ## Variable Value Processing
 
-Variables maintain two values:
+Change detection is handled by the `change-tracker` package. The UI platform provides a `Resolver` implementation and calls `DetectChanges()`, which:
 
-1. **Monitored value** - Used for change detection
-   - For arrays: a **shallow copy** to detect content changes (additions, removals, reorders)
-   - For other values: the raw value from path resolution
+1. Computes current values for all watched variables via path resolution
+2. Detects changes and queues updates
+3. Creates/destroys wrappers as needed via `Resolver.CreateWrapper(variable)`
 
-2. **Stored value** - The variable's actual value, sent to frontend
-   - Without wrapper: same as raw value
-   - With wrapper: result of `wrapper.computeValue(rawValue)`
-   - Sent in "value JSON" form (objects as `{obj: ID}` refs)
-
-**Change detection flow:**
-1. Path resolves to raw value
-2. Compare raw value to monitored value (shallow compare for arrays)
-3. If changed:
-   - Update monitored value (shallow copy for arrays)
-   - If wrapper exists: stored value = `wrapper.computeValue(rawValue)`
-   - Else: stored value = raw value
-   - Queue update to frontend
+Variable values are sent to the frontend in "value JSON" form (objects as `{obj: ID}` refs).
 
 **Property priority:**
 

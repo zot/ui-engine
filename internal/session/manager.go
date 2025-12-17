@@ -11,12 +11,12 @@ import (
 )
 
 // SessionCreatedCallback is called when a new session is created.
-// Receives the vended session ID (compact integer string) for backend communication.
-type SessionCreatedCallback func(vendedID string) error
+// Receives the vended session ID (compact integer string) and the session object.
+type SessionCreatedCallback func(vendedID string, session *Session) error
 
 // SessionDestroyedCallback is called when a session is destroyed.
-// Receives the vended session ID (compact integer string).
-type SessionDestroyedCallback func(vendedID string)
+// Receives the vended session ID (compact integer string) and the session object.
+type SessionDestroyedCallback func(vendedID string, session *Session)
 
 // Manager manages all sessions.
 type Manager struct {
@@ -79,9 +79,9 @@ func (m *Manager) CreateSession() (*Session, string, error) {
 	m.mu.Unlock()
 
 	// Call callback to create Lua session (if enabled)
-	// Pass vended ID for backend communication
+	// Pass vended ID and session for backend creation
 	if m.onSessionCreated != nil {
-		if err := m.onSessionCreated(vendedID); err != nil {
+		if err := m.onSessionCreated(vendedID, session); err != nil {
 			// Session creation callback failed - clean up
 			m.mu.Lock()
 			delete(m.sessions, internalID)
@@ -120,6 +120,13 @@ func (m *Manager) GetSession(id string) (*Session, bool) {
 	return session, ok
 }
 
+// Get retrieves a session by ID. Returns nil if not found.
+func (m *Manager) Get(id string) *Session {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.sessions[id]
+}
+
 // DestroySession cleans up a session and all its resources.
 func (m *Manager) DestroySession(id string) error {
 	m.mu.Lock()
@@ -140,10 +147,10 @@ func (m *Manager) DestroySession(id string) error {
 	}
 	m.mu.Unlock()
 
-	// Call callback to destroy Lua session (if enabled)
-	// Pass vended ID for backend communication
+	// Call callback to destroy Lua backend (if enabled)
+	// Pass vended ID and session for backend cleanup
 	if m.onSessionDestroyed != nil && vendedID != "" {
-		m.onSessionDestroyed(vendedID)
+		m.onSessionDestroyed(vendedID, session)
 	}
 
 	// Destroy the root variable (and all children)

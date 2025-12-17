@@ -34,6 +34,10 @@ Nullish coalescing during path traversal is handled by PathNavigator (see crc-Pa
 - `method()` - call with no arguments
 - `method(_)` - call with the update message's value as the argument
 
+**Method path access constraints:**
+- Paths ending in `()` must have access `r` or `action`
+- Paths ending in `(_)` must have access `w` or `action`
+
 **Path property syntax:**
 
 Paths can include properties that are set on the created variable:
@@ -44,10 +48,12 @@ contacts?wrapper=ViewList&item=ContactPresenter
 
 - Properties after `?` are set on the created variable
 - Uses URL query string syntax: `key=value&key2=value2`
+- **Properties without values default to `true`:** `x?a&b` parses as `x?a=true&b=true`
 - Common properties:
   - `wrapper` - Wrapper type for value transformation
   - `item` - Item presenter type (for ViewList)
   - `create` - Type to instantiate as variable value
+  - `keypress` - Boolean, controls input update timing (see crc-BindingEngine.md)
 
 **Examples:**
 - `name` - Simple property access
@@ -57,6 +63,7 @@ contacts?wrapper=ViewList&item=ContactPresenter
 - `getName()` - Method call
 - `contacts?wrapper=ViewList` - Path with wrapper property
 - `contacts?item=ContactPresenter&editable=true` - Multiple properties
+- `name?keypress` - Property defaults to true (equivalent to `name?keypress=true`)
 
 ## Collaborators
 

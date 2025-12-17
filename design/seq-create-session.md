@@ -1,6 +1,6 @@
 # Sequence: Create Session
 
-**Source Spec:** interfaces.md
+**Source Spec:** interfaces.md, main.md (UI Server Architecture)
 **Use Case:** Creating a new session when user accesses the site
 
 ## Participants
@@ -8,47 +8,51 @@
 - Browser: User's web browser
 - HTTPEndpoint: HTTP request handler
 - SessionManager: Session lifecycle management
-- VariableStore: Variable storage
-- AppPresenter: Root app presenter
+- Session: Frontend layer session
+- LuaBackend: Per-session Lua backend
 
 ## Sequence
 
 ```
-     Browser            HTTPEndpoint          SessionManager         VariableStore          AppPresenter
-        |                      |                      |                      |                      |
-        |---GET /------------->|                      |                      |                      |
-        |                      |                      |                      |                      |
-        |                      |---createSession()--->|                      |                      |
-        |                      |                      |                      |                      |
-        |                      |                      |---generateId()------>|                      |
-        |                      |                      |                      |                      |
-        |                      |                      |<--sessionId----------|                      |
-        |                      |                      |                      |                      |
-        |                      |                      |---create(null,------>|                      |
-        |                      |                      |    appData,props)    |                      |
-        |                      |                      |                      |                      |
-        |                      |                      |                      |---create()---------->|
-        |                      |                      |                      |                      |
-        |                      |                      |                      |<--presenter----------|
-        |                      |                      |                      |                      |
-        |                      |                      |<--variable 1---------|                      |
-        |                      |                      |                      |                      |
-        |                      |                      |---storeSession------>|                      |
-        |                      |                      |                      |                      |
-        |                      |<--sessionId----------|                      |                      |
-        |                      |                      |                      |                      |
-        |<--302 /sessionId-----|                      |                      |                      |
-        |                      |                      |                      |                      |
-        |---GET /sessionId---->|                      |                      |                      |
-        |                      |                      |                      |                      |
-        |<--index.html---------|                      |                      |                      |
-        |                      |                      |                      |                      |
+     Browser          HTTPEndpoint        SessionManager          Session            LuaBackend
+        |                   |                   |                   |                   |
+        |---GET /---------->|                   |                   |                   |
+        |                   |                   |                   |                   |
+        |                   |--createSession()->|                   |                   |
+        |                   |                   |                   |                   |
+        |                   |                   |--new(id)--------->|                   |
+        |                   |                   |                   |                   |
+        |                   |                   |                   |--new(session)--->|
+        |                   |                   |                   |   [creates       |
+        |                   |                   |                   |    per-session   |
+        |                   |                   |                   |    tracker]      |
+        |                   |                   |                   |                   |
+        |                   |                   |                   |--loadMainLua()-->|
+        |                   |                   |                   |                   | (self)
+        |                   |                   |                   |                   |
+        |                   |                   |                   |   [main.lua      |
+        |                   |                   |                   |    creates var 1]|
+        |                   |                   |                   |                   |
+        |                   |                   |                   |<--backend--------|
+        |                   |                   |                   |                   |
+        |                   |                   |<--session---------|                   |
+        |                   |                   |                   |                   |
+        |                   |<--sessionId-------|                   |                   |
+        |                   |                   |                   |                   |
+        |<--302 /sessionId--|                   |                   |                   |
+        |                   |                   |                   |                   |
+        |---GET /sessionId->|                   |                   |                   |
+        |                   |                   |                   |                   |
+        |<--index.html------|                   |                   |                   |
+        |                   |                   |                   |                   |
 ```
 
 ## Notes
 
 - Root URL redirects to session-specific URL
 - Session ID embedded in URL path
-- Variable 1 created as root with AppPresenter data
+- Session creates LuaBackend which owns per-session change-tracker
+- Variable 1 is created by main.lua, not by the server
 - Session URL can be bookmarked for reconnection
 - Frontend app bootstraps after receiving HTML
+- See seq-session-create-backend.md for detailed backend initialization
