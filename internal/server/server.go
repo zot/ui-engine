@@ -611,12 +611,7 @@ func (a *luaStoreAdapter) CreateVariable(sessionID string, parentID int64, luaOb
 				log.Printf("Warning: failed to create wrapper %s for variable %d: %v", wrapperType, id, err)
 			} else if wrapper != nil {
 				storeVar.SetWrapperInstance(wrapper)
-				storedValue, err := lua.ComputeStoredValue(wrapper, jsonValue)
-				if err != nil {
-					log.Printf("Warning: failed to compute stored value for variable %d: %v", id, err)
-				} else {
-					storeVar.SetStoredValue(storedValue)
-				}
+				storeVar.SetStoredValue(wrapper)
 			}
 		}
 	}
@@ -719,7 +714,8 @@ func (a *luaStoreAdapter) Get(id int64) (json.RawMessage, map[string]string, boo
 	if !ok {
 		return nil, nil, false
 	}
-	return v.Value, v.Properties, true
+	valBytes, _ := json.Marshal(v.Value)
+	return valBytes, v.Properties, true
 }
 
 // GetProperty retrieves a property value.

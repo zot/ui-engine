@@ -269,9 +269,10 @@ func (h *Handler) handleUpdate(connectionID string, data json.RawMessage) (*Resp
 	if len(watchers) > 0 {
 		v, ok := h.store.Get(msg.VarID)
 		if ok {
+			valBytes, _ := json.Marshal(v.GetValue())
 			updateMsg, _ := NewMessage(MsgUpdate, UpdateMessage{
 				VarID:      msg.VarID,
-				Value:      v.GetValue(),
+				Value:      valBytes,
 				Properties: v.GetProperties(),
 			})
 			for _, watcherID := range watchers {
@@ -306,9 +307,10 @@ func (h *Handler) handleWatch(connectionID string, data json.RawMessage) (*Respo
 		if h.verbosity >= 2 {
 			log.Printf("[v2] handleWatch: sending update for var %d, type=%s, viewdefs=%d chars", msg.VarID, props["type"], len(props["viewdefs"]))
 		}
+		valBytes, _ := json.Marshal(v.GetValue())
 		updateMsg, _ := NewMessage(MsgUpdate, UpdateMessage{
 			VarID:      msg.VarID,
-			Value:      v.GetValue(),
+			Value:      valBytes,
 			Properties: v.GetProperties(),
 		})
 		h.sender.Send(connectionID, updateMsg)
@@ -361,9 +363,10 @@ func (h *Handler) handleGet(data json.RawMessage) (*Response, error) {
 	for _, id := range msg.VarIDs {
 		v, ok := h.store.Get(id)
 		if ok {
+			valBytes, _ := json.Marshal(v.GetValue())
 			variables = append(variables, VariableData{
 				ID:         v.ID,
-				Value:      v.GetValue(),
+				Value:      valBytes,
 				Properties: v.GetProperties(),
 			})
 		}
@@ -385,9 +388,10 @@ func (h *Handler) handleGetObjects(data json.RawMessage) (*Response, error) {
 	for _, id := range msg.ObjIDs {
 		v, ok := h.store.Get(id)
 		if ok {
+			valBytes, _ := json.Marshal(v.GetValue())
 			objects = append(objects, ObjectData{
 				ID:    id,
-				Value: v.GetValue(),
+				Value: valBytes,
 			})
 		}
 	}

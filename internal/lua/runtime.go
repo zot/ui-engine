@@ -821,7 +821,7 @@ func (r *Runtime) HandleFrontendCreate(parentID int64, properties map[string]str
 		return v.ID, nil, nil
 	}
 
-	// Check for wrapper and apply transformation
+	// Check for wrapper and apply it
 	wrapperType := properties["wrapper"]
 	if wrapperType != "" {
 		factory, ok := GetGlobalWrapperFactory(wrapperType)
@@ -834,13 +834,13 @@ func (r *Runtime) HandleFrontendCreate(parentID int64, properties map[string]str
 			}
 			wrapper := factory(r, wrapperVar)
 			if wrapper != nil {
-				transformedValue, err := wrapper.ComputeValue(jsonValue)
+				// The wrapper itself is the new value
+				jsonValue, err = tracker.ToValueJSONBytes(wrapper)
 				if err != nil {
 					if r.verbosity >= 1 {
-						log.Printf("[v1] HandleFrontendCreate: wrapper %s ComputeValue failed: %v", wrapperType, err)
+						log.Printf("[v1] HandleFrontendCreate: wrapper JSON conversion failed: %v", err)
 					}
 				} else {
-					jsonValue = transformedValue
 					if r.verbosity >= 2 {
 						log.Printf("[v2] HandleFrontendCreate: wrapper %s transformed value to %s", wrapperType, string(jsonValue))
 					}
@@ -869,7 +869,7 @@ func (a *trackerVariableAdapter) GetID() int64 {
 	return a.v.ID
 }
 
-func (a *trackerVariableAdapter) GetValue() json.RawMessage {
+func (a *trackerVariableAdapter) GetValue() interface{} {
 	return a.jsonValue
 }
 
@@ -1068,7 +1068,7 @@ func (r *Runtime) registerUIModule() {
 		}
 
 		// Create a Lua wrapper factory that creates instances from the Lua table
-		r.wrapperRegistry.Register(name, func(runtime *Runtime, variable WrapperVariable) Wrapper {
+		r.wrapperRegistry.Register(name, func(runtime *Runtime, variable WrapperVariable) interface{} {
 			return NewLuaWrapper(runtime, tbl, variable)
 		})
 
@@ -1290,10 +1290,10 @@ func (i *ItemWrapperInstance) ObjRef() json.RawMessage {
 	return ref
 }
 
-// CreateItemWrapper creates an ItemWrapper instance for a ViewItem.
-// The ItemWrapper constructor receives the ViewItem: ItemWrapper(viewItem).
+// CreateItemWrapper creates an ItemWrapper instance for a ViewListItem.
+// The ItemWrapper constructor receives the ViewListItem: ItemWrapper(viewListItem).
 // Returns nil if no itemType is specified or the type isn't registered.
-func (r *Runtime) CreateItemWrapper(typeName string, viewItem *ViewItem) (*ItemWrapperInstance, error) {
+func (r *Runtime) CreateItemWrapper(typeName string, viewItem *ViewListItem) (*ItemWrapperInstance, error) {
 	if typeName == "" {
 		return nil, nil
 	}
@@ -1317,11 +1317,11 @@ func (r *Runtime) CreateItemWrapper(typeName string, viewItem *ViewItem) (*ItemW
 		L.SetField(mt, "__index", pt.Table)
 		L.SetMetatable(instance, mt)
 
-		// Set ViewItem properties on the instance
-		// The presenter can access: viewItem.baseItem, viewItem.list, viewItem.index
-		L.SetField(instance, "viewItem", r.createViewItemLuaWrapper(L, viewItem))
+		// Set ViewListItem properties on the instance
+		// The presenter can access: viewListItem.item, viewListItem.list, viewListItem.index
+		L.SetField(instance, "viewListItem", r.createViewListItemLuaWrapper(L, viewItem))
 
-		// Call init method if exists, passing the viewItem
+		// Call init method if exists, passing the viewListItem
 		initFn := L.GetField(pt.Table, "init")
 		if initFn != lua.LNil {
 			if lfn, ok := initFn.(*lua.LFunction); ok {
@@ -1335,7 +1335,7 @@ func (r *Runtime) CreateItemWrapper(typeName string, viewItem *ViewItem) (*ItemW
 
 		// Generate object ID for this presenter
 		// Use negative IDs as per protocol.md
-		objID := viewItem.ObjID - 1000000 // Offset from ViewItem ID
+		objID := viewItem.GetObjID() - 1000000 // Offset from ViewListItem ID
 
 		return &ItemWrapperInstance{
 			objID:    objID,
@@ -1352,23 +1352,21 @@ func (r *Runtime) CreateItemWrapper(typeName string, viewItem *ViewItem) (*ItemW
 	return result.(*ItemWrapperInstance), nil
 }
 
-// createViewItemLuaWrapper creates a Lua wrapper for a ViewItem.
-func (r *Runtime) createViewItemLuaWrapper(L *lua.LState, viewItem *ViewItem) *lua.LTable {
+// createViewListItemLuaWrapper creates a Lua wrapper for a ViewListItem.
+func (r *Runtime) createViewListItemLuaWrapper(L *lua.LState, viewItem *ViewListItem) *lua.LTable {
 	wrapper := L.NewTable()
 
-	// viewItem.baseItem - object reference to domain object
-	var baseItemRef map[string]interface{}
-	json.Unmarshal(viewItem.BaseItem, &baseItemRef)
-	L.SetField(wrapper, "baseItem", goToLua(L, baseItemRef))
+	// viewListItem.item - the domain object
+	L.SetField(wrapper, "item", goToLua(L, viewItem.GetItem()))
 
-	// viewItem.index - position in list
-	L.SetField(wrapper, "index", lua.LNumber(viewItem.Index))
+	// viewListItem.index - position in list
+	L.SetField(wrapper, "index", lua.LNumber(viewItem.GetIndex()))
 
-	// viewItem:remove() - removes this item from the list
+	// viewListItem:remove() - removes this item from the list
 	L.SetField(wrapper, "remove", L.NewFunction(func(L *lua.LState) int {
 		if err := viewItem.Remove(); err != nil {
 			if r.verbosity >= 1 {
-				log.Printf("[v1] ViewItem.remove error: %v", err)
+				log.Printf("[v1] ViewListItem.remove error: %v", err)
 			}
 		}
 		return 0

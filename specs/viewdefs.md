@@ -214,15 +214,15 @@ The `?item=PresenterType` property tells ViewList which presenter type to wrap e
 **ViewList as wrapper object:**
 
 ViewList is a wrapper type (see protocol.md). When `ui-viewlist="path"` is used:
-1. Frontend creates a variable with `wrapper=ViewList` in path properties
-2. Backend calls `ViewList:new(variable)` via `Resolver.CreateWrapper`
-3. The ViewList wrapper stores the variable (the array is accessed via `variable:getValue()`)
-4. The wrapper is registered in the object registry and stands in for child path navigation
-5. ViewList maintains:
-   - `items` - array of ViewListItem objects, one per array element
-   - `selectionIndex` - current selection index for frontend use (default: 0 or -1 for no selection)
+1. Frontend creates a variable with `wrapper=ViewList` in path properties.
+2. The backend's `WrapperFactory` for `ViewList` is called: `NewViewList(runtime, variable)`.
+3. The `ViewList` wrapper stores the variable (the array is accessed via `variable:getValue()`).
+4. The wrapper is registered in the object registry and stands in for child path navigation.
+5. `ViewList` maintains:
+   - `items` - array of `ViewListItem` objects, one per array element.
+   - `selectionIndex` - current selection index for frontend use (default: 0 or -1 for no selection).
 
-**Wrapper reuse and sync:** When the bound array changes, `CreateWrapper` is called again. ViewList returns the existing wrapper and syncs its ViewListItems with the new array:
+**Wrapper reuse and sync:** When the bound array changes, the `WrapperFactory` is called again. `ViewList` can return the existing wrapper and sync its `ViewListItems` with the new array:
 1. For each item in the array, assign it to the corresponding ViewListItem's `item` property
 2. If the ViewListItem array is longer than the item array, trim excess ViewListItems
 3. If the ViewListItem array is shorter, create new ViewListItems for the additional items

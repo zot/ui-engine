@@ -41,7 +41,7 @@ Variable metadata properties with special meaning:
 | `access`   | `r`, `w`, `rw`, `action`                 | Read/write permissions. `action` = write-only trigger (like a button) |
 | `type`     | Type name string                         | Auto-set by backend to the runtime type name of the variable's value  |
 | `inactive` | any or unset                             | if set, variable updates will not be relayed for this or its children |
-| `wrapper`  | Type name (e.g., `ViewList`)             | Backend uses `Wrapper(variable)` to compute outgoing value            |
+| `wrapper`  | Type name (e.g., `ViewList`)             | Instantiates a wrapper object that becomes the variable's value. |
 
 **Access modes:**
 - `r` = readable only
@@ -66,40 +66,37 @@ Variable metadata properties with special meaning:
 
 ## Variable Wrappers
 
-The `wrapper` property specifies a **wrapper type name** (e.g., `ViewList`). When set, the backend instantiates a wrapper object that controls how the variable's value is computed from raw path resolution.
+The `wrapper` property specifies a **wrapper type name** (e.g., `ViewList`). When set, the backend instantiates a wrapper object that becomes the variable's value for the purposes of path navigation.
 
-**Wrapper resolution (auto-discovery):**
-1. Check global Go wrapper registry (auto-populated via `init()`)
-2. Look up Lua global by name - if a global table with that name exists and has `computeValue`, use it
+**Factory Registries:**
 
-This follows the [frictionless development](main.md#frictionless-development) principle: define a wrapper and use it by name - no explicit registration calls required.
+There are two types of factory registries for creating objects:
 
-**Wrapper lifecycle:**
-1. When a variable is created with `wrapper=TypeName` in path properties, a wrapper object of that type is instantiated
-2. The wrapper constructor receives the variable: `Constructor(variable)`
-3. The wrapper object is stored internally in the variable (not as a property)
-4. The wrapper persists for the lifetime of the variable
+1.  **Create Factory:** Used for the `create` property. It creates a new object from a value.
+2.  **Wrapper Factory:** Used for the `wrapper` property. It creates a new wrapper instance from a variable.
 
-**Wrapper behavior:**
+Both registries are populated automatically by `init()` functions in the Go code, following a frictionless development principle.
+
+**Wrapper Lifecycle:**
+1. When a variable is created with `wrapper=TypeName` in path properties, the `WrapperFactory` for that type is called.
+2. The factory receives the variable: `Factory(runtime, variable)`.
+3. The factory returns a new wrapper object (`interface{}`), which is stored internally in the variable's `wrapperInstance` field.
+4. This wrapper object becomes the `storedValue` of the variable.
+5. If the wrapper object has a `Destroy()` method, it will be called when the variable is destroyed.
+
+**Wrapper Behavior:**
 
 The wrapper object itself stands in for the variable's value when child variables navigate paths. The wrapper is registered in the object registry and becomes the variable's navigation value.
 
-**Wrapper creation and reuse:**
+**Wrapper Creation and Reuse:**
 
-`Resolver.CreateWrapper(variable)` is called whenever the variable's value changes. The resolver can:
-- Return a **new wrapper** if none exists yet
-- Return the **existing wrapper** if it should be reused (to preserve internal state like selection)
-- Return `nil` if no wrapper is needed
+The `WrapperFactory` is called whenever the variable's value changes. The factory can:
+- Return a **new wrapper** if none exists yet.
+- Return the **existing wrapper** if it should be reused (to preserve internal state like selection). The wrapper is responsible for syncing its internal state with the new value.
+- Return `nil` if no wrapper is needed.
 
-This allows stateful wrappers like ViewList to update their internal state when the underlying array changes, rather than being replaced and losing state (e.g., selection index, scroll position).
+This allows stateful wrappers like `ViewList` to update their internal state when the underlying array changes, rather than being replaced and losing state (e.g., selection index, scroll position).
 
-**Lua wrapper convention:**
-- Constructor receives the Variable object: `Wrapper:new(variable)`
-- Store `variable` property for later access to the Variable
-- Store `value` property (from `variable:getValue()`) for convenience
-- See `libraries.md` for full Lua wrapper documentation
-
-Wrappers are created via path property syntax (e.g., `contacts?wrapper=ViewList&item=ContactPresenter`).
 
 ## Variable Value Processing
 

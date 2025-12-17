@@ -286,7 +286,13 @@ func (s *Store) ResolveObjectReference(ref json.RawMessage) (json.RawMessage, er
 		return nil, fmt.Errorf("object %d not found", id)
 	}
 
-	return v.GetValue(), nil
+	// The value is an interface{}, so we need to marshal it to JSON.
+	valBytes, err := json.Marshal(v.GetValue())
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal object value: %w", err)
+	}
+
+	return valBytes, nil
 }
 
 // GetAll returns all variables (for debugging/testing).
@@ -310,10 +316,12 @@ func (s *Store) Count() int {
 
 // toStorageData converts a Variable to storage.VariableData.
 func (s *Store) toStorageData(v *Variable) *storage.VariableData {
+	valBytes, _ := json.Marshal(v.GetValue())
+
 	return &storage.VariableData{
 		ID:         v.ID,
 		ParentID:   v.ParentID,
-		Value:      v.GetValue(),
+		Value:      valBytes,
 		Properties: v.GetProperties(),
 		Unbound:    v.Unbound,
 	}
