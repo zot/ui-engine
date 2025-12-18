@@ -13,7 +13,7 @@
 - toJson: Return {obj: ID} JSON representation
 - fromJson: Parse {obj: ID} from JSON
 - isObjectReference: Check if value is object reference form
-- resolve: Get actual object data from storage
+- resolve: Get actual object data from variable store
 - getManager: Determine if backend or server manages object
 
 ## Collaborators

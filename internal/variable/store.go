@@ -8,8 +8,6 @@ import (
 	"log"
 	"sync"
 	"sync/atomic"
-
-	"github.com/zot/ui/internal/storage"
 )
 
 // propertyWatcher tracks a callback for a specific property.
@@ -24,7 +22,6 @@ type Store struct {
 	variables         map[int64]*Variable
 	standardVariables map[string]int64 // @NAME -> ID
 	nextID            atomic.Int64
-	storage           storage.Backend
 	verbosity         int
 	propertyWatchers  []propertyWatcher
 	mu                sync.RWMutex
@@ -38,13 +35,6 @@ func NewStore() *Store {
 	}
 	s.nextID.Store(1)
 	return s
-}
-
-// SetStorage sets the storage backend for persistence.
-func (s *Store) SetStorage(backend storage.Backend) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.storage = backend
 }
 
 // SetVerbosity sets the verbosity level for variable operation logging.
@@ -92,7 +82,6 @@ func (s *Store) Create(opts CreateOptions) (int64, error) {
 
 	s.mu.Lock()
 	s.variables[id] = v
-	backend := s.storage
 	verbosity := s.verbosity
 	s.mu.Unlock()
 
@@ -103,13 +92,6 @@ func (s *Store) Create(opts CreateOptions) (int64, error) {
 	// Log variable value (verbosity level 4)
 	if verbosity >= 4 && opts.Value != nil {
 		log.Printf("[v4] Variable %d value: %s", id, string(opts.Value))
-	}
-
-	// Persist to storage if available
-	if backend != nil {
-		if err := backend.Store(s.toStorageData(v)); err != nil {
-			return id, err
-		}
 	}
 
 	return id, nil
@@ -148,9 +130,7 @@ func (s *Store) Update(id int64, value json.RawMessage, properties map[string]st
 		v.SetProperties(properties)
 	}
 
-	// Persist to storage if available
 	s.mu.RLock()
-	backend := s.storage
 	verbosity := s.verbosity
 	s.mu.RUnlock()
 
@@ -161,12 +141,6 @@ func (s *Store) Update(id int64, value json.RawMessage, properties map[string]st
 	// Log variable value (verbosity level 4)
 	if verbosity >= 4 && value != nil {
 		log.Printf("[v4] Variable %d value: %s", id, string(value))
-	}
-
-	if backend != nil {
-		if err := backend.Store(s.toStorageData(v)); err != nil {
-			return err
-		}
 	}
 
 	// Notify property watchers
@@ -228,20 +202,12 @@ func (s *Store) Destroy(id int64) error {
 			break
 		}
 	}
-	backend := s.storage
 	verbosity := s.verbosity
 	s.mu.Unlock()
 
 	// Log variable destruction (verbosity level 3)
 	if verbosity >= 3 {
 		log.Printf("[v3] Variable destroyed: id=%d", id)
-	}
-
-	// Delete from storage if available
-	if backend != nil {
-		if err := backend.Delete(id); err != nil {
-			return err
-		}
 	}
 
 	return nil
@@ -314,73 +280,3 @@ func (s *Store) Count() int {
 	return len(s.variables)
 }
 
-// toStorageData converts a Variable to storage.VariableData.
-func (s *Store) toStorageData(v *Variable) *storage.VariableData {
-	valBytes, _ := json.Marshal(v.GetValue())
-
-	return &storage.VariableData{
-		ID:         v.ID,
-		ParentID:   v.ParentID,
-		Value:      valBytes,
-		Properties: v.GetProperties(),
-		Unbound:    v.Unbound,
-	}
-}
-
-// fromStorageData converts storage.VariableData to a Variable.
-func (s *Store) fromStorageData(data *storage.VariableData) *Variable {
-	v := NewVariable(data.ID)
-	v.ParentID = data.ParentID
-	v.Value = data.Value
-	v.Unbound = data.Unbound
-	if data.Properties != nil {
-		v.SetProperties(data.Properties)
-	}
-	return v
-}
-
-// LoadFromStorage loads all variables from the storage backend.
-func (s *Store) LoadFromStorage() error {
-	s.mu.Lock()
-	backend := s.storage
-	s.mu.Unlock()
-
-	if backend == nil {
-		return nil
-	}
-
-	// Load root variables (parentID = 0)
-	children, err := backend.LoadChildren(0)
-	if err != nil {
-		return err
-	}
-
-	for _, data := range children {
-		s.loadVariableTree(backend, data)
-	}
-
-	return nil
-}
-
-// loadVariableTree recursively loads a variable and its children.
-func (s *Store) loadVariableTree(backend storage.Backend, data *storage.VariableData) {
-	v := s.fromStorageData(data)
-
-	s.mu.Lock()
-	s.variables[v.ID] = v
-	// Update nextID if needed
-	if v.ID >= s.nextID.Load() {
-		s.nextID.Store(v.ID + 1)
-	}
-	s.mu.Unlock()
-
-	// Load children
-	children, err := backend.LoadChildren(v.ID)
-	if err != nil {
-		return
-	}
-
-	for _, childData := range children {
-		s.loadVariableTree(backend, childData)
-	}
-}

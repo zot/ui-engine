@@ -8,7 +8,7 @@
 - Sender: Frontend or backend initiating update
 - Session: Frontend layer session
 - LuaBackend: Per-session backend (implements Backend interface)
-- VariableStore: Variable storage
+- VariableStore: In-memory variable store
 - MessageRelay: Message forwarding
 
 ## Sequence
@@ -32,11 +32,8 @@
         |                   |                   |---setValue---------->|                      |
         |                   |                   |                      |                      |
         |                   |                   |     [if props provided]                     |
-        |                   |                   |---setProps---------->|                      |
-        |                   |                   |   (by priority)      |                      |
-        |                   |                   |                      |                      |
-        |                   |                   |                      |---store()----------->|
-        |                   |                   |                      |                      | (self)
+        |                   |                   |                      |---setProps---------->|
+        |                   |                   |                      |   (by priority)      |                      |
         |                   |                   |                      |                      |
         |                   |                   |     [after batch - change detection]        |
         |                   |                   |---DetectChanges()--->|                      |

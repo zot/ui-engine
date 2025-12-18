@@ -2,12 +2,8 @@
 
 ```
 [browser] <--WebSocket--> [UI Server] <--> [backend program(s) / MCP]
-                               |
-                           [storage]
 
 [browser] <--HTTP--> [web server] <--FastCGI--> [UI Instance] <--> [UI Server]
-                                                                        |
-                                                                    [storage]
 ```
 
 ## Deployment Modes
@@ -139,9 +135,6 @@ The UI server reads configuration from an optional `config.toml` file:
 | Port            | `--port`            | `UI_PORT`            | `server.port`     | `8080`      | Browser listen port              |
 | Socket          | `--socket`          | `UI_SOCKET`          | `server.socket`   | (see below) | Backend API socket               |
 | Site directory  | `--dir`             | `UI_DIR`             | -                 | (embedded)  | Custom site directory            |
-| Storage type    | `--storage`         | `UI_STORAGE`         | `storage.type`    | `"memory"`  | `memory`, `sqlite`, `postgresql` |
-| Storage path    | `--storage-path`    | `UI_STORAGE_PATH`    | `storage.path`    | `"ui.db"`   | SQLite file path                 |
-| Storage URL     | `--storage-url`     | `UI_STORAGE_URL`     | `storage.url`     | -           | PostgreSQL connection URL        |
 | Lua enabled     | `--lua`             | `UI_LUA`             | `lua.enabled`     | `true`      | Enable Lua backend               |
 | Lua path        | `--lua-path`        | `UI_LUA_PATH`        | `lua.path`        | `"lua/"`    | Lua scripts directory            |
 | Session timeout | `--session-timeout` | `UI_SESSION_TIMEOUT` | `session.timeout` | `"24h"`     | Session expiration (`0` = never) |
@@ -169,7 +162,7 @@ Protocol Commands (connect to running server via socket):
   update      Update a variable's value and/or properties
   watch       Watch a variable for changes
   unwatch     Stop watching a variable
-  get         Get variable values from storage
+  get         Get variable values
   poll        Get pending responses (with optional long-polling)
 
 Server Flags:
@@ -177,9 +170,6 @@ Server Flags:
   --port int                 Browser listen port (default 8080)
   --socket string            Backend API socket path (default "/tmp/ui.sock")
   --dir string               Serve from directory instead of embedded site
-  --storage string           Storage type: memory, sqlite, postgresql (default "memory")
-  --storage-path string      SQLite database path (default "ui.db")
-  --storage-url string       PostgreSQL connection URL
   --lua                      Enable Lua backend (default true)
   --lua-path string          Lua scripts directory (default "lua/")
   --session-timeout duration Session expiration (default 24h, 0=never)
@@ -317,11 +307,6 @@ host = "0.0.0.0"
 port = 8080
 socket = "/tmp/ui.sock"   # backend API socket
 
-[storage]
-type = "sqlite"           # "memory", "sqlite", "postgresql"
-path = "data/ui.db"       # for sqlite
-# url = "postgres://..."  # for postgresql
-
 [lua]
 enabled = true
 path = "lua/"             # relative to --dir or embedded root
@@ -340,15 +325,8 @@ verbosity = 0             # 0=none, 1=connections, 2=messages, 3=variables
 - Custom site mode (`--dir`): Reads `config.toml` from the specified directory
 - Missing config file: Uses defaults (memory storage, port 8080, Lua enabled)
 
-## Storage Options
-
-- **Memory**: In-memory only, lost on restart (simplest, for development)
-- **SQLite**: Persistent local database
-- **PostgreSQL**: Production-grade persistent storage
-
 ## Technology Stack
 
 - **Backend**: Go
 - **Frontend**: HTML + Shoelace web components
 - **Communication**: WebSocket (primary), HTTP/REST
-- **Storage**: Memory / SQLite / PostgreSQL

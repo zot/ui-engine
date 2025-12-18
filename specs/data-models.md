@@ -4,20 +4,10 @@ The platform supports two primary data models that determine where the source of
 
 ## Unbound Model (UI Server as Database)
 
-The backend treats the UI server's storage as the source of truth:
-- Backend creates/updates variables directly in UI server storage
+The backend treats the UI server as the source of truth:
+- Backend creates/updates variables directly in UI server
 - Uses `get(varId)` to retrieve current state when needed
-- State persists in UI server storage (Memory, SQLite, or PostgreSQL)
-
-**Storage considerations:**
-
-| Factor                         | Memory               | SQLite/PostgreSQL         |
-|--------------------------------|----------------------|---------------------------|
-| Persistence                    | Lost on restart      | Survives restarts         |
-| Ephemeral data                 | Ideal - auto-cleanup | Requires explicit cleanup |
-| Sensitive data                 | Doesn't linger       | Must manage retention     |
-| Scale (many users, large data) | Limited by RAM       | Scales to disk/cluster    |
-| Latency                        | Fastest              | Slight overhead           |
+- State resides in UI server memory
 
 **Use cases:**
 - Self-contained applications built entirely on the platform
@@ -52,6 +42,6 @@ The backend binds UI variables to its own data, with the UI server acting as a v
 ## Hybrid Usage
 
 Both models can coexist in a single application:
-- Core application state in UI server storage (unbound)
+- Core application state in UI server (unbound)
 - Integration points bound to external systems
 - Example: A monitoring dashboard with its own preferences (unbound) displaying live system metrics (bound)

@@ -8,7 +8,7 @@
 - Sender: Frontend or backend initiating create
 - Session: Frontend layer session
 - LuaBackend: Per-session backend (implements Backend interface)
-- VariableStore: Variable storage
+- VariableStore: In-memory variable store
 - Tracker: change-tracker.Tracker instance (per-session)
 
 ## Sequence
@@ -36,9 +36,6 @@
         |                   |                   |                      |                      |
         |                   |                   |                      |---processProps------>|
         |                   |                   |                      |   (by priority)      | (self)
-        |                   |                   |                      |                      |
-        |                   |                   |                      |---store()----------->|
-        |                   |                   |                      |                      | (self)
         |                   |                   |                      |                      |
         |                   |                   |<--variable-----------|                      |
         |                   |                   |                      |                      |

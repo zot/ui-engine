@@ -1304,7 +1304,25 @@ func (r *Runtime) CreateItemWrapper(typeName string, viewItem *ViewListItem) (*I
 		r.mu.RUnlock()
 
 		if !ok {
-			return nil, fmt.Errorf("item wrapper type %s not found", typeName)
+			// Auto-discovery: Check if there's a global table with this name
+			L := r.state
+			val := L.GetGlobal(typeName)
+			if tbl, ok := val.(*lua.LTable); ok {
+				pt = &PresenterType{
+					Name:    typeName,
+					Methods: make(map[string]*lua.LFunction),
+					Table:   tbl,
+				}
+				r.mu.Lock()
+				r.presenterTypes[typeName] = pt
+				r.mu.Unlock()
+
+				if r.verbosity >= 2 {
+					log.Printf("[v2] LuaRuntime: auto-discovered presenter type %s", typeName)
+				}
+			} else {
+				return nil, fmt.Errorf("item wrapper type %s not found", typeName)
+			}
 		}
 
 		L := r.state

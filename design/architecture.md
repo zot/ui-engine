@@ -142,18 +142,6 @@ Each session has an associated Backend that handles variable management. Two imp
 - Session-wrapped batching: `{"session": "abc123", "messages": [...]}`
 - Backend creates variable 1 (unless hybrid mode with Lua creating it)
 
-### Storage System
-
-**Purpose**: Persistent and in-memory storage for variables and objects
-
-**Design Elements**:
-- crc-StorageBackend.md
-- crc-MemoryStorage.md
-- crc-SQLiteStorage.md
-- crc-PostgresStorage.md
-- seq-store-variable.md
-- seq-retrieve-variable.md
-
 ### MCP Integration System
 
 **Purpose**: AI assistant integration via Model Context Protocol

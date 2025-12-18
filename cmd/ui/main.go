@@ -683,9 +683,6 @@ Server Options:
   --host          Browser listen address (default: 0.0.0.0)
   --port          Browser listen port (default: 8080)
   --socket        Backend API socket path
-  --storage       Storage type: memory, sqlite, postgresql
-  --storage-path  SQLite database path
-  --storage-url   PostgreSQL connection URL
   --lua           Enable Lua backend (default: true)
   --lua-path      Lua scripts directory
   --session-timeout    Session expiration (default: 24h, 0=never)

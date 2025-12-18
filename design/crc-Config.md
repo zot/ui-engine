@@ -18,7 +18,6 @@
 | Collaborator      | Interaction                                   |
 |-------------------|-----------------------------------------------|
 | EmbeddedSite      | Reads config.toml from embedded archive       |
-| StorageBackend    | Provides storage type and connection settings |
 | LuaRuntime        | Provides Lua enabled flag and path            |
 | SessionManager    | Provides session timeout setting              |
 | WebSocketEndpoint | Provides host, port, and verbosity (level 1)  |

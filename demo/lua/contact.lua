@@ -4,7 +4,7 @@
 -- Uses automatic change detection - no manual update() calls needed
 
 -- Contact type for individual contacts
-local Contact = {type = "Contact"}
+Contact = {type = "Contact"}
 Contact.__index = Contact
 
 function Contact:new(tbl)
@@ -28,7 +28,7 @@ end
 
 -- ContactPresenter - wraps Contact for UI interactions
 -- Constructed by ViewList with viewItem: {baseItem, list, index}
-local ContactPresenter = {type = "ContactPresenter"}
+ContactPresenter = {type = "ContactPresenter"}
 ContactPresenter.__index = ContactPresenter
 
 function ContactPresenter:new(viewItem)
@@ -67,7 +67,7 @@ function ContactPresenter:delete()
 end
 
 -- ContactApp presenter - all view state is inline
-local ContactApp = {type = "ContactApp"}
+ContactApp = {type = "ContactApp"}
 ContactApp.__index = ContactApp
 
 function ContactApp:new(tbl)

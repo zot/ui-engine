@@ -17,7 +17,6 @@ import (
 // Config holds all configuration settings for the UI server.
 type Config struct {
 	Server  ServerConfig  `toml:"server"`
-	Storage StorageConfig `toml:"storage"`
 	Lua     LuaConfig     `toml:"lua"`
 	Session SessionConfig `toml:"session"`
 	Logging LoggingConfig `toml:"logging"`
@@ -29,13 +28,6 @@ type ServerConfig struct {
 	Port   int    `toml:"port"`
 	Socket string `toml:"socket"`
 	Dir    string `toml:"-"` // Custom site directory (CLI only, not in config file)
-}
-
-// StorageConfig holds storage-related settings.
-type StorageConfig struct {
-	Type string `toml:"type"` // "memory", "sqlite", "postgresql"
-	Path string `toml:"path"` // SQLite file path
-	URL  string `toml:"url"`  // PostgreSQL connection URL
 }
 
 // LuaConfig holds Lua runtime settings.
@@ -130,10 +122,6 @@ func DefaultConfig() *Config {
 			Port:   8080,
 			Socket: defaultSocketPath(),
 		},
-		Storage: StorageConfig{
-			Type: "memory",
-			Path: "ui.db",
-		},
 		Lua: LuaConfig{
 			Enabled: true,
 			Path:    "lua/",
@@ -173,11 +161,6 @@ func Load(args []string) (*Config, error) {
 	port := fs.Int("port", 0, "Browser listen port")
 	socket := fs.String("socket", "", "Backend API socket path")
 
-	// Storage flags
-	storage := fs.String("storage", "", "Storage type: memory, sqlite, postgresql")
-	storagePath := fs.String("storage-path", "", "SQLite database path")
-	storageURL := fs.String("storage-url", "", "PostgreSQL connection URL")
-
 	// Lua flags
 	lua := fs.Bool("lua", true, "Enable Lua backend")
 	luaPath := fs.String("lua-path", "", "Lua scripts directory")
@@ -215,15 +198,6 @@ func Load(args []string) (*Config, error) {
 	}
 	if *socket != "" {
 		cfg.Server.Socket = *socket
-	}
-	if *storage != "" {
-		cfg.Storage.Type = *storage
-	}
-	if *storagePath != "" {
-		cfg.Storage.Path = *storagePath
-	}
-	if *storageURL != "" {
-		cfg.Storage.URL = *storageURL
 	}
 	if fs.Lookup("lua").Value.String() != "true" {
 		cfg.Lua.Enabled = *lua
@@ -266,15 +240,6 @@ func (c *Config) applyEnv() {
 	}
 	if v := os.Getenv("UI_SOCKET"); v != "" {
 		c.Server.Socket = v
-	}
-	if v := os.Getenv("UI_STORAGE"); v != "" {
-		c.Storage.Type = v
-	}
-	if v := os.Getenv("UI_STORAGE_PATH"); v != "" {
-		c.Storage.Path = v
-	}
-	if v := os.Getenv("UI_STORAGE_URL"); v != "" {
-		c.Storage.URL = v
 	}
 	if v := os.Getenv("UI_LUA"); v != "" {
 		c.Lua.Enabled = v == "true" || v == "1"

@@ -79,10 +79,6 @@
 ### deployment.md
 
 **CRC Cards:**
-- crc-StorageBackend.md
-- crc-MemoryStorage.md
-- crc-SQLiteStorage.md
-- crc-PostgresStorage.md
 - crc-HTTPEndpoint.md
 - crc-BackendSocket.md
 - crc-ProtocolDetector.md
@@ -91,8 +87,6 @@
 - crc-Config.md
 
 **Sequence Diagrams:**
-- seq-store-variable.md
-- seq-retrieve-variable.md
 - seq-backend-socket-accept.md
 - seq-poll-pending.md
 - seq-server-startup.md
@@ -333,26 +327,6 @@
 **Implementation:**
 - [x] `internal/protocol/batcher.go` - Priority-based message batching
 - [x] `web/src/batcher.ts` - Frontend batch processing
-
-### crc-StorageBackend.md
-**Source Spec:** deployment.md, data-models.md
-**Implementation:**
-- [x] `internal/storage/backend.go` - Storage interface
-
-### crc-MemoryStorage.md
-**Source Spec:** deployment.md
-**Implementation:**
-- [x] `internal/storage/memory.go` - In-memory storage
-
-### crc-SQLiteStorage.md
-**Source Spec:** deployment.md
-**Implementation:**
-- [x] `internal/storage/sqlite.go` - SQLite storage
-
-### crc-PostgresStorage.md
-**Source Spec:** deployment.md
-**Implementation:**
-- [x] `internal/storage/postgres.go` - PostgreSQL storage
 
 ### crc-MCPServer.md
 **Source Spec:** interfaces.md

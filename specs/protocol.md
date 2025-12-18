@@ -128,7 +128,7 @@ The UI server relays protocol messages bidirectionally between frontend and back
 - `create(parentId, value, properties, nowatch?, unbound?)` - Create a new variable
   - if properties contains a value for `create`, the `value` is ignored because the backend / UI server will create the object
   - `nowatch` indicates that the variable should not be watched
-  - `unbound` indicates that the variable's storage is in the UI server itself and not managed by an external app
+  - `unbound` indicates that the variable is not managed by an external app
   - Property names can have priority suffixes (`:high`, `:med`, `:low`, omitting a suffix leaves the priority unchanged)
 - `destroy(varId)` - Destroy a variable and all its children
 - `update(varId, value?, properties?)` - Update the variable's value and/or properties
@@ -143,7 +143,7 @@ The UI server relays protocol messages bidirectionally between frontend and back
   - Error conditions persist until cleared by a successful operation on the same variable
 
 **UI server-handled messages** (not relayed):
-- `get([varId, ...])` - Retrieve variable values from UI server storage
+- `get([varId, ...])` - Retrieve variable values from UI server
   - Used by apps that don't bind their own data to the variables
   - For objects, returns `{obj: ID, value: JSON}`
 - `getObjects([objId, ...])` - Retrieve UI server objects by ID
@@ -152,7 +152,7 @@ The UI server relays protocol messages bidirectionally between frontend and back
 - For **unbound** variables: The UI server is the source of truth - it stores state changes (`create`, `update`, `destroy`) AND forwards messages
 - For **bound** variables: The backend is the source of truth - it stores state changes, the UI server only forwards
 
-The holder of the source of truth is responsible for properly reflecting state change messages in storage.
+The holder of the source of truth is responsible for properly reflecting state change messages in the variable store.
 
 **Watch tallying:**
 

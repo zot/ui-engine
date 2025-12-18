@@ -1,5 +1,10 @@
 # Current Items
 
+- update traceability
+- improve logging
+  - put a `Log(N, format, args...)` method on Config
+  - give the lua Runtime struct a reference to the current config and add a Log method that delegates to the config's
+  - where possible, use these Log methods instead of inline if-statements with checks for log verbosity
 - Wrappers and objects can be created in the Lua runtime as well. Lua should take precedence but if there is no Lua variable with the requested name holding a table, check for a Go factory function.
 - rip out the storage thing, variable.Store, etc.
 

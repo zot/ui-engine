@@ -93,7 +93,6 @@ This principle guides all design decisions: if a developer has to write boilerpl
 ### [Deployment](deployment.md)
 - Deployment modes (standalone, FastCGI, CLI, embedded Lua)
 - Frontend webapp hosting
-- Storage options (Memory, SQLite, PostgreSQL)
 - Technology stack
 
 ### [Interfaces](interfaces.md)
@@ -118,7 +117,7 @@ This principle guides all design decisions: if a developer has to write boilerpl
 
 ### [Demo Application](demo.md)
 - Contact Manager example with Lua backend
-- In-memory storage, CRUD operations
+- CRUD operations
 
 ---
 
@@ -135,7 +134,6 @@ This principle guides all design decisions: if a developer has to write boilerpl
 Presenters are JSON objects that represent UI state on the backend.
 
 - Each presenter has a **type** (e.g., "form", "table", "chart")
-- Presenters are stored in-memory, SQLite, or PostgreSQL
 - The backend manages a **tree of variables** that hold state and reach into presenter objects
 
 ### Views

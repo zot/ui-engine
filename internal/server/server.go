@@ -20,7 +20,6 @@ import (
 	"github.com/zot/ui/internal/lua"
 	"github.com/zot/ui/internal/protocol"
 	"github.com/zot/ui/internal/session"
-	"github.com/zot/ui/internal/storage"
 	"github.com/zot/ui/internal/variable"
 	gopher "github.com/yuin/gopher-lua"
 )
@@ -33,7 +32,6 @@ type Server struct {
 	sessions        *session.Manager
 	handler         *protocol.Handler
 	pendingQueues   *PendingQueueManager
-	storageBackend  storage.Backend
 	httpServer      *http.Server
 	httpEndpoint    *HTTPEndpoint
 	wsEndpoint      *WebSocketEndpoint
@@ -59,29 +57,6 @@ func New(cfg *config.Config) *Server {
 		store:         store,
 		sessions:      sessions,
 		pendingQueues: NewPendingQueueManager(),
-	}
-
-	// Initialize storage backend based on config
-	switch cfg.Storage.Type {
-	case "sqlite":
-		backend, err := storage.NewSQLiteStorage(cfg.Storage.Path)
-		if err != nil {
-			log.Printf("Warning: failed to initialize SQLite storage: %v", err)
-		} else {
-			s.storageBackend = backend
-			store.SetStorage(backend)
-			// Load existing data from storage
-			if err := store.LoadFromStorage(); err != nil {
-				log.Printf("Warning: failed to load data from storage: %v", err)
-			}
-		}
-	case "memory", "":
-		// Memory storage is the default (no persistence)
-		backend := storage.NewMemoryStorage()
-		s.storageBackend = backend
-		store.SetStorage(backend)
-	default:
-		log.Printf("Warning: unsupported storage type: %s, using memory", cfg.Storage.Type)
 	}
 
 	// Create message sender that wraps WebSocket endpoint
@@ -187,11 +162,6 @@ func (s *Server) Shutdown(ctx context.Context) error {
 	// Close backend socket
 	if s.backendSocket != nil {
 		s.backendSocket.Close()
-	}
-
-	// Close storage backend
-	if s.storageBackend != nil {
-		s.storageBackend.Close()
 	}
 
 	// Shutdown HTTP server

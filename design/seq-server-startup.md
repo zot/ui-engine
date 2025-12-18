@@ -8,7 +8,6 @@
 - Main: Server entry point
 - Config: Configuration loader
 - EmbeddedSite: Bundled site archive
-- StorageBackend: Storage layer
 - LuaRuntime: Lua runtime manager
 - SessionManager: Session management
 - WebSocketEndpoint: WebSocket handler
@@ -17,9 +16,9 @@
 ## Sequence
 
 ```
-     Main             Config         EmbeddedSite      StorageBackend       LuaRuntime       SessionManager   WebSocketEndpoint    HTTPEndpoint
-        |                 |                 |                 |                 |                 |                 |                 |
-        |--parseCLI()---->|                 |                 |                 |                 |                 |                 |
+     Main             Config         EmbeddedSite      LuaRuntime       SessionManager   WebSocketEndpoint    HTTPEndpoint
+        |                 |                 |                 |                 |                 |                 |
+        |--parseCLI()---->|                 |                 |                 |                 |                 |
         |                 |                 |                 |                 |                 |                 |                 |
         |--loadEnv()----->|                 |                 |                 |                 |                 |                 |
         |                 |                 |                 |                 |                 |                 |                 |
@@ -34,10 +33,6 @@
         |                 |  (cli>env>file) |                 |                 |                 |                 |                 |
         |                 |                 |                 |                 |                 |                 |                 |
         |<--config--------|                 |                 |                 |                 |                 |                 |
-        |                 |                 |                 |                 |                 |                 |                 |
-        |--initStorage(type,path)---------->|                 |                 |                 |                 |                 |
-        |                 |                 |                 |                 |                 |                 |                 |
-        |                 |                 |<--storage-------|                 |                 |                 |                 |
         |                 |                 |                 |                 |                 |                 |                 |
         |--[if lua.enabled]                 |                 |                 |                 |                 |                 |
         |  initLua(path)---------------------------------------->|                 |                 |                 |                 |
@@ -63,7 +58,6 @@
 
 - Config priority: CLI flags > environment variables > config.toml > defaults
 - Missing config.toml uses defaults (not an error)
-- Storage initialized based on config type (memory/sqlite/postgresql)
 - Lua runtime only initialized if enabled in config (--lua, default: true)
 - **Embedded Lua only**: External backend sockets removed; all backend logic runs in embedded Lua
 - **Session-based Lua**: LuaRuntime starts executor but does NOT create variable 1 at startup

@@ -5,9 +5,9 @@
 package lua
 
 import (
-	"encoding/json"
 	"fmt"
 	"log"
+	"reflect"
 	"sync"
 )
 
@@ -15,12 +15,12 @@ import (
 // It creates ViewListItem objects for each item in the source array.
 type ViewList struct {
 	runtime        *Runtime
-	variable       WrapperVariable       // The variable being wrapped (for property access)
-	value          []interface{}         // The raw array of domain objects
-	Items          []*ViewListItem       // The list of ViewListItem objects
-	SelectionIndex int                   // The current selection index
-	itemType       string                // ItemWrapper type name from "item" property
-	nextObjID      int64                 // counter for generating ViewListItem object IDs
+	variable       WrapperVariable // The variable being wrapped (for property access)
+	value          interface{}     // The raw array of domain objects (slice or array)
+	Items          []*ViewListItem // The list of ViewListItem objects
+	SelectionIndex int             // The current selection index
+	itemType       string          // ItemWrapper type name from "item" property
+	nextObjID      int64           // counter for generating ViewListItem object IDs
 	mu             sync.RWMutex
 }
 
@@ -31,33 +31,51 @@ func NewViewList(runtime *Runtime, variable WrapperVariable) interface{} {
 	if runtime != nil && runtime.verbosity >= 2 {
 		log.Printf("[v2] ViewList: created for variable %d with item type %q", variable.GetID(), itemType)
 	}
+	if runtime != nil && runtime.verbosity >= 4 {
+		log.Printf("[v4] ViewList created: varID=%d itemType=%q", variable.GetID(), itemType)
+	}
 
 	vl := &ViewList{
 		runtime:        runtime,
 		variable:       variable,
 		itemType:       itemType,
 		Items:          make([]*ViewListItem, 0),
-		value:          make([]interface{}, 0),
+		value:          nil,
 		SelectionIndex: -1, // Default to no selection
 		nextObjID:      -1, // Start negative IDs for UI server managed objects
 	}
 
-	// The initial value is now processed here instead of ComputeValue
-	rawValue := variable.GetValue()
-	if rawValue != nil {
-		if rawBytes, ok := rawValue.([]byte); ok {
-			if err := json.Unmarshal(rawBytes, &vl.value); err != nil {
-				log.Printf("[v1] ViewList: could not unmarshal initial value: %v", err)
-			}
-		} else if rawJSON, ok := rawValue.(json.RawMessage); ok {
-			if err := json.Unmarshal(rawJSON, &vl.value); err != nil {
-				log.Printf("[v1] ViewList: could not unmarshal initial value: %v", err)
+	// Initial update
+	vl.Update(variable.GetValue())
+
+	return vl
+}
+
+// Update updates the ViewList with a new raw value from the backend.
+func (vl *ViewList) Update(newValue interface{}) {
+	vl.mu.Lock()
+
+	// Update raw value
+	if newValue != nil {
+		val := reflect.ValueOf(newValue)
+		kind := val.Kind()
+		if kind == reflect.Slice || kind == reflect.Array {
+			vl.value = newValue
+		} else {
+			// Not a slice/array
+			vl.value = nil
+			if vl.runtime != nil && vl.runtime.verbosity >= 1 {
+				log.Printf("[v1] ViewList: expected slice or array, got %T", newValue)
 			}
 		}
+	} else {
+		vl.value = nil
 	}
 
+	vl.mu.Unlock()
+
+	// Sync items (acquires its own lock)
 	vl.SyncViewItems()
-	return vl
 }
 
 // SyncViewItems synchronizes the `Items` slice with the `value` slice.
@@ -65,8 +83,20 @@ func (vl *ViewList) SyncViewItems() {
 	vl.mu.Lock()
 	defer vl.mu.Unlock()
 
+	var count int
+	var get func(int) interface{}
+
+	if vl.value != nil {
+		val := reflect.ValueOf(vl.value)
+		count = val.Len()
+		get = func(i int) interface{} { return val.Index(i).Interface() }
+	} else {
+		count = 0
+		get = func(i int) interface{} { return nil }
+	}
+
 	// Grow: If len(value) > len(Items), append new ViewListItems
-	for len(vl.value) > len(vl.Items) {
+	for count > len(vl.Items) {
 		newItem, err := vl.createListItem()
 		if err != nil {
 			log.Printf("[v1] ViewList: failed to create ViewListItem: %v", err)
@@ -76,15 +106,15 @@ func (vl *ViewList) SyncViewItems() {
 	}
 
 	// Shrink: If len(value) < len(Items), remove ViewListItems
-	for len(vl.value) < len(vl.Items) {
+	for count < len(vl.Items) {
 		lastIndex := len(vl.Items) - 1
 		vl.destroyListItem(vl.Items[lastIndex])
 		vl.Items = vl.Items[:lastIndex]
 	}
 
 	// Update: Iterate and update Item and Index for each ViewListItem
-	for i, item := range vl.value {
-		vl.Items[i].Item = item
+	for i := 0; i < count; i++ {
+		vl.Items[i].Item = get(i)
 		vl.Items[i].Index = i
 	}
 }
@@ -109,6 +139,9 @@ func (vl *ViewList) createListItem() (*ViewListItem, error) {
 
 	if vl.runtime != nil && vl.runtime.verbosity >= 2 {
 		log.Printf("[v2] ViewList: created ViewListItem %d", objID)
+	}
+	if vl.runtime != nil && vl.runtime.verbosity >= 4 {
+		log.Printf("[v4] ViewListItem created: objID=%d listVarID=%d", objID, vl.variable.GetID())
 	}
 
 	return listItem, nil
@@ -140,7 +173,12 @@ func (vl *ViewList) RemoveAt(index int) error {
 	vl.mu.Lock()
 	defer vl.mu.Unlock()
 
-	if index < 0 || index >= len(vl.value) {
+	count := 0
+	if vl.value != nil {
+		count = reflect.ValueOf(vl.value).Len()
+	}
+
+	if index < 0 || index >= count {
 		return fmt.Errorf("index %d out of range", index)
 	}
 

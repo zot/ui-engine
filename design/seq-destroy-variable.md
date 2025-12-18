@@ -9,7 +9,7 @@
 - Session: Frontend layer session
 - LuaBackend: Per-session backend (implements Backend interface)
 - Tracker: change-tracker.Tracker instance (per-session)
-- VariableStore: Variable storage
+- VariableStore: In-memory variable store
 
 ## Sequence
 
@@ -48,4 +48,4 @@
 - Watchers automatically cleaned up before deletion (per-session watchers map)
 - Unwatch removes from change-tracker if variable had observers
 - **Per-session scope**: Variable IDs and watcher maps are session-scoped
-- Source of truth holder removes from storage
+- Source of truth holder removes from store

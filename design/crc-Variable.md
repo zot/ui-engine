@@ -20,7 +20,6 @@
 - getProperty: Get a property by name
 - setProperty: Set a property value
 - isStandardVariable: Check if registered with @NAME id pattern
-- isUnbound: Check if storage is in UI server (not external backend)
 - hasWrapper: Check if wrapperInstance is set
 - getMonitoredValue: Return shallow copy used for change detection
 - detectChanges: Compare raw value to monitored value
