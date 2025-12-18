@@ -21,7 +21,7 @@
 
 ## Collaborators
 
-- Config: Provides socket path and verbosity for connection logging (level 1)
+- Config: Logging delegate (socket events and errors) and provides socket path
 - SessionManager: Creates sessions when backend sends first message for a session
 - ProtocolHandler: Processes messages within batches
 - MessageBatcher: Builds session-wrapped batches for outgoing messages

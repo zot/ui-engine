@@ -27,6 +27,7 @@
 - SessionManager: Notifies LuaRuntime when frontend sessions start/end
 - VariableStore: LuaSessions use to create/manage variables
 - PathNavigator: Used for path-based action dispatch
+- Config: Delegates logging from Lua scripts
 
 ## Sequences
 

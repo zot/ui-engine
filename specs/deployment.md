@@ -266,7 +266,9 @@ These commands enable shell scripts and other programs to interact with the UI s
 
 ### Verbosity Levels
 
-The verbosity flag (`-v`) controls debug output for troubleshooting. Each level includes all output from lower levels:
+The verbosity flag (`-v`) controls debug output for troubleshooting. Each level includes all output from lower levels. 
+
+**Centralized Logging**: To ensure consistent formatting and control, all components must use the `Config.Log(level, format, ...)` method for output instead of direct library calls.
 
 | Level | Flag    | Output                                           |
 |-------|---------|--------------------------------------------------|

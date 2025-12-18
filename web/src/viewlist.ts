@@ -77,15 +77,15 @@ export class ViewList {
     this.variableStore = variableStore;
     this.bindCallback = bindCallback;
 
-    // Default exemplar is a div
-    this.exemplar = document.createElement('div');
-
     // Check for exemplar in element (first child element)
     const firstChild = element.firstElementChild;
     if (firstChild instanceof HTMLElement) {
       this.exemplar = firstChild.cloneNode(true) as HTMLElement;
       // Remove the exemplar from DOM
       element.removeChild(firstChild);
+    } else {
+      // Default exemplar is a div
+      this.exemplar = document.createElement('div');
     }
   }
 

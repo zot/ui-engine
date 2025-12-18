@@ -6,15 +6,15 @@ package lua
 import (
 	"encoding/json"
 	"fmt"
-	"log"
 	"os"
 	"path/filepath"
 	"strings"
 	"sync"
 
-	changetracker "github.com/zot/change-tracker"
 	lua "github.com/yuin/gopher-lua"
+	changetracker "github.com/zot/change-tracker"
 	"github.com/zot/ui/internal/bundle"
+	"github.com/zot/ui/internal/config"
 )
 
 // WorkItem represents a unit of work for the executor.
@@ -48,7 +48,7 @@ type Runtime struct {
 	luaDir         string
 	executorChan   chan WorkItem
 	done           chan struct{}
-	verbosity      int
+	config         *config.Config
 	mu             sync.RWMutex
 
 	// Session management
@@ -84,10 +84,11 @@ type VariableStore interface {
 }
 
 // NewRuntime creates a new Lua runtime with executor goroutine.
-func NewRuntime(luaDir string) (*Runtime, error) {
+func NewRuntime(cfg *config.Config, luaDir string) (*Runtime, error) {
 	L := lua.NewState()
 
 	r := &Runtime{
+		config:         cfg,
 		state:          L,
 		loadedModules:  make(map[string]bool),
 		presenterTypes: make(map[string]*PresenterType),
@@ -126,23 +127,19 @@ func (r *Runtime) loadSessionModule() {
 
 	// Try to load the session module via require
 	if err := L.DoString(`_SessionModule = require("session")`); err != nil {
-		if r.verbosity >= 2 {
-			log.Printf("[v2] LuaRuntime: session module not found, using inline fallback")
-		}
+		r.Log(2, "LuaRuntime: session module not found, using inline fallback")
 		return
 	}
 
 	// Verify we got the module
 	if L.GetGlobal("_SessionModule") == lua.LNil {
-		if r.verbosity >= 2 {
-			log.Printf("[v2] LuaRuntime: session module returned nil")
-		}
+		r.Log(2, "LuaRuntime: session module returned nil")
 	}
 }
 
-// SetVerbosity sets the verbosity level.
-func (r *Runtime) SetVerbosity(level int) {
-	r.verbosity = level
+// Log logs a message via the config.
+func (r *Runtime) Log(level int, format string, args ...interface{}) {
+	r.config.Log(level, format, args...)
 }
 
 // SetVariableStore sets the variable store for session operations.
@@ -219,9 +216,7 @@ func (r *Runtime) CreateLuaSession(vendedID string) (*LuaSession, error) {
 			return nil, err
 		}
 
-		if r.verbosity >= 2 {
-			log.Printf("[v2] LuaRuntime: created Lua session %s", vendedID)
-		}
+		r.Log(2, "LuaRuntime: created Lua session %s", vendedID)
 
 		return nil, nil
 	})
@@ -252,9 +247,7 @@ func (r *Runtime) loadMainLua(L *lua.LState) error {
 	}
 
 	// No main.lua found - this is OK for hybrid mode where backend creates variable 1
-	if r.verbosity >= 2 {
-		log.Printf("[v2] LuaRuntime: no main.lua found (hybrid mode or backend-only)")
-	}
+	r.Log(2, "LuaRuntime: no main.lua found (hybrid mode or backend-only)")
 	return nil
 }
 
@@ -263,9 +256,7 @@ func (r *Runtime) DestroyLuaSession(vendedID string) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	delete(r.sessions, vendedID)
-	if r.verbosity >= 2 {
-		log.Printf("[v2] LuaRuntime: destroyed Lua session %s", vendedID)
-	}
+	r.Log(2, "LuaRuntime: destroyed Lua session %s", vendedID)
 }
 
 // GetLuaSession retrieves a Lua session by its vended ID.
@@ -293,7 +284,7 @@ func (r *Runtime) createSessionTable(L *lua.LState, vendedID string) *lua.LTable
 		L.Push(L.GetField(SessionClass, "new"))
 		L.Push(SessionClass)
 		if err := L.PCall(1, 1, nil); err != nil {
-			log.Printf("[lua] Session.new() failed: %v", err)
+			r.Log(0, "Session.new() failed: %v", err)
 			session = r.createFallbackSessionTable(L, vendedID)
 		} else {
 			session = L.Get(-1).(*lua.LTable)
@@ -496,9 +487,7 @@ func (r *Runtime) addGoSessionMethods(L *lua.LState, session *lua.LTable, vended
 			L.RawSet(objectToId.(*lua.LTable), luaObject, lua.LNumber(id))
 		}
 
-		if r.verbosity >= 2 {
-			log.Printf("[v2] LuaRuntime: created app variable %d for session %s", id, vendedID)
-		}
+		r.Log(2, "LuaRuntime: created app variable %d for session %s", id, vendedID)
 
 		L.Push(lua.LNumber(id))
 		return 1
@@ -595,8 +584,8 @@ func (r *Runtime) addGoSessionMethods(L *lua.LState, session *lua.LTable, vended
 			return 0
 		}
 
-		if err := r.variableStore.Destroy(id); err != nil && r.verbosity >= 2 {
-			log.Printf("[v2] LuaRuntime: destroyVariable error: %v", err)
+		if err := r.variableStore.Destroy(id); err != nil {
+			r.Log(2, "LuaRuntime: destroyVariable error: %v", err)
 		}
 
 		// Remove from session's _variables cache
@@ -682,7 +671,7 @@ func (r *Runtime) callWatchers(L *lua.LState, watchers *lua.LTable, args ...lua.
 				L.Push(arg)
 			}
 			if err := L.PCall(len(args), 0, nil); err != nil {
-				log.Printf("[lua] Watcher callback error: %v", err)
+				r.Log(0, "Watcher callback error: %v", err)
 			}
 		}
 	})
@@ -742,15 +731,11 @@ func (r *Runtime) AfterBatch(vendedID string) []VariableUpdate {
 
 			jsonBytes, err := tracker.ToValueJSONBytes(v.Value)
 			if err != nil {
-				if r.verbosity >= 1 {
-					log.Printf("[v1] AfterBatch: failed to marshal variable %d: %v", change.VariableID, err)
-				}
+				r.Log(1, "AfterBatch: failed to marshal variable %d: %v", change.VariableID, err)
 				continue
 			}
 
-			if r.verbosity >= 2 {
-				log.Printf("[v2] AfterBatch: variable %d changed", change.VariableID)
-			}
+			r.Log(2, "AfterBatch: variable %d changed", change.VariableID)
 
 			updates = append(updates, VariableUpdate{
 				VarID: change.VariableID,
@@ -759,9 +744,7 @@ func (r *Runtime) AfterBatch(vendedID string) []VariableUpdate {
 
 			// Also update the variable store so watchers get notified
 			if err := r.variableStore.Update(change.VariableID, json.RawMessage(jsonBytes), nil); err != nil {
-				if r.verbosity >= 1 {
-					log.Printf("[v1] AfterBatch: failed to update store for variable %d: %v", change.VariableID, err)
-				}
+				r.Log(1, "AfterBatch: failed to update store for variable %d: %v", change.VariableID, err)
 			}
 		}
 	}
@@ -805,9 +788,7 @@ func (r *Runtime) HandleFrontendCreate(parentID int64, properties map[string]str
 	// Resolve the path to get the initial value
 	resolvedValue, err := v.Get()
 	if err != nil {
-		if r.verbosity >= 1 {
-			log.Printf("[v1] HandleFrontendCreate: path resolution failed for %s: %v", path, err)
-		}
+		r.Log(1, "HandleFrontendCreate: path resolution failed for %s: %v", path, err)
 		// Return variable ID but nil value - frontend will see empty
 		return v.ID, nil, nil
 	}
@@ -815,9 +796,7 @@ func (r *Runtime) HandleFrontendCreate(parentID int64, properties map[string]str
 	// Convert to JSON
 	jsonValue, err := tracker.ToValueJSONBytes(resolvedValue)
 	if err != nil {
-		if r.verbosity >= 1 {
-			log.Printf("[v1] HandleFrontendCreate: JSON conversion failed: %v", err)
-		}
+		r.Log(1, "HandleFrontendCreate: JSON conversion failed: %v", err)
 		return v.ID, nil, nil
 	}
 
@@ -828,53 +807,43 @@ func (r *Runtime) HandleFrontendCreate(parentID int64, properties map[string]str
 		if ok {
 			// Create a WrapperVariable adapter for the tracker variable
 			wrapperVar := &trackerVariableAdapter{
-				v:          v,
-				jsonValue:  jsonValue,
-				properties: properties,
+				Variable: v,
 			}
 			wrapper := factory(r, wrapperVar)
 			if wrapper != nil {
 				// The wrapper itself is the new value
 				jsonValue, err = tracker.ToValueJSONBytes(wrapper)
 				if err != nil {
-					if r.verbosity >= 1 {
-						log.Printf("[v1] HandleFrontendCreate: wrapper JSON conversion failed: %v", err)
-					}
+					r.Log(1, "HandleFrontendCreate: wrapper JSON conversion failed: %v", err)
 				} else {
-					if r.verbosity >= 2 {
-						log.Printf("[v2] HandleFrontendCreate: wrapper %s transformed value to %s", wrapperType, string(jsonValue))
-					}
+					r.Log(2, "HandleFrontendCreate: wrapper %s transformed value to %s", wrapperType, string(jsonValue))
 				}
 			}
-		} else if r.verbosity >= 1 {
-			log.Printf("[v1] HandleFrontendCreate: wrapper type %s not found", wrapperType)
+		} else {
+			r.Log(1, "HandleFrontendCreate: wrapper type %s not found", wrapperType)
 		}
 	}
 
-	if r.verbosity >= 2 {
-		log.Printf("[v2] HandleFrontendCreate: created var %d for path %s, value=%s", v.ID, path, string(jsonValue))
-	}
+	r.Log(2, "HandleFrontendCreate: created var %d for path %s, value=%s", v.ID, path, string(jsonValue))
 
 	return v.ID, jsonValue, nil
 }
 
 // trackerVariableAdapter adapts a change-tracker Variable to WrapperVariable interface
 type trackerVariableAdapter struct {
-	v          *changetracker.Variable
-	jsonValue  json.RawMessage
-	properties map[string]string
+	*changetracker.Variable
 }
 
 func (a *trackerVariableAdapter) GetID() int64 {
-	return a.v.ID
+	return a.ID
 }
 
 func (a *trackerVariableAdapter) GetValue() interface{} {
-	return a.jsonValue
+	return a.Value
 }
 
 func (a *trackerVariableAdapter) GetProperty(name string) string {
-	return a.properties[name]
+	return a.Properties[name]
 }
 
 // HandleFrontendUpdate handles an update to a path-based variable from the frontend.
@@ -913,15 +882,11 @@ func (r *Runtime) HandleFrontendUpdate(varID int64, value json.RawMessage) error
 
 	// Update the backend object via the variable's path
 	if err := v.Set(goValue); err != nil {
-		if r.verbosity >= 1 {
-			log.Printf("[v1] HandleFrontendUpdate: Set failed for var %d: %v", varID, err)
-		}
+		r.Log(1, "HandleFrontendUpdate: Set failed for var %d: %v", varID, err)
 		return err
 	}
 
-	if r.verbosity >= 2 {
-		log.Printf("[v2] HandleFrontendUpdate: updated var %d with value %s", varID, string(value))
-	}
+	r.Log(2, "HandleFrontendUpdate: updated var %d with value %s", varID, string(value))
 
 	return nil
 }
@@ -1013,17 +978,26 @@ func (r *Runtime) registerUIModule() {
 		}
 		r.mu.Unlock()
 
-		if r.verbosity >= 2 {
-			log.Printf("[v2] LuaRuntime: registered presenter type %s", name)
-		}
+		r.Log(2, "LuaRuntime: registered presenter type %s", name)
 
 		return 0
 	}))
 
-	// ui.log(message)
+	// ui.log([level,] message)
 	L.SetField(uiMod, "log", L.NewFunction(func(L *lua.LState) int {
-		msg := L.CheckString(1)
-		fmt.Printf("[lua] %s\n", msg)
+		top := L.GetTop()
+		var level int
+		var msg string
+
+		if top == 1 {
+			level = 0
+			msg = L.CheckString(1)
+		} else {
+			level = L.CheckInt(1)
+			msg = L.CheckString(2)
+		}
+
+		r.Log(level, "[lua] %s", msg)
 		return 0
 	}))
 
@@ -1072,9 +1046,7 @@ func (r *Runtime) registerUIModule() {
 			return NewLuaWrapper(runtime, tbl, variable)
 		})
 
-		if r.verbosity >= 2 {
-			log.Printf("[v2] LuaRuntime: registered wrapper type %s", name)
-		}
+		r.Log(2, "LuaRuntime: registered wrapper type %s", name)
 
 		return 0
 	}))
@@ -1317,9 +1289,7 @@ func (r *Runtime) CreateItemWrapper(typeName string, viewItem *ViewListItem) (*I
 				r.presenterTypes[typeName] = pt
 				r.mu.Unlock()
 
-				if r.verbosity >= 2 {
-					log.Printf("[v2] LuaRuntime: auto-discovered presenter type %s", typeName)
-				}
+				r.Log(2, "LuaRuntime: auto-discovered presenter type %s", typeName)
 			} else {
 				return nil, fmt.Errorf("item wrapper type %s not found", typeName)
 			}
@@ -1383,9 +1353,7 @@ func (r *Runtime) createViewListItemLuaWrapper(L *lua.LState, viewItem *ViewList
 	// viewListItem:remove() - removes this item from the list
 	L.SetField(wrapper, "remove", L.NewFunction(func(L *lua.LState) int {
 		if err := viewItem.Remove(); err != nil {
-			if r.verbosity >= 1 {
-				log.Printf("[v1] ViewListItem.remove error: %v", err)
-			}
+			r.Log(1, "ViewListItem.remove error: %v", err)
 		}
 		return 0
 	}))

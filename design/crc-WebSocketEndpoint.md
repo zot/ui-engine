@@ -30,7 +30,7 @@
 - ProtocolHandler: Routes received messages
 - MessageRelay: Coordinates message flow
 - SharedWorker: Coordinates with other tabs
-- Config: Queries verbosity for connection event logging (level 1)
+- Config: Logging delegate (connection events and errors)
 
 ## Sequences
 

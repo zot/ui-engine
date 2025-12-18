@@ -5,7 +5,6 @@
 package lua
 
 import (
-	"log"
 	"sync"
 )
 
@@ -22,8 +21,8 @@ type ViewListItem struct {
 
 // NewViewListItem creates a new ViewListItem for a domain object.
 func NewViewListItem(viewItemObjID int64, item interface{}, list *ViewList, index int) *ViewListItem {
-	if list != nil && list.runtime != nil && list.runtime.verbosity >= 4 {
-		log.Printf("[v4] NewViewListItem: objID=%d index=%d", viewItemObjID, index)
+	if list != nil && list.runtime != nil {
+		list.runtime.Log(4, "NewViewListItem: objID=%d index=%d", viewItemObjID, index)
 	}
 	return &ViewListItem{
 		ObjID:    viewItemObjID,

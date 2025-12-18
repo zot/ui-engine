@@ -4,8 +4,9 @@ import (
 	"encoding/json"
 	"testing"
 
-	changetracker "github.com/zot/change-tracker"
 	golua "github.com/yuin/gopher-lua"
+	changetracker "github.com/zot/change-tracker"
+	"github.com/zot/ui/internal/config"
 )
 
 // mockVariableStore implements VariableStore for testing
@@ -134,7 +135,7 @@ func (s *mockVariableStore) DetectChanges(sessionID string) []changetracker.Chan
 // TestObjectRegistration verifies that Lua tables are registered as objects
 // and their Value JSON is an object reference.
 func TestObjectRegistration(t *testing.T) {
-	rt, err := NewRuntime("/tmp")
+	rt, err := NewRuntime(config.DefaultConfig(), "/tmp")
 	if err != nil {
 		t.Fatalf("Failed to create runtime: %v", err)
 	}
@@ -212,7 +213,7 @@ func TestObjectRegistration(t *testing.T) {
 
 // TestCreateMultipleVariables verifies creating app and child variables
 func TestCreateMultipleVariables(t *testing.T) {
-	rt, err := NewRuntime("/tmp")
+	rt, err := NewRuntime(config.DefaultConfig(), "/tmp")
 	if err != nil {
 		t.Fatalf("Failed to create runtime: %v", err)
 	}
@@ -387,4 +388,43 @@ func TestLuaResolverArrayConversion(t *testing.T) {
 	}
 
 	t.Log("Lua array conversion test passed!")
+}
+
+// TestUILog verifies ui.log works with 1 or 2 arguments
+func TestUILog(t *testing.T) {
+	rt, err := NewRuntime(config.DefaultConfig(), "/tmp")
+	if err != nil {
+		t.Fatalf("Failed to create runtime: %v", err)
+	}
+	defer rt.Shutdown()
+
+	store := newMockStore()
+	rt.SetVariableStore(store)
+
+	// Capture log output via config verbosity?
+	// The log output goes to stdout/stderr via log.Printf, which is hard to capture in test.
+	// But we just want to ensure it doesn't crash (RaiseError).
+
+	sess, err := rt.CreateLuaSession("1")
+	if err != nil {
+		t.Fatalf("Failed to create Lua session: %v", err)
+	}
+
+	_, err = rt.execute(func() (interface{}, error) {
+		L := rt.state
+		L.SetGlobal("session", sess.sessionTable)
+
+		code := `
+			-- Test 1 argument (should succeed with default level)
+			ui.log("Message with default level")
+
+			-- Test 2 arguments (should succeed with specific level)
+			ui.log(1, "Message with level 1")
+		`
+		return nil, L.DoString(code)
+	})
+
+	if err != nil {
+		t.Fatalf("Lua execution failed: %v", err)
+	}
 }

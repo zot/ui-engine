@@ -7,30 +7,31 @@ import (
 	"encoding/binary"
 	"encoding/json"
 	"io"
-	"log"
 	"net"
 	"os"
 	"runtime"
 	"sync"
 
+	"github.com/zot/ui/internal/config"
 	"github.com/zot/ui/internal/protocol"
 )
 
 // BackendSocket handles the backend API socket.
 type BackendSocket struct {
+	config      *config.Config
 	socketPath  string
 	listener    net.Listener
 	handler     *protocol.Handler
 	httpHandler *HTTPEndpoint
 	connections map[string]net.Conn
-	verbosity   int
 	closed      bool
 	mu          sync.RWMutex
 }
 
 // NewBackendSocket creates a new backend socket handler.
-func NewBackendSocket(socketPath string, handler *protocol.Handler, httpHandler *HTTPEndpoint) *BackendSocket {
+func NewBackendSocket(cfg *config.Config, socketPath string, handler *protocol.Handler, httpHandler *HTTPEndpoint) *BackendSocket {
 	return &BackendSocket{
+		config:      cfg,
 		socketPath:  socketPath,
 		handler:     handler,
 		httpHandler: httpHandler,
@@ -38,9 +39,9 @@ func NewBackendSocket(socketPath string, handler *protocol.Handler, httpHandler 
 	}
 }
 
-// SetVerbosity sets the verbosity level for connection logging.
-func (bs *BackendSocket) SetVerbosity(level int) {
-	bs.verbosity = level
+// Log logs a message via the config.
+func (bs *BackendSocket) Log(level int, format string, args ...interface{}) {
+	bs.config.Log(level, format, args...)
 }
 
 // DefaultSocketPath returns the platform-specific default socket path.
@@ -89,7 +90,7 @@ func (bs *BackendSocket) acceptLoop() {
 			if closed {
 				return // Socket closed gracefully
 			}
-			log.Printf("Accept error: %v", err)
+			bs.Log(0, "Accept error: %v", err)
 			continue
 		}
 
@@ -106,9 +107,7 @@ func (bs *BackendSocket) handleConnection(conn net.Conn) {
 	bs.mu.Unlock()
 
 	// Log connection event (verbosity level 1)
-	if bs.verbosity >= 1 {
-		log.Printf("[v1] Backend connected: %s", connID)
-	}
+	bs.Log(1, "Backend connected: %s", connID)
 
 	defer func() {
 		bs.mu.Lock()
@@ -116,9 +115,7 @@ func (bs *BackendSocket) handleConnection(conn net.Conn) {
 		bs.mu.Unlock()
 		conn.Close()
 		// Log disconnection event (verbosity level 1)
-		if bs.verbosity >= 1 {
-			log.Printf("[v1] Backend disconnected: %s", connID)
-		}
+		bs.Log(1, "Backend disconnected: %s", connID)
 	}()
 
 	// Detect protocol by peeking first 4 bytes
@@ -126,7 +123,7 @@ func (bs *BackendSocket) handleConnection(conn net.Conn) {
 	peek, err := reader.Peek(4)
 	if err != nil {
 		if err != io.EOF {
-			log.Printf("Peek error: %v", err)
+			bs.Log(0, "Peek error: %v", err)
 		}
 		return
 	}
@@ -170,28 +167,28 @@ func (bs *BackendSocket) handlePacketConnection(reader *bufio.Reader, conn net.C
 		lenBuf := make([]byte, 4)
 		if _, err := io.ReadFull(reader, lenBuf); err != nil {
 			if err != io.EOF {
-				log.Printf("Read length error: %v", err)
+				bs.Log(0, "Read length error: %v", err)
 			}
 			return
 		}
 
 		length := binary.BigEndian.Uint32(lenBuf)
 		if length > 10*1024*1024 { // 10MB max
-			log.Printf("Message too large: %d bytes", length)
+			bs.Log(0, "Message too large: %d bytes", length)
 			return
 		}
 
 		// Read JSON payload
 		payload := make([]byte, length)
 		if _, err := io.ReadFull(reader, payload); err != nil {
-			log.Printf("Read payload error: %v", err)
+			bs.Log(0, "Read payload error: %v", err)
 			return
 		}
 
 		// Parse and handle message
 		msg, err := protocol.ParseMessage(payload)
 		if err != nil {
-			log.Printf("Parse message error: %v", err)
+			bs.Log(0, "Parse message error: %v", err)
 			bs.writePacketError(conn, "Invalid message format")
 			continue
 		}

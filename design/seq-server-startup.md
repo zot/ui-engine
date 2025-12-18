@@ -65,5 +65,5 @@
 - **Executor channel**: Ensures single-threaded Lua access (Lua VMs are not thread-safe)
 - SessionManager is linked to LuaRuntime for creating Lua sessions
 - Server starts listening after all subsystems ready
-- Verbosity level (0-3) loaded from -v flags, UI_VERBOSITY, or logging.verbosity
-- Components check verbosity to enable debug logging (1=connections, 2=protocol, 3=variables)
+- Verbosity level (0-4) loaded from -v flags, UI_VERBOSITY, or logging.verbosity
+- Components receive Config for centralized logging (delegating log calls to Config)

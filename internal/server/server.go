@@ -7,12 +7,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"io/fs"
-	"log"
 	"net/http"
 	"path/filepath"
 	"sync"
 	"time"
 
+	gopher "github.com/yuin/gopher-lua"
 	changetracker "github.com/zot/change-tracker"
 	"github.com/zot/ui/internal/backend"
 	"github.com/zot/ui/internal/bundle"
@@ -21,7 +21,6 @@ import (
 	"github.com/zot/ui/internal/protocol"
 	"github.com/zot/ui/internal/session"
 	"github.com/zot/ui/internal/variable"
-	gopher "github.com/yuin/gopher-lua"
 )
 
 // Server is the main UI server.
@@ -45,7 +44,7 @@ type Server struct {
 
 // New creates a new server with the given configuration.
 func New(cfg *config.Config) *Server {
-	store := variable.NewStore()
+	store := variable.NewStore(cfg)
 
 	sessions := session.NewManager(
 		store,
@@ -61,7 +60,7 @@ func New(cfg *config.Config) *Server {
 
 	// Create message sender that wraps WebSocket endpoint
 	sender := &serverMessageSender{server: s}
-	s.handler = protocol.NewHandler(store, sender)
+	s.handler = protocol.NewHandler(cfg, store, sender)
 
 	// Set up pending queue for CLI/REST clients
 	s.handler.SetPendingQueuer(s.pendingQueues)
@@ -70,7 +69,7 @@ func New(cfg *config.Config) *Server {
 	s.handler.SetBackendLookup(&serverBackendLookup{server: s})
 
 	// Create WebSocket endpoint
-	s.wsEndpoint = NewWebSocketEndpoint(sessions, s.handler)
+	s.wsEndpoint = NewWebSocketEndpoint(cfg, sessions, s.handler)
 
 	// Create HTTP endpoint
 	s.httpEndpoint = NewHTTPEndpoint(sessions, s.handler, s.wsEndpoint)
@@ -82,21 +81,22 @@ func New(cfg *config.Config) *Server {
 	s.setupViewdefs(cfg)
 
 	// Create backend socket
-	s.backendSocket = NewBackendSocket(cfg.Server.Socket, s.handler, s.httpEndpoint)
+	s.backendSocket = NewBackendSocket(cfg, cfg.Server.Socket, s.handler, s.httpEndpoint)
 
 	// Set verbosity on all components
-	verbosity := cfg.Verbosity()
-	s.wsEndpoint.SetVerbosity(verbosity)
-	s.backendSocket.SetVerbosity(verbosity)
-	s.handler.SetVerbosity(verbosity)
-	store.SetVerbosity(verbosity)
+	// Note: Components now use Config.Log directly via the passed config object.
+	// verbosity := cfg.Verbosity() - Removed
+	// s.wsEndpoint.SetVerbosity(verbosity) - Removed
+	// s.backendSocket.SetVerbosity(verbosity) - Removed
+	// s.handler.SetVerbosity(verbosity) - Removed
+	// store.SetVerbosity(verbosity) - Removed
 
 	// Initialize wrapper registry (needed for ViewList wrapper support)
 	s.wrapperRegistry = lua.NewWrapperRegistry()
 
 	// Initialize Lua runtime if enabled
 	if cfg.Lua.Enabled {
-		s.setupLua(cfg, verbosity)
+		s.setupLua(cfg)
 
 		// Create wrapper manager with runtime and registry
 		s.wrapperManager = lua.NewWrapperManager(s.luaRuntime, s.wrapperRegistry)
@@ -139,7 +139,7 @@ func (s *Server) Start() error {
 	if err := s.backendSocket.Listen(); err != nil {
 		return fmt.Errorf("failed to start backend socket: %w", err)
 	}
-	log.Printf("Backend socket listening on %s", s.backendSocket.GetSocketPath())
+	s.config.Log(0, "Backend socket listening on %s", s.backendSocket.GetSocketPath())
 
 	// Start HTTP server
 	addr := fmt.Sprintf("%s:%d", s.config.Server.Host, s.config.Server.Port)
@@ -148,7 +148,7 @@ func (s *Server) Start() error {
 		Handler: s.httpEndpoint,
 	}
 
-	log.Printf("HTTP server listening on %s", addr)
+	s.config.Log(0, "HTTP server listening on %s", addr)
 	return s.httpServer.ListenAndServe()
 }
 
@@ -196,7 +196,7 @@ func (s *Server) StartCleanupWorker(interval time.Duration) {
 		for range ticker.C {
 			count := s.sessions.CleanupInactiveSessions()
 			if count > 0 {
-				log.Printf("Cleaned up %d inactive sessions", count)
+				s.config.Log(0, "Cleaned up %d inactive sessions", count)
 			}
 		}
 	}()
@@ -208,25 +208,25 @@ func (s *Server) setupSite(cfg *config.Config) {
 	if cfg.Server.Dir != "" {
 		htmlDir := cfg.Server.Dir + "/html"
 		s.httpEndpoint.SetStaticDir(htmlDir)
-		log.Printf("Serving site from directory: %s", htmlDir)
+		s.config.Log(0, "Serving site from directory: %s", htmlDir)
 		return
 	}
 
 	// Try to load from bundle
 	zipReader, err := bundle.GetBundleReader()
 	if err != nil {
-		log.Printf("Warning: failed to read bundle: %v", err)
+		s.config.Log(0, "Warning: failed to read bundle: %v", err)
 		return
 	}
 
 	if zipReader != nil {
 		// NewZipFileSystem automatically serves from html/ subdirectory
 		s.httpEndpoint.SetEmbeddedSite(bundle.NewZipFileSystem(zipReader))
-		log.Printf("Serving site from embedded bundle (html/)")
+		s.config.Log(0, "Serving site from embedded bundle (html/)")
 		return
 	}
 
-	log.Printf("Warning: no site available (not bundled and no --dir specified)")
+	s.config.Log(0, "Warning: no site available (not bundled and no --dir specified)")
 }
 
 // setupViewdefs initializes the viewdef manager and loads viewdefs.
@@ -237,18 +237,18 @@ func (s *Server) setupViewdefs(cfg *config.Config) {
 	if cfg.Server.Dir != "" {
 		viewdefsDir := cfg.Server.Dir + "/viewdefs"
 		if err := s.viewdefManager.LoadFromDirectory(viewdefsDir); err != nil {
-			log.Printf("Warning: failed to load viewdefs from %s: %v", viewdefsDir, err)
+			s.config.Log(0, "Warning: failed to load viewdefs from %s: %v", viewdefsDir, err)
 		} else {
-			log.Printf("Loaded %d viewdefs from directory: %s", s.viewdefManager.Count(), viewdefsDir)
+			s.config.Log(0, "Loaded %d viewdefs from directory: %s", s.viewdefManager.Count(), viewdefsDir)
 		}
 		return
 	}
 
 	// Try to load from bundle
 	if err := s.viewdefManager.LoadFromBundle(); err != nil {
-		log.Printf("Warning: failed to load viewdefs from bundle: %v", err)
+		s.config.Log(0, "Warning: failed to load viewdefs from bundle: %v", err)
 	} else if s.viewdefManager.Count() > 0 {
-		log.Printf("Loaded %d viewdefs from bundle", s.viewdefManager.Count())
+		s.config.Log(0, "Loaded %d viewdefs from bundle", s.viewdefManager.Count())
 	}
 }
 
@@ -295,7 +295,7 @@ func (sbl *serverBackendLookup) GetBackendForConnection(connectionID string) bac
 // setupLua initializes the Lua runtime.
 // Only main.lua is auto-loaded per session. Other Lua files are loaded
 // on-demand via require() or the lua property on variable 1.
-func (s *Server) setupLua(cfg *config.Config, verbosity int) {
+func (s *Server) setupLua(cfg *config.Config) {
 	// Determine Lua directory
 	luaDir := cfg.Lua.Path
 	if cfg.Server.Dir != "" {
@@ -303,17 +303,16 @@ func (s *Server) setupLua(cfg *config.Config, verbosity int) {
 	}
 
 	// Create runtime
-	runtime, err := lua.NewRuntime(luaDir)
+	runtime, err := lua.NewRuntime(cfg, luaDir)
 	if err != nil {
-		log.Printf("Warning: failed to create Lua runtime: %v", err)
+		s.config.Log(0, "Warning: failed to create Lua runtime: %v", err)
 		return
 	}
 
-	runtime.SetVerbosity(verbosity)
 	s.luaRuntime = runtime
 
 	// Create store adapter and set on runtime
-	s.storeAdapter = &luaStoreAdapter{store: s.store}
+	s.storeAdapter = &luaStoreAdapter{config: cfg, store: s.store}
 	runtime.SetVariableStore(s.storeAdapter)
 
 	// Set wrapper registry on runtime (allows ui.registerWrapper from Lua)
@@ -325,7 +324,7 @@ func (s *Server) setupLua(cfg *config.Config, verbosity int) {
 		s.preloadMainLuaFromBundle(runtime)
 	}
 
-	log.Printf("Lua runtime initialized (dir: %s)", luaDir)
+	s.config.Log(0, "Lua runtime initialized (dir: %s)", luaDir)
 }
 
 // CreateLuaBackendForSession creates a LuaBackend for a new session.
@@ -339,7 +338,7 @@ func (s *Server) CreateLuaBackendForSession(vendedID string, sess *session.Sessi
 	}
 
 	// Create LuaBackend with resolver
-	lb := backend.NewLuaBackend(vendedID, &lua.LuaResolver{L: nil}) // Resolver will be set by runtime
+	lb := backend.NewLuaBackend(s.config, vendedID, &lua.LuaResolver{L: nil}) // Resolver will be set by runtime
 
 	// Attach backend to session
 	sess.SetBackend(lb)
@@ -450,12 +449,13 @@ func (s *Server) preloadMainLuaFromBundle(runtime *lua.Runtime) {
 		return
 	}
 	runtime.SetMainLuaCode(string(content))
-	log.Printf("Preloaded main.lua from bundle")
+	s.config.Log(0, "Preloaded main.lua from bundle")
 }
 
 // luaStoreAdapter adapts variable.Store to lua.VariableStore interface.
 // It coordinates with per-session LuaBackends for change detection.
 type luaStoreAdapter struct {
+	config         *config.Config
 	store          *variable.Store
 	wrapperManager *lua.WrapperManager
 	viewdefManager *ViewdefManager
@@ -569,7 +569,7 @@ func (a *luaStoreAdapter) CreateVariable(sessionID string, parentID int64, luaOb
 		Properties: properties,
 	})
 	if err != nil {
-		log.Printf("Warning: failed to create variable %d in store: %v", id, err)
+		a.config.Log(0, "Warning: failed to create variable %d in store: %v", id, err)
 	}
 
 	// If wrapper property is set, create wrapper instance
@@ -578,7 +578,7 @@ func (a *luaStoreAdapter) CreateVariable(sessionID string, parentID int64, luaOb
 		if ok {
 			wrapper, err := a.wrapperManager.CreateWrapper(storeVar)
 			if err != nil {
-				log.Printf("Warning: failed to create wrapper %s for variable %d: %v", wrapperType, id, err)
+				a.config.Log(0, "Warning: failed to create wrapper %s for variable %d: %v", wrapperType, id, err)
 			} else if wrapper != nil {
 				storeVar.SetWrapperInstance(wrapper)
 				storeVar.SetStoredValue(wrapper)
@@ -653,7 +653,7 @@ func (a *luaStoreAdapter) CreatePathVariable(parentID int64, path string, proper
 		Properties: properties,
 	})
 	if err != nil {
-		log.Printf("Warning: failed to create path variable %d in store: %v", id, err)
+		a.config.Log(0, "Warning: failed to create path variable %d in store: %v", id, err)
 	}
 
 	return id, jsonValue, nil
@@ -759,7 +759,7 @@ func (a *luaStoreAdapter) updateVariable1Viewdefs(sessionID string, viewdefs map
 	// Serialize viewdefs as JSON
 	viewdefsJSON, err := json.Marshal(viewdefs)
 	if err != nil {
-		log.Printf("Warning: failed to marshal viewdefs: %v", err)
+		a.config.Log(0, "Warning: failed to marshal viewdefs: %v", err)
 		return
 	}
 
@@ -769,6 +769,6 @@ func (a *luaStoreAdapter) updateVariable1Viewdefs(sessionID string, viewdefs map
 		"viewdefs": string(viewdefsJSON),
 	})
 	if err != nil {
-		log.Printf("Warning: failed to update variable 1 viewdefs property: %v", err)
+		a.config.Log(0, "Warning: failed to update variable 1 viewdefs property: %v", err)
 	}
 }

@@ -211,7 +211,7 @@
 ### crc-LuaBackend.md
 **Source Spec:** main.md (UI Server Architecture), protocol.md (Session-Based Communication)
 **Implementation:**
-- [ ] `internal/backend/lua.go` - LuaBackend with per-session change-tracker
+- [x] `internal/backend/lua.go` - LuaBackend with per-session change-tracker
 
 **Notes:**
 - Merges WatchManager functionality (watchCounts, watchers maps are per-session)
@@ -257,12 +257,12 @@
 **Source Spec:** viewdefs.md, protocol.md
 **Implementation:**
 - [x] `web/src/viewlist.ts` - ViewList class for ui-viewlist elements (frontend)
-- [x] `internal/lua/viewlist_wrapper.go` - ViewList wrapper (backend)
+- [x] `internal/lua/viewlist.go` - ViewList wrapper (backend)
 
 ### crc-ViewListItem.md
 **Source Spec:** viewdefs.md
 **Implementation:**
-- [ ] `internal/lua/viewlistitem.go` - ViewListItem struct (item, list, index)
+- [x] `internal/lua/viewlistitem.go` - ViewListItem struct (item, list, index)
 
 ### crc-AppView.md
 **Source Spec:** viewdefs.md
@@ -288,7 +288,7 @@
 **Source Spec:** main.md (UI Server Architecture - Frontend Layer), interfaces.md
 **Implementation:**
 - [x] `internal/session/session.go` - Session struct
-- [ ] `internal/session/session.go` - Add backend field, delegate to Backend
+- [x] `internal/session/session.go` - backend field, delegate to Backend
 
 ### crc-SessionManager.md
 **Source Spec:** interfaces.md, protocol.md
@@ -442,7 +442,7 @@
 **Source Spec:** protocol.md
 **Implementation:**
 - [x] `internal/lua/wrapper.go` - Wrapper interface and registry
-- [x] `internal/lua/viewlist_wrapper.go` - ViewList wrapper implementation
+- [x] `internal/lua/viewlist.go` - ViewList wrapper implementation
 - [ ] `lib/wrapper.lua` - Lua wrapper base (optional - Go implementation complete)
 
 ---

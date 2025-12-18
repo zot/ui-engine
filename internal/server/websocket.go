@@ -6,11 +6,11 @@ package server
 import (
 	"crypto/rand"
 	"encoding/hex"
-	"log"
 	"net/http"
 	"sync"
 
 	"github.com/gorilla/websocket"
+	"github.com/zot/ui/internal/config"
 	"github.com/zot/ui/internal/protocol"
 	"github.com/zot/ui/internal/session"
 )
@@ -28,19 +28,20 @@ type AfterBatchCallback func(sessionID string)
 
 // WebSocketEndpoint handles WebSocket connections.
 type WebSocketEndpoint struct {
+	config          *config.Config
 	connections     map[string]*websocket.Conn // connectionID -> conn
 	sessionBindings map[string]string          // connectionID -> sessionID
 	reconnectTokens map[string]string          // sessionID -> token
 	sessions        *session.Manager
 	handler         *protocol.Handler
-	afterBatch      AfterBatchCallback         // Called after each message to detect changes
-	verbosity       int
+	afterBatch      AfterBatchCallback // Called after each message to detect changes
 	mu              sync.RWMutex
 }
 
 // NewWebSocketEndpoint creates a new WebSocket endpoint.
-func NewWebSocketEndpoint(sessions *session.Manager, handler *protocol.Handler) *WebSocketEndpoint {
+func NewWebSocketEndpoint(cfg *config.Config, sessions *session.Manager, handler *protocol.Handler) *WebSocketEndpoint {
 	return &WebSocketEndpoint{
+		config:          cfg,
 		connections:     make(map[string]*websocket.Conn),
 		sessionBindings: make(map[string]string),
 		reconnectTokens: make(map[string]string),
@@ -49,9 +50,9 @@ func NewWebSocketEndpoint(sessions *session.Manager, handler *protocol.Handler) 
 	}
 }
 
-// SetVerbosity sets the verbosity level for connection logging.
-func (ws *WebSocketEndpoint) SetVerbosity(level int) {
-	ws.verbosity = level
+// Log logs a message via the config.
+func (ws *WebSocketEndpoint) Log(level int, format string, args ...interface{}) {
+	ws.config.Log(level, format, args...)
 }
 
 // SetAfterBatch sets the callback for change detection after message processing.
@@ -63,7 +64,7 @@ func (ws *WebSocketEndpoint) SetAfterBatch(callback AfterBatchCallback) {
 func (ws *WebSocketEndpoint) HandleWebSocket(w http.ResponseWriter, r *http.Request, sessionID string) {
 	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
-		log.Printf("WebSocket upgrade failed: %v", err)
+		ws.Log(0, "WebSocket upgrade failed: %v", err)
 		return
 	}
 
@@ -75,9 +76,7 @@ func (ws *WebSocketEndpoint) HandleWebSocket(w http.ResponseWriter, r *http.Requ
 	ws.mu.Unlock()
 
 	// Log connection event (verbosity level 1)
-	if ws.verbosity >= 1 {
-		log.Printf("[v1] WebSocket connected: session=%s conn=%s", sessionID, connectionID)
-	}
+	ws.Log(1, "WebSocket connected: session=%s conn=%s", sessionID, connectionID)
 
 	// Add connection to session
 	if sess, ok := ws.sessions.GetSession(sessionID); ok {
@@ -99,7 +98,7 @@ func (ws *WebSocketEndpoint) readPump(connectionID string, conn *websocket.Conn)
 		_, message, err := conn.ReadMessage()
 		if err != nil {
 			if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
-				log.Printf("WebSocket error: %v", err)
+				ws.Log(0, "WebSocket error: %v", err)
 			}
 			break
 		}
@@ -107,13 +106,13 @@ func (ws *WebSocketEndpoint) readPump(connectionID string, conn *websocket.Conn)
 		// Parse and handle message
 		msg, err := protocol.ParseMessage(message)
 		if err != nil {
-			log.Printf("Failed to parse message: %v", err)
+			ws.Log(0, "Failed to parse message: %v", err)
 			continue
 		}
 
 		resp, err := ws.handler.HandleMessage(connectionID, msg)
 		if err != nil {
-			log.Printf("Failed to handle message: %v", err)
+			ws.Log(0, "Failed to handle message: %v", err)
 			ws.handler.SendError(connectionID, 0, err.Error())
 			continue
 		}
@@ -157,9 +156,7 @@ func (ws *WebSocketEndpoint) onDisconnect(connectionID string) {
 	ws.mu.Unlock()
 
 	// Log disconnection event (verbosity level 1)
-	if ws.verbosity >= 1 {
-		log.Printf("[v1] WebSocket disconnected: session=%s conn=%s", sessionID, connectionID)
-	}
+	ws.Log(1, "WebSocket disconnected: session=%s conn=%s", sessionID, connectionID)
 
 	// Notify session
 	if sess, ok := ws.sessions.GetSession(sessionID); ok {

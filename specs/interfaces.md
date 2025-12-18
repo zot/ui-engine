@@ -131,7 +131,7 @@ When `--lua` is enabled (default: true), the UI server provides an embedded Lua 
 
 **Lua API:**
 - `ui.registerPresenter(name, table)` - Register a presenter type
-- `ui.log(message)` - Log from Lua code
+- `ui.log([level,] message)` - Log from Lua code (delegates to `Config.Log`)
 - `ui.json_encode(value)` / `ui.json_decode(string)` - JSON conversion
 
 ## MCP Server

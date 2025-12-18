@@ -5,9 +5,10 @@ package variable
 import (
 	"encoding/json"
 	"fmt"
-	"log"
 	"sync"
 	"sync/atomic"
+
+	"github.com/zot/ui/internal/config"
 )
 
 // propertyWatcher tracks a callback for a specific property.
@@ -19,17 +20,18 @@ type propertyWatcher struct {
 
 // Store manages all variables and their relationships.
 type Store struct {
+	config            *config.Config
 	variables         map[int64]*Variable
 	standardVariables map[string]int64 // @NAME -> ID
 	nextID            atomic.Int64
-	verbosity         int
 	propertyWatchers  []propertyWatcher
 	mu                sync.RWMutex
 }
 
 // NewStore creates a new variable store.
-func NewStore() *Store {
+func NewStore(cfg *config.Config) *Store {
 	s := &Store{
+		config:            cfg,
 		variables:         make(map[int64]*Variable),
 		standardVariables: make(map[string]int64),
 	}
@@ -37,9 +39,9 @@ func NewStore() *Store {
 	return s
 }
 
-// SetVerbosity sets the verbosity level for variable operation logging.
-func (s *Store) SetVerbosity(level int) {
-	s.verbosity = level
+// Log logs a message via the config.
+func (s *Store) Log(level int, format string, args ...interface{}) {
+	s.config.Log(level, format, args...)
 }
 
 // CreateOptions holds options for creating a variable.
@@ -82,16 +84,13 @@ func (s *Store) Create(opts CreateOptions) (int64, error) {
 
 	s.mu.Lock()
 	s.variables[id] = v
-	verbosity := s.verbosity
 	s.mu.Unlock()
 
 	// Log variable creation (verbosity level 3)
-	if verbosity >= 3 {
-		log.Printf("[v3] Variable created: id=%d parent=%d", id, opts.ParentID)
-	}
+	s.Log(3, "Variable created: id=%d parent=%d", id, opts.ParentID)
 	// Log variable value (verbosity level 4)
-	if verbosity >= 4 && opts.Value != nil {
-		log.Printf("[v4] Variable %d value: %s", id, string(opts.Value))
+	if opts.Value != nil {
+		s.Log(4, "Variable %d value: %s", id, string(opts.Value))
 	}
 
 	return id, nil
@@ -130,17 +129,11 @@ func (s *Store) Update(id int64, value json.RawMessage, properties map[string]st
 		v.SetProperties(properties)
 	}
 
-	s.mu.RLock()
-	verbosity := s.verbosity
-	s.mu.RUnlock()
-
 	// Log variable update (verbosity level 3)
-	if verbosity >= 3 {
-		log.Printf("[v3] Variable updated: id=%d", id)
-	}
+	s.Log(3, "Variable updated: id=%d", id)
 	// Log variable value (verbosity level 4)
-	if verbosity >= 4 && value != nil {
-		log.Printf("[v4] Variable %d value: %s", id, string(value))
+	if value != nil {
+		s.Log(4, "Variable %d value: %s", id, string(value))
 	}
 
 	// Notify property watchers
@@ -202,13 +195,10 @@ func (s *Store) Destroy(id int64) error {
 			break
 		}
 	}
-	verbosity := s.verbosity
 	s.mu.Unlock()
 
 	// Log variable destruction (verbosity level 3)
-	if verbosity >= 3 {
-		log.Printf("[v3] Variable destroyed: id=%d", id)
-	}
+	s.Log(3, "Variable destroyed: id=%d", id)
 
 	return nil
 }
@@ -279,4 +269,3 @@ func (s *Store) Count() int {
 	defer s.mu.RUnlock()
 	return len(s.variables)
 }
-

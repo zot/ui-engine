@@ -39,7 +39,7 @@
 - LuaRuntime: Routes messages to appropriate LuaSession (when Lua enabled)
 - LuaSession: Processes messages for session
 - HTTPEndpoint: Receives messages via REST/CLI
-- Config: Queries verbosity for protocol message logging (level 2)
+- Config: Logging delegate (protocol messages and errors)
 
 ## Sequences
 

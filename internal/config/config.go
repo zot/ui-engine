@@ -6,6 +6,7 @@ package config
 import (
 	"flag"
 	"fmt"
+	"log"
 	"os"
 	"runtime"
 	"strconv"
@@ -278,4 +279,11 @@ func parseEnvInt(s string, result *int) (bool, error) {
 // Verbosity returns the configured verbosity level (0-3).
 func (c *Config) Verbosity() int {
 	return c.Logging.Verbosity
+}
+
+// Log logs a message if the configured verbosity level is greater than or equal to the required level.
+func (c *Config) Log(level int, format string, args ...interface{}) {
+	if c.Logging.Verbosity >= level {
+		log.Printf("[v%d] "+format, append([]interface{}{level}, args...)...)
+	}
 }

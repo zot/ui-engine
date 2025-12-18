@@ -62,6 +62,9 @@ session:createVariable(parentId, object)
 
 -- Destroy a variable
 session:destroyVariable(id)
+
+-- Log a message (delegates to Config.Log)
+session:log(level, message)
 ```
 
 **Built-in property watchers:**

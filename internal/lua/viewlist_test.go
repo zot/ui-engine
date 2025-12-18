@@ -1,8 +1,9 @@
 package lua
 
 import (
-	"encoding/json"
 	"testing"
+
+	"github.com/zot/ui/internal/config"
 )
 
 // mockWrapperVariable implements WrapperVariable for testing
@@ -25,17 +26,16 @@ func (m *mockWrapperVariable) GetProperty(name string) string {
 }
 
 func TestNewViewListWithInitialValue(t *testing.T) {
-	runtime, err := NewRuntime("/tmp")
+	runtime, err := NewRuntime(config.DefaultConfig(), "/tmp")
 	if err != nil {
 		t.Fatalf("Failed to create runtime: %v", err)
 	}
 	defer runtime.Shutdown()
 
-	domainObjects := []interface{}{
+	rawValue := []interface{}{
 		&mockDomainObject{Name: "A"},
 		&mockDomainObject{Name: "B"},
 	}
-	rawValue, _ := json.Marshal(domainObjects)
 
 	variable := &mockWrapperVariable{id: 1, value: rawValue}
 	wrapper := NewViewList(runtime, variable)
@@ -62,7 +62,7 @@ type mockDomainObject struct {
 }
 
 func TestSyncViewItems(t *testing.T) {
-	runtime, err := NewRuntime("/tmp")
+	runtime, err := NewRuntime(config.DefaultConfig(), "/tmp")
 	if err != nil {
 		t.Fatalf("Failed to create runtime: %v", err)
 	}

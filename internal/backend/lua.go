@@ -8,19 +8,20 @@ import (
 	"sync"
 
 	changetracker "github.com/zot/change-tracker"
+	"github.com/zot/ui/internal/config"
 )
 
 // LuaBackend implements Backend for hosted Lua sessions.
 // It owns a per-session change-tracker and manages watch subscriptions.
 // This replaces the global WatchManager with per-session watch management.
 type LuaBackend struct {
+	config            *config.Config
 	sessionID         string
 	tracker           *changetracker.Tracker
 	watchCounts       map[int64]int        // variable ID -> observer count
 	watchers          map[int64][]string   // variable ID -> connection IDs
 	inactiveVariables map[int64]struct{}   // variable IDs marked inactive
 	varToSession      map[int64]struct{}   // track variables owned by this session
-	verbosity         int
 	mu                sync.RWMutex
 }
 
@@ -28,11 +29,12 @@ type LuaBackend struct {
 // The resolver is used for path navigation and wrapper creation.
 // CRC: crc-LuaBackend.md
 // Sequence: seq-session-create-backend.md
-func NewLuaBackend(sessionID string, resolver changetracker.Resolver) *LuaBackend {
+func NewLuaBackend(cfg *config.Config, sessionID string, resolver changetracker.Resolver) *LuaBackend {
 	tracker := changetracker.NewTracker()
 	tracker.Resolver = resolver
 
 	return &LuaBackend{
+		config:            cfg,
 		sessionID:         sessionID,
 		tracker:           tracker,
 		watchCounts:       make(map[int64]int),
@@ -42,9 +44,9 @@ func NewLuaBackend(sessionID string, resolver changetracker.Resolver) *LuaBacken
 	}
 }
 
-// SetVerbosity sets the logging verbosity level.
-func (lb *LuaBackend) SetVerbosity(level int) {
-	lb.verbosity = level
+// Log logs a message via the config.
+func (lb *LuaBackend) Log(level int, format string, args ...interface{}) {
+	lb.config.Log(level, format, args...)
 }
 
 // GetSessionID returns the session ID.

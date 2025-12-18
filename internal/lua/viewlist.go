@@ -6,7 +6,6 @@ package lua
 
 import (
 	"fmt"
-	"log"
 	"reflect"
 	"sync"
 )
@@ -28,11 +27,9 @@ type ViewList struct {
 func NewViewList(runtime *Runtime, variable WrapperVariable) interface{} {
 	itemType := variable.GetProperty("item")
 
-	if runtime != nil && runtime.verbosity >= 2 {
-		log.Printf("[v2] ViewList: created for variable %d with item type %q", variable.GetID(), itemType)
-	}
-	if runtime != nil && runtime.verbosity >= 4 {
-		log.Printf("[v4] ViewList created: varID=%d itemType=%q", variable.GetID(), itemType)
+	if runtime != nil {
+		runtime.Log(2, "ViewList: created for variable %d with item type %q\n  variable: %v\n parent: %v\n  value: %v", variable.GetID(), itemType, variable, nil, variable.GetValue())
+		runtime.Log(4, "ViewList created: varID=%d itemType=%q", variable.GetID(), itemType)
 	}
 
 	vl := &ViewList{
@@ -64,8 +61,8 @@ func (vl *ViewList) Update(newValue interface{}) {
 		} else {
 			// Not a slice/array
 			vl.value = nil
-			if vl.runtime != nil && vl.runtime.verbosity >= 1 {
-				log.Printf("[v1] ViewList: expected slice or array, got %T", newValue)
+			if vl.runtime != nil {
+				vl.runtime.Log(1, "ViewList: expected slice or array, got %T", newValue)
 			}
 		}
 	} else {
@@ -99,7 +96,9 @@ func (vl *ViewList) SyncViewItems() {
 	for count > len(vl.Items) {
 		newItem, err := vl.createListItem()
 		if err != nil {
-			log.Printf("[v1] ViewList: failed to create ViewListItem: %v", err)
+			if vl.runtime != nil {
+				vl.runtime.Log(1, "ViewList: failed to create ViewListItem: %v", err)
+			}
 			break
 		}
 		vl.Items = append(vl.Items, newItem)
@@ -129,19 +128,15 @@ func (vl *ViewList) createListItem() (*ViewListItem, error) {
 	if vl.itemType != "" && vl.runtime != nil {
 		itemInstance, err := vl.runtime.CreateItemWrapper(vl.itemType, listItem)
 		if err != nil {
-			if vl.runtime.verbosity >= 2 {
-				log.Printf("[v2] ViewList: could not create %s instance: %v", vl.itemType, err)
-			}
+			vl.runtime.Log(2, "ViewList: could not create %s instance: %v", vl.itemType, err)
 		} else if itemInstance != nil {
 			listItem.Item = itemInstance
 		}
 	}
 
-	if vl.runtime != nil && vl.runtime.verbosity >= 2 {
-		log.Printf("[v2] ViewList: created ViewListItem %d", objID)
-	}
-	if vl.runtime != nil && vl.runtime.verbosity >= 4 {
-		log.Printf("[v4] ViewListItem created: objID=%d listVarID=%d", objID, vl.variable.GetID())
+	if vl.runtime != nil {
+		vl.runtime.Log(2, "ViewList: created ViewListItem %d", objID)
+		vl.runtime.Log(4, "ViewListItem created: objID=%d listVarID=%d", objID, vl.variable.GetID())
 	}
 
 	return listItem, nil
@@ -149,8 +144,8 @@ func (vl *ViewList) createListItem() (*ViewListItem, error) {
 
 // destroyListItem cleans up a ViewListItem.
 func (vl *ViewList) destroyListItem(listItem *ViewListItem) {
-	if vl.runtime != nil && vl.runtime.verbosity >= 2 {
-		log.Printf("[v2] ViewList: destroying ViewListItem %d", listItem.GetObjID())
+	if vl.runtime != nil {
+		vl.runtime.Log(2, "ViewList: destroying ViewListItem %d", listItem.GetObjID())
 	}
 }
 
@@ -183,8 +178,8 @@ func (vl *ViewList) RemoveAt(index int) error {
 	}
 
 	// TODO: This needs to notify the backend to actually remove the item
-	if vl.runtime != nil && vl.runtime.verbosity >= 1 {
-		log.Printf("[v1] ViewList: RemoveAt(%d) called - needs backend integration", index)
+	if vl.runtime != nil {
+		vl.runtime.Log(1, "ViewList: RemoveAt(%d) called - needs backend integration", index)
 	}
 
 	return nil

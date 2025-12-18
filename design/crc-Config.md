@@ -1,6 +1,6 @@
 # CRC: Config
 
-**Spec:** deployment.md
+**Spec:** deployment.md, config.md
 
 ## Responsibilities
 
@@ -11,7 +11,8 @@
 | Provide typed access to settings  | Current configuration state   |
 | Validate configuration values     | Valid option ranges           |
 | Get platform-specific defaults    | Platform type (POSIX/Windows) |
-| Provide verbosity level           | Verbosity level (0-3)         |
+| Provide centralized logging       | Verbosity level (0-4)         |
+| Log: Log message with level check | Logging configuration         |
 
 ## Collaborators
 
@@ -20,11 +21,11 @@
 | EmbeddedSite      | Reads config.toml from embedded archive       |
 | LuaRuntime        | Provides Lua enabled flag and path            |
 | SessionManager    | Provides session timeout setting              |
-| WebSocketEndpoint | Provides host, port, and verbosity (level 1)  |
+| WebSocketEndpoint | Logging delegate (connection events)          |
 | HTTPEndpoint      | Provides host and port settings               |
-| BackendSocket     | Provides socket path and verbosity (level 1)  |
-| ProtocolHandler   | Provides verbosity for message logging (level 2) |
-| VariableStore     | Provides verbosity for operation logging (level 3) |
+| BackendSocket     | Logging delegate (socket events)              |
+| ProtocolHandler   | Logging delegate (protocol messages)          |
+| VariableStore     | Logging delegate (variable operations)        |
 
 ## Configuration Options
 
@@ -47,10 +48,10 @@
 - Socket default: POSIX `/tmp/ui.sock`, Windows `\\.\pipe\ui`
 - Session timeout: How long session persists without activity (default 24h, 0=never)
 - Frontend can reconnect to any session that hasn't timed out
-- Verbosity levels control debug output (0=none, 1=connections, 2=protocol, 3=variables)
-- Components query Config.Verbosity() to decide what to log
-
-**Backend Modes (see interfaces.md):**
-- **Embedded Lua only** (`--lua`, no backend connection): Lua creates variable 1
-- **Connected backend only** (`--no-lua`): Backend creates variable 1
-- **Hybrid** (`--lua` + backend connects): Developer decides where variable 1 is created
+- **Centralized Logging**: All components must use `Config.Log()` for output.
+- Verbosity levels:
+  - 0: Errors only
+  - 1: Connections
+  - 2: Protocol messages
+  - 3: Variable operations
+  - 4: Variable values

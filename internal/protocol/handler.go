@@ -5,10 +5,10 @@ package protocol
 import (
 	"encoding/json"
 	"fmt"
-	"log"
 	"time"
 
 	"github.com/zot/ui/internal/backend"
+	"github.com/zot/ui/internal/config"
 	"github.com/zot/ui/internal/variable"
 )
 
@@ -45,17 +45,18 @@ type BackendLookup interface {
 
 // Handler processes protocol messages.
 type Handler struct {
+	config              *config.Config
 	store               *variable.Store
 	backendLookup       BackendLookup
 	sender              MessageSender
 	pending             PendingQueuer
 	pathVariableHandler PathVariableHandler // For path-based frontend creates
-	verbosity           int
 }
 
 // NewHandler creates a new protocol handler.
-func NewHandler(store *variable.Store, sender MessageSender) *Handler {
+func NewHandler(cfg *config.Config, store *variable.Store, sender MessageSender) *Handler {
 	return &Handler{
+		config: cfg,
 		store:  store,
 		sender: sender,
 	}
@@ -76,18 +77,18 @@ func (h *Handler) SetPathVariableHandler(handler PathVariableHandler) {
 	h.pathVariableHandler = handler
 }
 
-// SetVerbosity sets the verbosity level for message logging.
-func (h *Handler) SetVerbosity(level int) {
-	h.verbosity = level
+// Log logs a message via the config.
+func (h *Handler) Log(level int, format string, args ...interface{}) {
+	h.config.Log(level, format, args...)
 }
 
 // HandleMessage processes an incoming protocol message.
 func (h *Handler) HandleMessage(connectionID string, msg *Message) (*Response, error) {
 	// Log message (verbosity level 2: abbreviated, level 4: complete)
-	if h.verbosity >= 4 {
-		log.Printf("[v4] Message: type=%s from=%s data=%s", msg.Type, connectionID, string(msg.Data))
-	} else if h.verbosity >= 2 {
-		log.Printf("[v2] Message: type=%s from=%s", msg.Type, connectionID)
+	if h.config.Verbosity() >= 4 {
+		h.Log(4, "Message: type=%s from=%s data=%s", msg.Type, connectionID, string(msg.Data))
+	} else {
+		h.Log(2, "Message: type=%s from=%s", msg.Type, connectionID)
 	}
 
 	switch msg.Type {
@@ -245,9 +246,7 @@ func (h *Handler) handleUpdate(connectionID string, data json.RawMessage) (*Resp
 		if h.pathVariableHandler != nil {
 			if _, hasPath := v.GetProperties()["path"]; hasPath {
 				if err := h.pathVariableHandler.HandleFrontendUpdate(msg.VarID, msg.Value); err != nil {
-					if h.verbosity >= 1 {
-						log.Printf("[v1] handleUpdate: backend update failed for var %d: %v", msg.VarID, err)
-					}
+					h.Log(1, "handleUpdate: backend update failed for var %d: %v", msg.VarID, err)
 					return &Response{Error: err.Error()}, nil
 				}
 				// Backend will handle change detection and send updates via AfterBatch
@@ -304,9 +303,7 @@ func (h *Handler) handleWatch(connectionID string, data json.RawMessage) (*Respo
 	v, ok := h.store.Get(msg.VarID)
 	if ok {
 		props := v.GetProperties()
-		if h.verbosity >= 2 {
-			log.Printf("[v2] handleWatch: sending update for var %d, type=%s, viewdefs=%d chars", msg.VarID, props["type"], len(props["viewdefs"]))
-		}
+		h.Log(2, "handleWatch: sending update for var %d, type=%s, viewdefs=%d chars", msg.VarID, props["type"], len(props["viewdefs"]))
 		valBytes, _ := json.Marshal(v.GetValue())
 		updateMsg, _ := NewMessage(MsgUpdate, UpdateMessage{
 			VarID:      msg.VarID,
@@ -315,9 +312,7 @@ func (h *Handler) handleWatch(connectionID string, data json.RawMessage) (*Respo
 		})
 		h.sender.Send(connectionID, updateMsg)
 	} else {
-		if h.verbosity >= 2 {
-			log.Printf("[v2] handleWatch: var %d not found in store!", msg.VarID)
-		}
+		h.Log(2, "handleWatch: var %d not found in store!", msg.VarID)
 	}
 
 	resp := &Response{}

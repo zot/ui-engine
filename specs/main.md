@@ -66,7 +66,12 @@ The platform is designed for **frictionless UI development**. Developers should 
 - **Auto-discovery of wrappers**: Use `wrapper=MyWrapper` in a path and the platform finds it automatically
 - **Minimal backend code**: The app variable is the only required setup point
 
-This principle guides all design decisions: if a developer has to write boilerplate or registration code, we look for ways to eliminate it.
+### Centralized Logging
+
+To ensure consistent output and granular control over debug information:
+- **All logging must go through the `Config` object.** 
+- Subsystems delegate logging to the central `Config.Log` method.
+- Verbosity levels (0-4) are managed centrally, eliminating redundant flags in subsystems.
 
 ## Target Users
 
