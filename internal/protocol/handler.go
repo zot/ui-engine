@@ -285,34 +285,36 @@ func (h *Handler) handleWatch(connectionID string, data json.RawMessage) (*Respo
 	}
 
 	var result backend.WatchResult
+	var b backend.Backend
 	if h.backendLookup != nil {
-		if b := h.backendLookup.GetBackendForConnection(connectionID); b != nil {
+		if b = h.backendLookup.GetBackendForConnection(connectionID); b != nil {
 			result = b.Watch(msg.VarID, connectionID)
 		}
 	}
 
+	v := b.GetTracker().GetVariable(msg.VarID)
+
 	// Send current value immediately
-	v, ok := h.store.Get(msg.VarID)
-	if ok {
-		props := v.GetProperties()
-		h.Log(2, "handleWatch: sending update for var %d, type=%s, viewdefs=%d chars", msg.VarID, props["type"], len(props["viewdefs"]))
-		valBytes, _ := json.Marshal(v.GetValue())
+	props := v.Properties
+	h.Log(2, "handleWatch: sending update for var %d, type=%s, viewdefs=%d chars", msg.VarID, props["type"], len(props["viewdefs"]))
+	val := v.WrapperJSON
+	if val == nil {
+		val = v.ValueJSON
+	}
+	if val != nil {
+		valBytes, _ := json.Marshal(val)
 		updateMsg, _ := NewMessage(MsgUpdate, UpdateMessage{
 			VarID:      msg.VarID,
 			Value:      valBytes,
-			Properties: v.GetProperties(),
+			Properties: props,
 		})
 		h.sender.Send(connectionID, updateMsg)
-	} else {
-		h.Log(2, "handleWatch: var %d not found in store!", msg.VarID)
 	}
-
 	resp := &Response{}
 	if result.ShouldForward {
 		// For bound variables, indicate that watch should be forwarded to backend
 		resp.Result = map[string]bool{"forward": true}
 	}
-
 	return resp, nil
 }
 

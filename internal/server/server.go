@@ -557,19 +557,6 @@ func (a *luaStoreAdapter) CreateVariable(sessionID string, parentID int64, luaOb
 	// Track in backend for cleanup
 	lb.TrackVariable(id)
 
-	// Also create in store for persistence and property watchers
-	// Use same ID as tracker to keep them in sync
-	jsonValue, _ := tracker.ToValueJSONBytes(luaObject)
-	_, err := a.store.Create(variable.CreateOptions{
-		ID:         id,
-		ParentID:   parentID,
-		Value:      jsonValue,
-		Properties: properties,
-	})
-	if err != nil {
-		a.config.Log(0, "Warning: failed to create variable %d in store: %v", id, err)
-	}
-
 	// If wrapper property is set, create wrapper instance
 	if wrapperType, ok := properties["wrapper"]; ok && wrapperType != "" && a.wrapperManager != nil {
 		storeVar, ok := a.store.Get(id)
@@ -643,17 +630,6 @@ func (a *luaStoreAdapter) CreatePathVariable(parentID int64, path string, proper
 		return id, nil, nil
 	}
 
-	// Also create in store for persistence
-	_, err = a.store.Create(variable.CreateOptions{
-		ID:         id,
-		ParentID:   parentID,
-		Value:      jsonValue,
-		Properties: properties,
-	})
-	if err != nil {
-		a.config.Log(0, "Warning: failed to create path variable %d in store: %v", id, err)
-	}
-
 	return id, jsonValue, nil
 }
 
@@ -676,14 +652,7 @@ func (a *luaStoreAdapter) Get(id int64) (json.RawMessage, map[string]string, boo
 	} else {
 		a.mu.RUnlock()
 	}
-
-	// Fall back to store
-	v, ok := a.store.Get(id)
-	if !ok {
-		return nil, nil, false
-	}
-	valBytes, _ := json.Marshal(v.Value)
-	return valBytes, v.Properties, true
+	return nil, nil, false
 }
 
 // GetProperty retrieves a property value.
@@ -705,19 +674,12 @@ func (a *luaStoreAdapter) GetProperty(id int64, name string) (string, bool) {
 	} else {
 		a.mu.RUnlock()
 	}
-
-	// Fall back to store
-	v, ok := a.store.Get(id)
-	if !ok {
-		return "", false
-	}
-	val, exists := v.Properties[name]
-	return val, exists
+	return "", false
 }
 
 // Update updates a variable's value and/or properties in the store.
 func (a *luaStoreAdapter) Update(id int64, value json.RawMessage, properties map[string]string) error {
-	return a.store.Update(id, value, properties)
+	return nil
 }
 
 // Destroy removes a variable.
@@ -733,9 +695,7 @@ func (a *luaStoreAdapter) Destroy(id int64) error {
 		delete(a.varToSession, id)
 	}
 	a.mu.Unlock()
-
-	// Remove from store
-	return a.store.Destroy(id)
+	return nil
 }
 
 // DetectChanges returns changes for a session.
@@ -761,12 +721,6 @@ func (a *luaStoreAdapter) updateVariable1Viewdefs(sessionID string, viewdefs map
 		return
 	}
 
-	// Update variable 1's viewdefs property
-	// Variable 1 is always the app variable (first variable created per session)
-	err = a.store.Update(1, nil, map[string]string{
-		"viewdefs": string(viewdefsJSON),
-	})
-	if err != nil {
-		a.config.Log(0, "Warning: failed to update variable 1 viewdefs property: %v", err)
-	}
+	lb := a.backends[sessionID]
+	lb.GetTracker().GetVariable(1).SetProperty("viewdefs", string(viewdefsJSON))
 }
