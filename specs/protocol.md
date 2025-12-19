@@ -55,7 +55,7 @@ Variable metadata properties with special meaning:
 
 **Path syntax:**
 - Property access: `name`
-- Array indexing: `1`, `2` (1-based)
+- Array indexing: `0`, `1` (0-based)
 - Parent traversal: `..`
 - Method calls: `getName()`
 - Standard variable prefix: `@customers.2.name` (starts from a well-known registered variable)
@@ -87,6 +87,10 @@ Both registries are populated automatically by `init()` functions in the Go code
 **Wrapper Behavior:**
 
 The wrapper object itself stands in for the variable's value when child variables navigate paths. The wrapper is registered in the object registry and becomes the variable's navigation value.
+
+**Path Resolution Precedence:**
+
+If a variable has a wrapper, path resolution MUST start from the wrapper object. If the wrapper object does not handle the path, it DOES NOT fall back to the underlying value. The wrapper completely replaces the value for navigation purposes.
 
 **Wrapper Creation and Reuse:**
 

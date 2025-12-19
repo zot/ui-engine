@@ -15,10 +15,10 @@ import (
 type Variable struct {
 	ID              int64             `json:"id"`
 	ParentID        int64             `json:"parentId,omitempty"`
-	Value           interface{}       `json:"value,omitempty"`          // Raw value from path resolution
-	MonitoredValue  interface{}       `json:"-"`                        // For change detection (shallow copy for arrays)
-	StoredValue     interface{}       `json:"-"`                        // Can be the wrapper instance itself
-	WrapperInstance interface{}       `json:"-"`                        // Internal wrapper object (if wrapper property set)
+	Value           interface{}       `json:"value,omitempty"` // Raw value from path resolution
+	MonitoredValue  interface{}       `json:"-"`               // For change detection (shallow copy for arrays)
+	StoredValue     interface{}       `json:"-"`               // Can be the wrapper instance itself
+	WrapperInstance interface{}       `json:"-"`               // Internal wrapper object (if wrapper property set)
 	Properties      map[string]string `json:"properties,omitempty"`
 	Unbound         bool              `json:"unbound,omitempty"`
 	mu              sync.RWMutex
@@ -186,40 +186,6 @@ func (v *Variable) SetStoredValue(value interface{}) {
 	v.mu.Lock()
 	defer v.mu.Unlock()
 	v.StoredValue = value
-}
-
-// GetMonitoredValue returns the monitored value used for change detection.
-func (v *Variable) GetMonitoredValue() interface{} {
-	v.mu.RLock()
-	defer v.mu.RUnlock()
-	return v.MonitoredValue
-}
-
-// SetMonitoredValue sets the monitored value.
-func (v *Variable) SetMonitoredValue(value interface{}) {
-	v.mu.Lock()
-	defer v.mu.Unlock()
-	v.MonitoredValue = value
-}
-
-// UpdateMonitoredValue creates a shallow copy of the current value for change detection.
-func (v *Variable) UpdateMonitoredValue() {
-	v.mu.Lock()
-	defer v.mu.Unlock()
-	
-	// The logic for shallow copying needs to be updated to handle interface{}
-	// For now, we will just assign the value directly.
-	v.MonitoredValue = v.Value
-}
-
-// DetectChanges compares current value to monitored value.
-func (v *Variable) DetectChanges() bool {
-	v.mu.RLock()
-	defer v.mu.RUnlock()
-
-	// This comparison is now more complex as the values are interface{}
-	// For now, we will use a simple comparison.
-	return v.Value != v.MonitoredValue
 }
 
 // ObjectReference represents a reference to another object.

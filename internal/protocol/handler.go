@@ -28,8 +28,8 @@ type PendingQueuer interface {
 // PathVariableHandler handles frontend-created path variables.
 type PathVariableHandler interface {
 	// HandleFrontendCreate handles a path-based variable create from frontend.
-	// Returns the variable ID and resolved value.
-	HandleFrontendCreate(sessionID string, parentID int64, properties map[string]string) (int64, json.RawMessage, error)
+	// Returns the variable ID, resolved value, and properties.
+	HandleFrontendCreate(sessionID string, parentID int64, properties map[string]string) (int64, json.RawMessage, map[string]string, error)
 
 	// HandleFrontendUpdate handles an update to a path-based variable from frontend.
 	// Updates the backend object via the variable's path and returns error if any.
@@ -125,6 +125,7 @@ func (h *Handler) handleCreate(connectionID string, data json.RawMessage) (*Resp
 
 	var id int64
 	var initialValue json.RawMessage
+	var initialProps map[string]string
 	var err error
 
 	// Check if this is a path-based variable (has path property and parent)
@@ -147,7 +148,7 @@ func (h *Handler) handleCreate(connectionID string, data json.RawMessage) (*Resp
 			return &Response{Error: "session context required for path variables"}, nil
 		}
 
-		id, initialValue, err = h.pathVariableHandler.HandleFrontendCreate(sessionID, msg.ParentID, msg.Properties)
+		id, initialValue, initialProps, err = h.pathVariableHandler.HandleFrontendCreate(sessionID, msg.ParentID, msg.Properties)
 		if err != nil {
 			h.Log(2, "handleCreate 2.1 ERROR: %s", err.Error())
 			return &Response{Error: err.Error()}, nil
@@ -158,14 +159,15 @@ func (h *Handler) handleCreate(connectionID string, data json.RawMessage) (*Resp
 			ID:         id,
 			ParentID:   msg.ParentID,
 			Value:      initialValue,
-			Properties: msg.Properties,
+			Properties: initialProps,
 		})
 	} else {
 		// Regular variable: create in store
+		initialProps = msg.Properties
 		id, err = h.store.Create(variable.CreateOptions{
 			ParentID:   msg.ParentID,
 			Value:      msg.Value,
-			Properties: msg.Properties,
+			Properties: initialProps,
 			NoWatch:    msg.NoWatch,
 			Unbound:    msg.Unbound,
 		})
@@ -189,11 +191,11 @@ func (h *Handler) handleCreate(connectionID string, data json.RawMessage) (*Resp
 	}
 
 	// Include initial value as pending update if we have one
-	if initialValue != nil {
+	if initialValue != nil || initialProps != nil {
 		updateMsg, _ := NewMessage(MsgUpdate, UpdateMessage{
 			VarID:      id,
 			Value:      initialValue,
-			Properties: msg.Properties,
+			Properties: initialProps,
 		})
 		resp.Pending = append(resp.Pending, *updateMsg)
 	}

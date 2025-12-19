@@ -7,6 +7,7 @@ import { ViewdefStore } from './viewdef_store';
 import { cloneViewdefContent } from './viewdef';
 import { VariableStore } from './connection';
 import { ViewList, createViewList } from './viewlist';
+import { parsePath } from './binding';
 
 // Counter for unique HTML ids
 let nextHtmlId = 1;
@@ -116,6 +117,8 @@ export class View {
     // Clear and render
     this.clear();
 
+    console.log('RENDER VIEWDEF ', viewdef)
+
     // Clone template content
     const fragment = cloneViewdefContent(viewdef);
 
@@ -216,13 +219,16 @@ export class View {
     const path = element.getAttribute('ui-view');
     if (path) {
       // Parse path to extract base path (without query params)
-      const [basePath] = path.split('?');
+      const [basePath, ] = path.split('?');
+      const props = parsePath(path)
 
+      console.log('CREATING VIEW FOR ', path, ' parent: ', contextVarId)
       // Create child variable with path property
       this.variableStore.create({
         parentId: contextVarId,
-        properties: { path: basePath },
+        properties: { path: basePath, ...(props.options as any) },
       }).then((childVarId) => {
+        console.log("GET VIEW VARIABLE ", childVarId)
         view.setVariable(childVarId);
       }).catch((err) => {
         console.error('Failed to create view variable:', err);

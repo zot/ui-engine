@@ -266,8 +266,9 @@ func (lb *LuaBackend) DetectChanges() []VariableUpdate {
 			}
 
 			updates = append(updates, VariableUpdate{
-				VarID: change.VariableID,
-				Value: json.RawMessage(jsonBytes),
+				VarID:      change.VariableID,
+				Value:      json.RawMessage(jsonBytes),
+				Properties: v.Properties,
 			})
 		}
 	}

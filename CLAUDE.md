@@ -27,6 +27,11 @@ You can use the playwright browser to connect to it.
 4. Generate a clear commit message with terse bullet points, followed by "co-authored by AI" where AI is your name (e.g. Claude, Gemini, etc.)
 5. Create the commit and verify success
 
+## 🛑 Planning Discipline
+- **Strict Separation:** Do not mix planning and implementation in the same turn unless explicitly requested.
+- **Explicit Confirmation:** After creating or modifying a plan (e.g., in `.scratch/*.md`), **STOP** and ask for user confirmation before executing any code changes.
+- **Plan First:** Always update the plan file to reflect the latest understanding *before* writing code.
+
 ## CRC Modeling Workflow
 
 **DO NOT generate code directly from `specs/*.md` files!**

@@ -422,8 +422,9 @@ func (s *Server) AfterBatch(internalSessionID string) {
 
 		// Build update message
 		updateMsg, err := protocol.NewMessage(protocol.MsgUpdate, protocol.UpdateMessage{
-			VarID: update.VarID,
-			Value: update.Value,
+			VarID:      update.VarID,
+			Value:      update.Value,
+			Properties: update.Properties,
 		})
 		if err != nil {
 			continue

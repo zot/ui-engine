@@ -196,8 +196,8 @@ export class ViewList {
         view = this.createItemView();
         newViews.push(view);
 
-        // Create child variable with path = index (1-based per protocol)
-        const indexPath = String(index + 1);
+        // Create child variable with path = index (0-based)
+        const indexPath = String(index);
         this.variableStore.create({
           parentId: this.variableId!,
           properties: { path: indexPath },
@@ -265,9 +265,9 @@ export class ViewList {
     this.views.push(view);
     this.element.appendChild(view.element);
 
-    // Create child variable with path = index (1-based per protocol)
+    // Create child variable with path = index (0-based)
     if (this.variableId !== null) {
-      const indexPath = String(index + 1);
+      const indexPath = String(index);
       this.variableStore.create({
         parentId: this.variableId,
         properties: { path: indexPath },

@@ -607,24 +607,36 @@ func (r *Runtime) addGoSessionMethods(L *lua.LState, session *lua.LTable, vended
 }
 
 // extractTypeProperty extracts type from metatable or direct field (frictionless convention).
-func (r *Runtime) extractTypeProperty(L *lua.LState, obj *lua.LTable, props map[string]string) {
+func (r *Runtime) extractTypeProperty(L *lua.LState, obj any, props map[string]string) {
 	if props["type"] != "" {
 		return
+	} else if typ := GetType(L, obj); typ != "" {
+		props["type"] = typ
 	}
-	// First check metatable
-	mt := L.GetMetatable(obj)
-	if mt != lua.LNil {
-		if mtTbl, ok := mt.(*lua.LTable); ok {
-			if typeVal := L.GetField(mtTbl, "type"); typeVal != lua.LNil {
-				props["type"] = lua.LVAsString(typeVal)
-				return
-			}
-		}
-	}
-	// Fall back to direct "type" field
-	if typeVal := L.GetField(obj, "type"); typeVal != lua.LNil {
-		props["type"] = lua.LVAsString(typeVal)
-	}
+	//} else if lObj, ok := obj.(*lua.LTable); ok {
+	//	// First check metatable
+	//	mt := L.GetMetatable(lObj)
+	//	if mt != lua.LNil {
+	//		if mtTbl, ok := mt.(*lua.LTable); ok {
+	//			if typeVal := L.GetField(mtTbl, "type"); typeVal != lua.LNil {
+	//				props["type"] = lua.LVAsString(typeVal)
+	//				return
+	//			}
+	//		}
+	//	}
+	//	// Fall back to direct "type" field
+	//	if typeVal := L.GetField(lObj, "type"); typeVal != lua.LNil {
+	//		props["type"] = lua.LVAsString(typeVal)
+	//	}
+	//} else {
+	//	v := reflect.ValueOf(obj)
+	//	typename := v.Type().Name()
+	//	_, ok1 := GetGlobalCreateFactory(typename)
+	//	_, ok2 := GetGlobalWrapperFactory(typename)
+	//	if ok1 || ok2 {
+	//		props["type"] = typename
+	//	}
+	//}
 }
 
 // NotifyPropertyChange notifies Lua watchers of a property change for a session.
@@ -710,8 +722,9 @@ func (r *Runtime) execute(fn func() (interface{}, error)) (interface{}, error) {
 
 // VariableUpdate represents a detected change to be sent to the frontend.
 type VariableUpdate struct {
-	VarID int64
-	Value json.RawMessage
+	VarID      int64
+	Value      json.RawMessage
+	Properties map[string]string
 }
 
 // AfterBatch triggers change detection for a session after processing a message batch.
@@ -754,14 +767,16 @@ func (r *Runtime) AfterBatch(vendedID string) []VariableUpdate {
 			}
 
 			r.Log(2, "AfterBatch: variable %d changed", change.VariableID)
+			props := v.Properties
 
 			updates = append(updates, VariableUpdate{
-				VarID: change.VariableID,
-				Value: json.RawMessage(jsonBytes),
+				VarID:      change.VariableID,
+				Value:      json.RawMessage(jsonBytes),
+				Properties: props,
 			})
 
 			// Also update the variable store so watchers get notified
-			if err := r.variableStore.Update(change.VariableID, json.RawMessage(jsonBytes), nil); err != nil {
+			if err := r.variableStore.Update(change.VariableID, json.RawMessage(jsonBytes), props); err != nil {
 				r.Log(1, "AfterBatch: failed to update store for variable %d: %v", change.VariableID, err)
 			}
 		}
@@ -773,11 +788,11 @@ func (r *Runtime) AfterBatch(vendedID string) []VariableUpdate {
 // HandleFrontendCreate handles a variable create message from the frontend.
 // For path-based variables, it creates the variable in the tracker and resolves the path.
 // If a wrapper property is set, the tracker automatically creates it via the resolver.
-// Returns the variable ID and resolved value (wrapped if applicable).
-func (r *Runtime) HandleFrontendCreate(sessionID string, parentID int64, properties map[string]string) (int64, json.RawMessage, error) {
+// Returns the variable ID, resolved value (wrapped if applicable), and properties.
+func (r *Runtime) HandleFrontendCreate(sessionID string, parentID int64, properties map[string]string) (int64, json.RawMessage, map[string]string, error) {
 	path := properties["path"]
 	if path == "" {
-		return 0, nil, fmt.Errorf("HandleFrontendCreate: path property required")
+		return 0, nil, nil, fmt.Errorf("HandleFrontendCreate: path property required")
 	}
 
 	// Lookup session directly
@@ -786,12 +801,12 @@ func (r *Runtime) HandleFrontendCreate(sessionID string, parentID int64, propert
 	r.mu.RUnlock()
 
 	if session == nil {
-		return 0, nil, fmt.Errorf("session %s not found", sessionID)
+		return 0, nil, nil, fmt.Errorf("session %s not found", sessionID)
 	}
 
 	tracker := r.variableStore.GetTracker(session.ID)
 	if tracker == nil {
-		return 0, nil, fmt.Errorf("session %s tracker not found", session.ID)
+		return 0, nil, nil, fmt.Errorf("session %s tracker not found", session.ID)
 	}
 
 	// Create the child variable in the tracker with the path.
@@ -813,12 +828,12 @@ func (r *Runtime) HandleFrontendCreate(sessionID string, parentID int64, propert
 	jsonValue, err := tracker.ToValueJSONBytes(initialValue)
 	if err != nil {
 		r.Log(1, "HandleFrontendCreate: JSON conversion failed: %v", err)
-		return v.ID, nil, nil
+		return v.ID, nil, v.Properties, nil
 	}
 
 	r.Log(2, "HandleFrontendCreate: created var %d for path %s, value=%s", v.ID, path, string(jsonValue))
 
-	return v.ID, jsonValue, nil
+	return v.ID, jsonValue, v.Properties, nil
 }
 
 // trackerVariableAdapter adapts a change-tracker Variable to WrapperVariable interface

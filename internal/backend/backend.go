@@ -24,8 +24,9 @@ type UnwatchResult struct {
 
 // VariableUpdate represents a detected change to be sent to the frontend.
 type VariableUpdate struct {
-	VarID int64
-	Value json.RawMessage
+	VarID      int64
+	Value      json.RawMessage
+	Properties map[string]string
 }
 
 // Backend is the interface for hosted (Lua) and proxied backends.

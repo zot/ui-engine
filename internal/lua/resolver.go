@@ -5,9 +5,10 @@ package lua
 
 import (
 	"fmt"
+	"reflect"
 
-	changetracker "github.com/zot/change-tracker"
 	lua "github.com/yuin/gopher-lua"
+	changetracker "github.com/zot/change-tracker"
 )
 
 // LuaResolver implements changetracker.Resolver for Lua tables and Go wrappers.
@@ -23,16 +24,26 @@ var _ changetracker.Resolver = (*LuaResolver)(nil)
 func (r *LuaResolver) Get(obj any, pathElement any) (any, error) {
 	// Handle ViewList wrapper
 	if vl, ok := obj.(*ViewList); ok {
-		index, ok := pathElement.(int)
-		if !ok {
-			return nil, fmt.Errorf("ViewList resolution only supports integer index")
+		if prop, ok := pathElement.(string); ok && prop == "items" {
+			vl.mu.RLock()
+			defer vl.mu.RUnlock()
+			return vl.Items, nil
 		}
-		vl.mu.RLock()
-		defer vl.mu.RUnlock()
-		if index < 0 || index >= len(vl.Items) {
+		return nil, fmt.Errorf("Unknown ViewList property: %v", pathElement)
+	}
+
+	slice := reflect.ValueOf(obj)
+	// Handle []*ViewListItem slice
+	if slice.Kind() == reflect.Array || slice.Kind() == reflect.Slice {
+		r.Session.Log(4, "Getting element %v from %v", pathElement, obj)
+		if index, ok := pathElement.(int); !ok {
+			return nil, fmt.Errorf("[]*ViewListItem resolution only supports number indexes")
+		} else if index < 0 || index >= slice.Len() {
 			return nil, fmt.Errorf("ViewList index %d out of range", index)
+		} else {
+			r.Session.Log(4, "  Returning %v", slice.Index(index))
+			return slice.Index(index), nil
 		}
-		return vl.Items[index], nil
 	}
 
 	// Handle ViewListItem wrapper
@@ -56,8 +67,7 @@ func (r *LuaResolver) Get(obj any, pathElement any) (any, error) {
 			}
 			return nil, nil
 		default:
-			// Resolve against the wrapped item
-			return r.Get(vli.Item, pathElement)
+			return nil, fmt.Errorf("Unknown ViewListItem property: %s", prop)
 		}
 	}
 
@@ -86,7 +96,7 @@ func (r *LuaResolver) Get(obj any, pathElement any) (any, error) {
 // isMethodCall checks if a path element is a method call (ends with "()").
 func isMethodCall(s string) bool {
 	return len(s) > 2 && s[len(s)-2:] == "()" ||
-	       len(s) > 3 && s[len(s)-3:] == "(_)"
+		len(s) > 3 && s[len(s)-3:] == "(_)"
 }
 
 // callMethod calls a method on a Lua table and returns the result.
@@ -192,7 +202,7 @@ func (r *LuaResolver) CallWith(obj any, methodName string, value any) error {
 
 	// Call the method with self and value arguments
 	r.Session.state.Push(fn)
-	r.Session.state.Push(tbl)                    // self
+	r.Session.state.Push(tbl)                   // self
 	r.Session.state.Push(r.goToLuaValue(value)) // value argument
 
 	if err := r.Session.state.PCall(2, 0, nil); err != nil {
@@ -300,6 +310,39 @@ func (r *LuaResolver) tableToSlice(tbl *lua.LTable) ([]any, error) {
 	return result, nil
 }
 
+// CreateValue creates a value for the given variable.
+// CRC: crc-LuaResolver.md
+// Spec: protocol.md (Variable Wrappers section)
+func (r *LuaResolver) CreateValue(variable *changetracker.Variable, typ string, value any) any {
+	if typ == "" {
+		return nil
+	} else if factory, ok := GetGlobalCreateFactory(typ); ok {
+		return factory(r.Session.Runtime, value)
+	} else if valueClass := r.Session.state.GetGlobal(typ); valueClass == lua.LNil {
+		return nil // No Lua global by that name
+	} else if valueTable, ok := valueClass.(*lua.LTable); !ok {
+		return nil // Not a table
+	} else if newFn := r.Session.state.GetField(valueTable, "new"); newFn == lua.LNil {
+		return nil // No new() method
+	} else if fn, ok := newFn.(*lua.LFunction); !ok {
+		return nil // new is not a function
+	} else {
+		// Call WrapperType:new(variable)
+		r.Session.state.Push(fn)
+		r.Session.state.Push(valueTable) // self (the class table)
+		if err := r.Session.state.PCall(1, 1, nil); err != nil {
+			return nil // Constructor failed
+		}
+		// Get the result
+		result := r.Session.state.Get(-1)
+		r.Session.state.Pop(1)
+		if result == lua.LNil {
+			return nil // Constructor returned nil
+		}
+		return result
+	}
+}
+
 // CreateWrapper creates a wrapper object for the given variable.
 // The wrapper stands in for the variable's value when child variables navigate paths.
 // Returns the existing wrapper if one exists (for wrapper reuse).
@@ -341,6 +384,7 @@ func (r *LuaResolver) CreateWrapper(variable *changetracker.Variable) any {
 			wrapper := factory(r.Session, wrapperVar)
 			if wrapper != nil {
 				variable.WrapperValue = wrapper
+				variable.SetProperty("type", wrapperType)
 				return wrapper
 			}
 		}
@@ -391,10 +435,49 @@ func (r *LuaResolver) CreateWrapper(variable *changetracker.Variable) any {
 	// Store wrapper on variable for reuse
 	if luaWrapper, ok := result.(*lua.LTable); ok {
 		variable.WrapperValue = luaWrapper
+		variable.SetProperty("type", wrapperType)
 		return luaWrapper
 	}
 
 	return result
+}
+
+// GetType returns a value's type, given the variable as context.
+// CRC: crc-LuaResolver.md
+// Spec: protocol.md (Variable Wrappers section)
+func (r *LuaResolver) GetType(variable *changetracker.Variable, obj any) string {
+	typ := GetType(r.Session.state, obj)
+	if typ != "" {
+		r.Session.Log(4, "Got type %s for value %v", typ, obj)
+	}
+	return typ
+}
+
+func GetType(L *lua.LState, obj any) string {
+	if lObj, ok := obj.(*lua.LTable); ok {
+		// First check metatable
+		mt := L.GetMetatable(lObj)
+		if mt != lua.LNil {
+			if mtTbl, ok := mt.(*lua.LTable); ok {
+				if typeVal := L.GetField(mtTbl, "type"); typeVal != lua.LNil {
+					return lua.LVAsString(typeVal)
+				}
+			}
+		}
+		// Fall back to direct "type" field
+		if typeVal := L.GetField(lObj, "type"); typeVal != lua.LNil {
+			return lua.LVAsString(typeVal)
+		}
+	} else {
+		v := reflect.ValueOf(obj)
+		typename := v.Type().Name()
+		_, ok1 := GetGlobalCreateFactory(typename)
+		_, ok2 := GetGlobalWrapperFactory(typename)
+		if ok1 || ok2 {
+			return typename
+		}
+	}
+	return ""
 }
 
 // createLuaVariableWrapper creates a Lua table that wraps a change-tracker Variable.
