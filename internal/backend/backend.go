@@ -66,6 +66,9 @@ type Backend interface {
 	// IsInactive checks if a variable or any ancestor is inactive.
 	IsInactive(varID int64) bool
 
+	// GetSessionID returns the session ID associated with this backend.
+	GetSessionID() string
+
 	// Shutdown cleans up backend resources.
 	Shutdown()
 }

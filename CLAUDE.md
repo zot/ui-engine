@@ -24,7 +24,7 @@ You can use the playwright browser to connect to it.
 1. Check git status and diff to analyze changes
 2. Ask about any new files to ensure test/temp files aren't added accidentally
 3. Add all changes (or only staged files if you specify "staged only")
-4. Generate a clear commit message with terse bullet points
+4. Generate a clear commit message with terse bullet points, followed by "co-authored by AI" where AI is your name (e.g. Claude, Gemini, etc.)
 5. Create the commit and verify success
 
 ## CRC Modeling Workflow

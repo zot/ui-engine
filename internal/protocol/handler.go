@@ -28,11 +28,11 @@ type PendingQueuer interface {
 type PathVariableHandler interface {
 	// HandleFrontendCreate handles a path-based variable create from frontend.
 	// Returns the variable ID and resolved value.
-	HandleFrontendCreate(parentID int64, properties map[string]string) (int64, json.RawMessage, error)
+	HandleFrontendCreate(sessionID string, parentID int64, properties map[string]string) (int64, json.RawMessage, error)
 
 	// HandleFrontendUpdate handles an update to a path-based variable from frontend.
 	// Updates the backend object via the variable's path and returns error if any.
-	HandleFrontendUpdate(varID int64, value json.RawMessage) error
+	HandleFrontendUpdate(sessionID string, varID int64, value json.RawMessage) error
 }
 
 // BackendLookup provides per-connection backend lookup.
@@ -135,7 +135,18 @@ func (h *Handler) handleCreate(connectionID string, data json.RawMessage) (*Resp
 	h.Log(2, "handleCreate 2")
 	if pathProp != "" && msg.ParentID != 0 && h.pathVariableHandler != nil {
 		// Path-based variable: delegate to Lua runtime
-		id, initialValue, err = h.pathVariableHandler.HandleFrontendCreate(msg.ParentID, msg.Properties)
+		var sessionID string
+		if h.backendLookup != nil {
+			if b := h.backendLookup.GetBackendForConnection(connectionID); b != nil {
+				sessionID = b.GetSessionID()
+			}
+		}
+
+		if sessionID == "" {
+			return &Response{Error: "session context required for path variables"}, nil
+		}
+
+		id, initialValue, err = h.pathVariableHandler.HandleFrontendCreate(sessionID, msg.ParentID, msg.Properties)
 		if err != nil {
 			h.Log(2, "handleCreate 2.1 ERROR: %s", err.Error())
 			return &Response{Error: err.Error()}, nil
@@ -252,7 +263,14 @@ func (h *Handler) handleUpdate(connectionID string, data json.RawMessage) (*Resp
 		// Bound variable - relay to backend to update the actual object
 		if h.pathVariableHandler != nil {
 			if _, hasPath := v.GetProperties()["path"]; hasPath {
-				if err := h.pathVariableHandler.HandleFrontendUpdate(msg.VarID, msg.Value); err != nil {
+				var sessionID string
+				if b != nil {
+					sessionID = b.GetSessionID()
+				}
+				if sessionID == "" {
+					return &Response{Error: "session context required for path variables"}, nil
+				}
+				if err := h.pathVariableHandler.HandleFrontendUpdate(sessionID, msg.VarID, msg.Value); err != nil {
 					h.Log(1, "handleUpdate: backend update failed for var %d: %v", msg.VarID, err)
 					return &Response{Error: err.Error()}, nil
 				}

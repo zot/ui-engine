@@ -758,25 +758,19 @@ func (r *Runtime) AfterBatch(vendedID string) []VariableUpdate {
 // For path-based variables, it creates the variable in the tracker and resolves the path.
 // If a wrapper property is set, the wrapper transforms the value.
 // Returns the variable ID and resolved value.
-func (r *Runtime) HandleFrontendCreate(parentID int64, properties map[string]string) (int64, json.RawMessage, error) {
+func (r *Runtime) HandleFrontendCreate(sessionID string, parentID int64, properties map[string]string) (int64, json.RawMessage, error) {
 	path := properties["path"]
 	if path == "" {
 		return 0, nil, fmt.Errorf("HandleFrontendCreate: path property required")
 	}
 
-	// Find which session owns the parent variable
+	// Lookup session directly
 	r.mu.RLock()
-	var session *LuaSession
-	for _, sess := range r.sessions {
-		if sess.appVariableID == parentID {
-			session = sess
-			break
-		}
-	}
+	session := r.sessions[sessionID]
 	r.mu.RUnlock()
 
 	if session == nil {
-		return 0, nil, fmt.Errorf("parent variable %d not found in any session", parentID)
+		return 0, nil, fmt.Errorf("session %s not found", sessionID)
 	}
 
 	tracker := r.variableStore.GetTracker(session.ID)
@@ -848,27 +842,14 @@ func (a *trackerVariableAdapter) GetProperty(name string) string {
 	return a.Properties[name]
 }
 
-// HandleFrontendUpdate handles an update to a path-based variable from the frontend.
+// HandleFrontendUpdate handles an update to a path-based variable from frontend.
 // Updates the backend object via the variable's path using v.Set().
 // CRC: crc-LuaRuntime.md
 // Sequence: seq-relay-message.md
-func (r *Runtime) HandleFrontendUpdate(varID int64, value json.RawMessage) error {
-	// Find which session owns this variable by checking all trackers
-	r.mu.RLock()
-	var sessionID string
-	var tracker *changetracker.Tracker
-	for sid := range r.sessions {
-		t := r.variableStore.GetTracker(sid)
-		if t != nil && t.GetVariable(varID) != nil {
-			sessionID = sid
-			tracker = t
-			break
-		}
-	}
-	r.mu.RUnlock()
-
-	if sessionID == "" || tracker == nil {
-		return fmt.Errorf("variable %d not found in any session", varID)
+func (r *Runtime) HandleFrontendUpdate(sessionID string, varID int64, value json.RawMessage) error {
+	tracker := r.variableStore.GetTracker(sessionID)
+	if tracker == nil {
+		return fmt.Errorf("session %s tracker not found", sessionID)
 	}
 
 	v := tracker.GetVariable(varID)
