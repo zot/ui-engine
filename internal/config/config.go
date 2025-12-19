@@ -10,6 +10,7 @@ import (
 	"os"
 	"runtime"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/BurntSushi/toml"
@@ -284,6 +285,7 @@ func (c *Config) Verbosity() int {
 // Log logs a message if the configured verbosity level is greater than or equal to the required level.
 func (c *Config) Log(level int, format string, args ...interface{}) {
 	if c.Logging.Verbosity >= level {
-		log.Printf("[v%d] "+format, append([]interface{}{level}, args...)...)
+		indent := strings.Repeat(" ", level)
+		log.Printf("[v%d]%s "+format, append([]interface{}{level, indent}, args...)...)
 	}
 }

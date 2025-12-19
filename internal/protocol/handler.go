@@ -5,6 +5,7 @@ package protocol
 import (
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/zot/ui/internal/backend"
@@ -85,15 +86,15 @@ func (h *Handler) Log(level int, format string, args ...interface{}) {
 // HandleMessage processes an incoming protocol message.
 func (h *Handler) HandleMessage(connectionID string, msg *Message) (*Response, error) {
 	// Log message (verbosity level 2: abbreviated, level 4: complete)
+	msgType := strings.ToUpper(string(msg.Type))
 	if h.config.Verbosity() >= 4 {
-		h.Log(4, "Message: type=%s from=%s data=%s", msg.Type, connectionID, string(msg.Data))
+		h.Log(4, "[IN] %s: from=%s data=%s", msgType, connectionID, string(msg.Data))
 	} else {
-		h.Log(2, "Message: type=%s from=%s", msg.Type, connectionID)
+		h.Log(2, "[IN] %s: from=%s", msgType, connectionID)
 	}
 
 	switch msg.Type {
 	case MsgCreate:
-		h.Log(2, "HANDLING CREATE")
 		return h.handleCreate(connectionID, msg.Data)
 	case MsgDestroy:
 		return h.handleDestroy(connectionID, msg.Data)

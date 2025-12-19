@@ -184,8 +184,11 @@ func (r *Runtime) CreateLuaSession(vendedID string) (*LuaSession, error) {
 		return nil, fmt.Errorf("variable store not set")
 	}
 
+	// Create resolver (session will be set later)
+	resolver := &LuaResolver{}
+
 	// Create session in variable store with LuaResolver
-	r.variableStore.CreateSession(vendedID, &LuaResolver{L: r.state})
+	r.variableStore.CreateSession(vendedID, resolver)
 
 	var luaSession *LuaSession
 	_, err := r.execute(func() (interface{}, error) {
@@ -199,6 +202,9 @@ func (r *Runtime) CreateLuaSession(vendedID string) (*LuaSession, error) {
 			ID:           vendedID,
 			sessionTable: sessionTable,
 		}
+
+		// Link resolver to session
+		resolver.Session = luaSession
 
 		// Store in sessions map (keyed by vended ID)
 		r.mu.Lock()
@@ -731,7 +737,17 @@ func (r *Runtime) AfterBatch(vendedID string) []VariableUpdate {
 				continue
 			}
 
-			jsonBytes, err := tracker.ToValueJSONBytes(v.Value)
+			// Use wrapped value if present
+			val := v.Value
+			if v.WrapperValue != nil {
+				if w, ok := v.WrapperValue.(Wrapper); ok {
+					val = w.Value()
+				} else {
+					val = v.WrapperValue
+				}
+			}
+
+			jsonBytes, err := tracker.ToValueJSONBytes(val)
 			if err != nil {
 				r.Log(1, "AfterBatch: failed to marshal variable %d: %v", change.VariableID, err)
 				continue
@@ -756,8 +772,8 @@ func (r *Runtime) AfterBatch(vendedID string) []VariableUpdate {
 
 // HandleFrontendCreate handles a variable create message from the frontend.
 // For path-based variables, it creates the variable in the tracker and resolves the path.
-// If a wrapper property is set, the wrapper transforms the value.
-// Returns the variable ID and resolved value.
+// If a wrapper property is set, the tracker automatically creates it via the resolver.
+// Returns the variable ID and resolved value (wrapped if applicable).
 func (r *Runtime) HandleFrontendCreate(sessionID string, parentID int64, properties map[string]string) (int64, json.RawMessage, error) {
 	path := properties["path"]
 	if path == "" {
@@ -778,46 +794,26 @@ func (r *Runtime) HandleFrontendCreate(sessionID string, parentID int64, propert
 		return 0, nil, fmt.Errorf("session %s tracker not found", session.ID)
 	}
 
-	// Create the child variable in the tracker with the path
+	// Create the child variable in the tracker with the path.
+	// This automatically triggers Resolver.CreateWrapper if the property is set.
 	v := tracker.CreateVariable(nil, parentID, path, properties)
 
-	// Resolve the path to get the initial value
-	resolvedValue, err := v.Get()
-	if err != nil {
-		r.Log(1, "HandleFrontendCreate: path resolution failed for %s: %v", path, err)
-		// Return variable ID but nil value - frontend will see empty
-		return v.ID, nil, nil
+	// Determine the initial value to return to the frontend.
+	// If a wrapper was created, its Value() is the new value.
+	var initialValue any = v.Value
+	if v.WrapperValue != nil {
+		if w, ok := v.WrapperValue.(Wrapper); ok {
+			initialValue = w.Value()
+		} else {
+			initialValue = v.WrapperValue
+		}
 	}
 
 	// Convert to JSON
-	jsonValue, err := tracker.ToValueJSONBytes(resolvedValue)
+	jsonValue, err := tracker.ToValueJSONBytes(initialValue)
 	if err != nil {
 		r.Log(1, "HandleFrontendCreate: JSON conversion failed: %v", err)
 		return v.ID, nil, nil
-	}
-
-	// Check for wrapper and apply it
-	wrapperType := properties["wrapper"]
-	if wrapperType != "" {
-		factory, ok := GetGlobalWrapperFactory(wrapperType)
-		if ok {
-			// Create a WrapperVariable adapter for the tracker variable
-			wrapperVar := &trackerVariableAdapter{
-				Variable: v,
-			}
-			wrapper := factory(session, wrapperVar)
-			if wrapper != nil {
-				// The wrapper itself is the new value
-				jsonValue, err = tracker.ToValueJSONBytes(wrapper)
-				if err != nil {
-					r.Log(1, "HandleFrontendCreate: wrapper JSON conversion failed: %v", err)
-				} else {
-					r.Log(2, "HandleFrontendCreate: wrapper %s transformed value to %s", wrapperType, string(jsonValue))
-				}
-			}
-		} else {
-			r.Log(1, "HandleFrontendCreate: wrapper type %s not found", wrapperType)
-		}
 	}
 
 	r.Log(2, "HandleFrontendCreate: created var %d for path %s, value=%s", v.ID, path, string(jsonValue))

@@ -338,7 +338,7 @@ func (s *Server) CreateLuaBackendForSession(vendedID string, sess *session.Sessi
 	}
 
 	// Create LuaBackend with resolver
-	lb := backend.NewLuaBackend(s.config, vendedID, &lua.LuaResolver{L: nil}) // Resolver will be set by runtime
+	lb := backend.NewLuaBackend(s.config, vendedID, &lua.LuaResolver{}) // Resolver will be set by runtime
 
 	// Attach backend to session
 	sess.SetBackend(lb)

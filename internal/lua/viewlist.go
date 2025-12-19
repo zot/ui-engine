@@ -53,6 +53,13 @@ func (vl *ViewList) Tracker() *changetracker.Tracker {
 	return vl.session.variableStore.GetTracker(vl.session.ID)
 }
 
+// Value returns the list of ViewListItems.
+func (vl *ViewList) Value() interface{} {
+	vl.mu.RLock()
+	defer vl.mu.RUnlock()
+	return vl.Items
+}
+
 // Update updates the ViewList with a new raw value from the backend.
 func (vl *ViewList) Update(newValue interface{}) {
 	vl.mu.Lock()

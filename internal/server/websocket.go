@@ -6,7 +6,9 @@ package server
 import (
 	"crypto/rand"
 	"encoding/hex"
+	"encoding/json"
 	"net/http"
+	"strings"
 	"sync"
 
 	"github.com/gorilla/websocket"
@@ -144,6 +146,15 @@ func (ws *WebSocketEndpoint) sendResponse(connectionID string, resp *protocol.Re
 		return nil
 	}
 
+	// Log response
+	if ws.config.Verbosity() >= 4 {
+		if respJson, err := json.Marshal(resp); err != nil {
+			ws.Log(4, "[OUT] RESPONSE: to=%s data=%+v", connectionID, respJson)
+		}
+	} else {
+		ws.Log(2, "[OUT] RESPONSE: to=%s", connectionID)
+	}
+
 	return conn.WriteJSON(resp)
 }
 
@@ -174,6 +185,14 @@ func (ws *WebSocketEndpoint) Send(connectionID string, msg *protocol.Message) er
 		return nil
 	}
 
+	// Log message
+	msgType := strings.ToUpper(string(msg.Type))
+	if ws.config.Verbosity() >= 4 {
+		ws.Log(4, "[OUT] %s: to=%s data=%s", msgType, connectionID, string(msg.Data))
+	} else {
+		ws.Log(2, "[OUT] %s: to=%s", msgType, connectionID)
+	}
+
 	data, err := msg.Encode()
 	if err != nil {
 		return err
@@ -194,6 +213,14 @@ func (ws *WebSocketEndpoint) Broadcast(sessionID string, msg *protocol.Message) 
 		}
 	}
 	ws.mu.RUnlock()
+
+	// Log message
+	msgType := strings.ToUpper(string(msg.Type))
+	if ws.config.Verbosity() >= 4 {
+		ws.Log(4, "[OUT] %s: to=session:%s data=%s", msgType, sessionID, string(msg.Data))
+	} else {
+		ws.Log(2, "[OUT] %s: to=session:%s", msgType, sessionID)
+	}
 
 	data, err := msg.Encode()
 	if err != nil {

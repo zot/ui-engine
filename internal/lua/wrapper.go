@@ -17,6 +17,11 @@ type WrapperVariable interface {
 	GetProperty(name string) string
 }
 
+// Wrapper represents a value transformer.
+type Wrapper interface {
+	Value() any
+}
+
 // --- Create Factory Registry ---
 
 // CreateFactory creates a new object instance from a value.
@@ -159,4 +164,9 @@ func NewLuaWrapper(session *LuaSession, template luaTable, variable WrapperVaria
 		instance: template, // For now, use template directly (stateless)
 		variable: variable,
 	}
+}
+
+// Value returns the wrapped Lua table instance.
+func (w *LuaWrapper) Value() any {
+	return w.instance
 }
