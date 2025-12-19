@@ -5,8 +5,6 @@ package presenter
 
 import (
 	"encoding/json"
-
-	"github.com/zot/ui/internal/variable"
 )
 
 // Presenter represents a UI presenter.
@@ -53,38 +51,12 @@ func (p *Presenter) SetViewName(name string) {
 	p.ViewName = name
 }
 
-// ToVariable converts the presenter to a variable.
-func (p *Presenter) ToVariable(store *variable.Store, parentID int64) (int64, error) {
-	// Marshal presenter data as value
-	value, err := json.Marshal(p.Data)
-	if err != nil {
-		return 0, err
-	}
-
-	// Create variable with type property
-	id, err := store.Create(variable.CreateOptions{
-		ParentID: parentID,
-		Value:    value,
-		Properties: map[string]string{
-			"type": p.Type,
-			"view": p.ViewName,
-		},
-		Unbound: true,
-	})
-	if err != nil {
-		return 0, err
-	}
-
-	p.VariableID = id
-	return id, nil
-}
-
 // AppPresenter is the root presenter for a session.
 type AppPresenter struct {
 	*Presenter
-	URL          string              `json:"url"`
-	HistoryIndex int                 `json:"historyIndex"`
-	History      []PageReference     `json:"history"`
+	URL          string          `json:"url"`
+	HistoryIndex int             `json:"historyIndex"`
+	History      []PageReference `json:"history"`
 }
 
 // PageReference refers to a page presenter.

@@ -260,53 +260,17 @@ func (h *Handler) handleUpdate(connectionID string, data json.RawMessage) (*Resp
 		b.SetInactive(msg.VarID, inactive != "")
 	}
 
-	// Check if this is a bound variable (has path property) that should be relayed to backend
-	v, ok := h.store.Get(msg.VarID)
-	if ok && !v.IsUnbound() {
-		// Bound variable - relay to backend to update the actual object
-		if h.pathVariableHandler != nil {
-			if _, hasPath := v.GetProperties()["path"]; hasPath {
-				var sessionID string
-				if b != nil {
-					sessionID = b.GetSessionID()
-				}
-				if sessionID == "" {
-					return &Response{Error: "session context required for path variables"}, nil
-				}
-				if err := h.pathVariableHandler.HandleFrontendUpdate(sessionID, msg.VarID, msg.Value); err != nil {
-					h.Log(1, "handleUpdate: backend update failed for var %d: %v", msg.VarID, err)
-					return &Response{Error: err.Error()}, nil
-				}
-				// Backend will handle change detection and send updates via AfterBatch
-				return &Response{}, nil
-			}
+	if h.pathVariableHandler != nil {
+		var sessionID string
+		if b != nil {
+			sessionID = b.GetSessionID()
 		}
-	}
-
-	// Unbound variable or no path handler - handle locally
-	if err := h.store.Update(msg.VarID, msg.Value, msg.Properties); err != nil {
-		return &Response{Error: err.Error()}, nil
-	}
-
-	// Notify watchers of update (via session's backend)
-	var watchers []string
-	if b != nil {
-		watchers = b.GetWatchers(msg.VarID)
-	}
-	if len(watchers) > 0 {
-		v, ok := h.store.Get(msg.VarID)
-		if ok {
-			valBytes, _ := json.Marshal(v.GetValue())
-			updateMsg, _ := NewMessage(MsgUpdate, UpdateMessage{
-				VarID:      msg.VarID,
-				Value:      valBytes,
-				Properties: v.GetProperties(),
-			})
-			for _, watcherID := range watchers {
-				if watcherID != connectionID {
-					h.sender.Send(watcherID, updateMsg)
-				}
-			}
+		if sessionID == "" {
+			return &Response{Error: "session context required for path variables"}, nil
+		}
+		if err := h.pathVariableHandler.HandleFrontendUpdate(sessionID, msg.VarID, msg.Value); err != nil {
+			h.Log(1, "handleUpdate: backend update failed for var %d: %v", msg.VarID, err)
+			return &Response{Error: err.Error()}, nil
 		}
 	}
 

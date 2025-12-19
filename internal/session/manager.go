@@ -6,8 +6,6 @@ import (
 	"strconv"
 	"sync"
 	"time"
-
-	"github.com/zot/ui/internal/variable"
 )
 
 // SessionCreatedCallback is called when a new session is created.
@@ -22,7 +20,6 @@ type SessionDestroyedCallback func(vendedID string, session *Session)
 type Manager struct {
 	sessions           map[string]*Session
 	urlPaths           map[string]map[string]int64 // sessionID -> path -> variableID
-	store              *variable.Store
 	sessionTimeout     time.Duration
 	onSessionCreated   SessionCreatedCallback
 	onSessionDestroyed SessionDestroyedCallback
@@ -35,11 +32,10 @@ type Manager struct {
 }
 
 // NewManager creates a new session manager.
-func NewManager(store *variable.Store, sessionTimeout time.Duration) *Manager {
+func NewManager(sessionTimeout time.Duration) *Manager {
 	return &Manager{
 		sessions:         make(map[string]*Session),
 		urlPaths:         make(map[string]map[string]int64),
-		store:            store,
 		sessionTimeout:   sessionTimeout,
 		nextVendedID:     1, // Vended IDs start at 1
 		internalToVended: make(map[string]string),
@@ -151,11 +147,6 @@ func (m *Manager) DestroySession(id string) error {
 	// Pass vended ID and session for backend cleanup
 	if m.onSessionDestroyed != nil && vendedID != "" {
 		m.onSessionDestroyed(vendedID, session)
-	}
-
-	// Destroy the root variable (and all children)
-	if session.AppVariableID != 0 {
-		m.store.Destroy(session.AppVariableID)
 	}
 
 	return nil

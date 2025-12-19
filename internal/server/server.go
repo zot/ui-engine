@@ -46,10 +46,7 @@ type Server struct {
 func New(cfg *config.Config) *Server {
 	store := variable.NewStore(cfg)
 
-	sessions := session.NewManager(
-		store,
-		cfg.Session.Timeout.Duration(),
-	)
+	sessions := session.NewManager(cfg.Session.Timeout.Duration())
 
 	s := &Server{
 		config:        cfg,
