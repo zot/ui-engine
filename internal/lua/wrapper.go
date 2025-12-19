@@ -47,7 +47,7 @@ func GetGlobalCreateFactory(typeName string) (CreateFactory, bool) {
 // --- Wrapper Factory Registry ---
 
 // WrapperFactory creates a new wrapper instance for a variable.
-type WrapperFactory func(runtime *Runtime, variable WrapperVariable) interface{}
+type WrapperFactory func(session *LuaSession, variable WrapperVariable) interface{}
 
 var globalWrapperFactories = struct {
 	factories map[string]WrapperFactory
@@ -118,7 +118,7 @@ func NewWrapperManager(runtime *Runtime, registry *WrapperRegistry) *WrapperMana
 }
 
 // CreateWrapper creates a new wrapper instance for a variable.
-func (m *WrapperManager) CreateWrapper(variable WrapperVariable) (interface{}, error) {
+func (m *WrapperManager) CreateWrapper(sessionId string, variable WrapperVariable) (interface{}, error) {
 	wrapperType := variable.GetProperty("wrapper")
 	if wrapperType == "" {
 		return nil, nil // No wrapper
@@ -126,14 +126,14 @@ func (m *WrapperManager) CreateWrapper(variable WrapperVariable) (interface{}, e
 
 	factory, ok := m.registry.Get(wrapperType)
 	if ok {
-		wrapper := factory(m.runtime, variable)
+		wrapper := factory(m.runtime.sessions[sessionId], variable)
 		return wrapper, nil
 	}
 
 	if m.runtime != nil {
 		luaTable := m.runtime.GetGlobalTable(wrapperType)
 		if luaTable != nil {
-			return NewLuaWrapper(m.runtime, luaTable, variable), nil
+			return NewLuaWrapper(m.runtime.sessions[sessionId], luaTable, variable), nil
 		}
 	}
 
@@ -142,7 +142,7 @@ func (m *WrapperManager) CreateWrapper(variable WrapperVariable) (interface{}, e
 
 // LuaWrapper wraps a Lua table as a Go Wrapper interface.
 type LuaWrapper struct {
-	runtime  *Runtime
+	session  *LuaSession
 	template luaTable // The registered Lua table (prototype)
 	instance luaTable // The instance for this variable
 	variable WrapperVariable
@@ -152,9 +152,9 @@ type LuaWrapper struct {
 type luaTable interface{}
 
 // NewLuaWrapper creates a wrapper from a Lua table definition.
-func NewLuaWrapper(runtime *Runtime, template luaTable, variable WrapperVariable) *LuaWrapper {
+func NewLuaWrapper(session *LuaSession, template luaTable, variable WrapperVariable) *LuaWrapper {
 	return &LuaWrapper{
-		runtime:  runtime,
+		session:  session,
 		template: template,
 		instance: template, // For now, use template directly (stateless)
 		variable: variable,

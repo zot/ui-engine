@@ -93,6 +93,7 @@ func (h *Handler) HandleMessage(connectionID string, msg *Message) (*Response, e
 
 	switch msg.Type {
 	case MsgCreate:
+		h.Log(2, "HANDLING CREATE")
 		return h.handleCreate(connectionID, msg.Data)
 	case MsgDestroy:
 		return h.handleDestroy(connectionID, msg.Data)
@@ -115,6 +116,7 @@ func (h *Handler) HandleMessage(connectionID string, msg *Message) (*Response, e
 
 // handleCreate processes a create message.
 func (h *Handler) handleCreate(connectionID string, data json.RawMessage) (*Response, error) {
+	h.Log(2, "handleCreate 1, connection %s", connectionID)
 	var msg CreateMessage
 	if err := json.Unmarshal(data, &msg); err != nil {
 		return nil, err
@@ -130,10 +132,12 @@ func (h *Handler) handleCreate(connectionID string, data json.RawMessage) (*Resp
 		pathProp = msg.Properties["path"]
 	}
 
+	h.Log(2, "handleCreate 2")
 	if pathProp != "" && msg.ParentID != 0 && h.pathVariableHandler != nil {
 		// Path-based variable: delegate to Lua runtime
 		id, initialValue, err = h.pathVariableHandler.HandleFrontendCreate(msg.ParentID, msg.Properties)
 		if err != nil {
+			h.Log(2, "handleCreate 2.1 ERROR: %s", err.Error())
 			return &Response{Error: err.Error()}, nil
 		}
 
@@ -154,10 +158,12 @@ func (h *Handler) handleCreate(connectionID string, data json.RawMessage) (*Resp
 			Unbound:    msg.Unbound,
 		})
 		if err != nil {
+			h.Log(2, "handleCreate 2.2 ERROR: %s", err.Error())
 			return &Response{Error: err.Error()}, nil
 		}
 	}
 
+	h.Log(2, "handleCreate 3")
 	// Auto-watch unless nowatch is set
 	if !msg.NoWatch && h.backendLookup != nil {
 		if b := h.backendLookup.GetBackendForConnection(connectionID); b != nil {
@@ -180,6 +186,7 @@ func (h *Handler) handleCreate(connectionID string, data json.RawMessage) (*Resp
 		resp.Pending = append(resp.Pending, *updateMsg)
 	}
 
+	h.Log(2, "handleCreate 4")
 	return resp, nil
 }
 

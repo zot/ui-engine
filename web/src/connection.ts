@@ -44,8 +44,9 @@ export class Connection {
       this.ws.onmessage = (event) => {
         try {
           const data = JSON.parse(event.data);
+          console.log('RECEIVED ', data)
           // Check if it's a Response (has result, error, or pending) vs Message (has type)
-          if ('result' in data || ('error' in data && !('type' in data)) || 'pending' in data) {
+          if ('result' in data || ('error' in data && !('type' in data)) || 'pending' in data || 'id' in data) {
             this.handleResponse(data as Response<CreateResponse>);
           } else {
             this.handleMessage(data as Message);
@@ -321,6 +322,7 @@ export class VariableStore {
     nowatch?: boolean;
     unbound?: boolean;
   }): Promise<number> {
+    console.log('SENDING CREATE')
     const resp = await this.connection.sendAndAwaitResponse({ type: 'create', data: options });
     if (resp.error) {
       throw new Error(resp.error);

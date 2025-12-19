@@ -34,6 +34,7 @@ type WorkResult struct {
 // not the internal UUID which is used for URL paths.
 // Change detection is handled by the tracker in VariableStore.
 type LuaSession struct {
+	*Runtime
 	ID            string      // Vended session ID (e.g., "1", "2", "3")
 	sessionTable  *lua.LTable // The session object exposed to Lua
 	appVariableID int64       // Variable 1 for this session (set by Lua code)
@@ -194,6 +195,7 @@ func (r *Runtime) CreateLuaSession(vendedID string) (*LuaSession, error) {
 		sessionTable := r.createSessionTable(L, vendedID)
 
 		luaSession = &LuaSession{
+			Runtime:      r,
 			ID:           vendedID,
 			sessionTable: sessionTable,
 		}
@@ -764,22 +766,22 @@ func (r *Runtime) HandleFrontendCreate(parentID int64, properties map[string]str
 
 	// Find which session owns the parent variable
 	r.mu.RLock()
-	var sessionID string
-	for sid, sess := range r.sessions {
+	var session *LuaSession
+	for _, sess := range r.sessions {
 		if sess.appVariableID == parentID {
-			sessionID = sid
+			session = sess
 			break
 		}
 	}
 	r.mu.RUnlock()
 
-	if sessionID == "" {
+	if session == nil {
 		return 0, nil, fmt.Errorf("parent variable %d not found in any session", parentID)
 	}
 
-	tracker := r.variableStore.GetTracker(sessionID)
+	tracker := r.variableStore.GetTracker(session.ID)
 	if tracker == nil {
-		return 0, nil, fmt.Errorf("session %s tracker not found", sessionID)
+		return 0, nil, fmt.Errorf("session %s tracker not found", session.ID)
 	}
 
 	// Create the child variable in the tracker with the path
@@ -809,7 +811,7 @@ func (r *Runtime) HandleFrontendCreate(parentID int64, properties map[string]str
 			wrapperVar := &trackerVariableAdapter{
 				Variable: v,
 			}
-			wrapper := factory(r, wrapperVar)
+			wrapper := factory(session, wrapperVar)
 			if wrapper != nil {
 				// The wrapper itself is the new value
 				jsonValue, err = tracker.ToValueJSONBytes(wrapper)
@@ -1042,8 +1044,8 @@ func (r *Runtime) registerUIModule() {
 		}
 
 		// Create a Lua wrapper factory that creates instances from the Lua table
-		r.wrapperRegistry.Register(name, func(runtime *Runtime, variable WrapperVariable) interface{} {
-			return NewLuaWrapper(runtime, tbl, variable)
+		r.wrapperRegistry.Register(name, func(session *LuaSession, variable WrapperVariable) interface{} {
+			return NewLuaWrapper(session, tbl, variable)
 		})
 
 		r.Log(2, "LuaRuntime: registered wrapper type %s", name)
@@ -1252,14 +1254,7 @@ func (r *Runtime) CreateInstance(typeName string, props map[string]interface{}) 
 
 // ItemWrapperInstance represents a created item wrapper (presenter).
 type ItemWrapperInstance struct {
-	objID    int64
 	instance *lua.LTable
-}
-
-// ObjRef returns an object reference to this item wrapper.
-func (i *ItemWrapperInstance) ObjRef() json.RawMessage {
-	ref, _ := json.Marshal(map[string]int64{"obj": i.objID})
-	return ref
 }
 
 // CreateItemWrapper creates an ItemWrapper instance for a ViewListItem.
@@ -1321,12 +1316,7 @@ func (r *Runtime) CreateItemWrapper(typeName string, viewItem *ViewListItem) (*I
 			}
 		}
 
-		// Generate object ID for this presenter
-		// Use negative IDs as per protocol.md
-		objID := viewItem.GetObjID() - 1000000 // Offset from ViewListItem ID
-
 		return &ItemWrapperInstance{
-			objID:    objID,
 			instance: instance,
 		}, nil
 	})

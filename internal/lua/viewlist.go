@@ -8,12 +8,14 @@ import (
 	"fmt"
 	"reflect"
 	"sync"
+
+	changetracker "github.com/zot/change-tracker"
 )
 
 // ViewList transforms an array of domain object refs into ViewListItem refs.
 // It creates ViewListItem objects for each item in the source array.
 type ViewList struct {
-	runtime        *Runtime
+	session        *LuaSession
 	variable       WrapperVariable // The variable being wrapped (for property access)
 	value          interface{}     // The raw array of domain objects (slice or array)
 	Items          []*ViewListItem // The list of ViewListItem objects
@@ -24,16 +26,16 @@ type ViewList struct {
 }
 
 // NewViewList creates a new ViewList wrapper for a variable.
-func NewViewList(runtime *Runtime, variable WrapperVariable) interface{} {
+func NewViewList(sess *LuaSession, variable WrapperVariable) interface{} {
 	itemType := variable.GetProperty("item")
 
-	if runtime != nil {
-		runtime.Log(2, "ViewList: created for variable %d with item type %q\n  variable: %v\n parent: %v\n  value: %v", variable.GetID(), itemType, variable, nil, variable.GetValue())
-		runtime.Log(4, "ViewList created: varID=%d itemType=%q", variable.GetID(), itemType)
+	if sess != nil {
+		sess.Log(2, "ViewList: created for variable %d with item type %q", variable.GetID(), itemType)
+		sess.Log(4, "ViewList created: varID=%d itemType=%q", variable.GetID(), itemType)
 	}
 
 	vl := &ViewList{
-		runtime:        runtime,
+		session:        sess,
 		variable:       variable,
 		itemType:       itemType,
 		Items:          make([]*ViewListItem, 0),
@@ -44,13 +46,18 @@ func NewViewList(runtime *Runtime, variable WrapperVariable) interface{} {
 
 	// Initial update
 	vl.Update(variable.GetValue())
-
 	return vl
+}
+
+func (vl *ViewList) Tracker() *changetracker.Tracker {
+	return vl.session.variableStore.GetTracker(vl.session.ID)
 }
 
 // Update updates the ViewList with a new raw value from the backend.
 func (vl *ViewList) Update(newValue interface{}) {
 	vl.mu.Lock()
+
+	vl.session.Log(4, "ViewList\n  variable %d\n  value: %v", vl.variable.GetID(), vl.variable.GetValue())
 
 	// Update raw value
 	if newValue != nil {
@@ -61,8 +68,8 @@ func (vl *ViewList) Update(newValue interface{}) {
 		} else {
 			// Not a slice/array
 			vl.value = nil
-			if vl.runtime != nil {
-				vl.runtime.Log(1, "ViewList: expected slice or array, got %T", newValue)
+			if vl.session != nil {
+				vl.session.Log(1, "ViewList: expected slice or array, got %T", newValue)
 			}
 		}
 	} else {
@@ -96,8 +103,8 @@ func (vl *ViewList) SyncViewItems() {
 	for count > len(vl.Items) {
 		newItem, err := vl.createListItem()
 		if err != nil {
-			if vl.runtime != nil {
-				vl.runtime.Log(1, "ViewList: failed to create ViewListItem: %v", err)
+			if vl.session != nil {
+				vl.session.Log(1, "ViewList: failed to create ViewListItem: %v", err)
 			}
 			break
 		}
@@ -120,23 +127,22 @@ func (vl *ViewList) SyncViewItems() {
 
 // createListItem creates a new ViewListItem.
 func (vl *ViewList) createListItem() (*ViewListItem, error) {
-	objID := vl.nextObjID
-	vl.nextObjID--
+	listItem := NewViewListItem(nil, vl, 0)
 
-	listItem := NewViewListItem(objID, nil, vl, 0)
-
-	if vl.itemType != "" && vl.runtime != nil {
-		itemInstance, err := vl.runtime.CreateItemWrapper(vl.itemType, listItem)
+	if vl.itemType != "" && vl.session != nil {
+		itemInstance, err := vl.session.CreateItemWrapper(vl.itemType, listItem)
 		if err != nil {
-			vl.runtime.Log(2, "ViewList: could not create %s instance: %v", vl.itemType, err)
+			vl.session.Log(2, "ViewList: could not create %s instance: %v", vl.itemType, err)
 		} else if itemInstance != nil {
 			listItem.Item = itemInstance
 		}
 	}
 
-	if vl.runtime != nil {
-		vl.runtime.Log(2, "ViewList: created ViewListItem %d", objID)
-		vl.runtime.Log(4, "ViewListItem created: objID=%d listVarID=%d", objID, vl.variable.GetID())
+	if vl.session != nil {
+		listItem.List.Tracker().ToValueJSON(listItem)
+		objID := listItem.GetObjID()
+		vl.session.Log(2, "ViewList: created ViewListItem %d", objID)
+		vl.session.Log(4, "ViewListItem created: objID=%d listVarID=%d", objID, vl.variable.GetID())
 	}
 
 	return listItem, nil
@@ -144,8 +150,8 @@ func (vl *ViewList) createListItem() (*ViewListItem, error) {
 
 // destroyListItem cleans up a ViewListItem.
 func (vl *ViewList) destroyListItem(listItem *ViewListItem) {
-	if vl.runtime != nil {
-		vl.runtime.Log(2, "ViewList: destroying ViewListItem %d", listItem.GetObjID())
+	if vl.session != nil {
+		vl.session.Log(2, "ViewList: destroying ViewListItem %d", listItem.GetObjID())
 	}
 }
 
@@ -178,8 +184,8 @@ func (vl *ViewList) RemoveAt(index int) error {
 	}
 
 	// TODO: This needs to notify the backend to actually remove the item
-	if vl.runtime != nil {
-		vl.runtime.Log(1, "ViewList: RemoveAt(%d) called - needs backend integration", index)
+	if vl.session != nil {
+		vl.session.Log(1, "ViewList: RemoveAt(%d) called - needs backend integration", index)
 	}
 
 	return nil
@@ -187,7 +193,7 @@ func (vl *ViewList) RemoveAt(index int) error {
 
 // init auto-registers the ViewList wrapper when package is imported.
 func init() {
-	RegisterWrapperType("ViewList", func(runtime *Runtime, variable WrapperVariable) interface{} {
-		return NewViewList(runtime, variable)
+	RegisterWrapperType("ViewList", func(sess *LuaSession, variable WrapperVariable) interface{} {
+		return NewViewList(sess, variable)
 	})
 }

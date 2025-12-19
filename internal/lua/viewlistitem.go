@@ -12,31 +12,27 @@ import (
 // It provides domain object access (Item), presenter access (Item),
 // list context (List), and position tracking (Index).
 type ViewListItem struct {
-	ObjID    int64           // ViewListItem's own object ID (negative, UI server managed)
-	Item     interface{} // Domain object reference
-	List     *ViewList
-	Index    int
-	mu       sync.RWMutex
+	Item  interface{} // Domain object reference
+	List  *ViewList
+	Index int
+	mu    sync.RWMutex
 }
 
 // NewViewListItem creates a new ViewListItem for a domain object.
-func NewViewListItem(viewItemObjID int64, item interface{}, list *ViewList, index int) *ViewListItem {
-	if list != nil && list.runtime != nil {
-		list.runtime.Log(4, "NewViewListItem: objID=%d index=%d", viewItemObjID, index)
+func NewViewListItem(item interface{}, list *ViewList, index int) *ViewListItem {
+	if list != nil && list.session != nil {
+		list.session.Log(4, "NewViewListItem: index=%d", index)
 	}
 	return &ViewListItem{
-		ObjID:    viewItemObjID,
-		Item:     item,
-		List:     list,
-		Index:    index,
+		Item:  item,
+		List:  list,
+		Index: index,
 	}
 }
 
-// GetObjID returns the ViewListItem's object ID.
 func (vli *ViewListItem) GetObjID() int64 {
-	vli.mu.RLock()
-	defer vli.mu.RUnlock()
-	return vli.ObjID
+	objID, _ := vli.List.Tracker().LookupObject(vli)
+	return objID
 }
 
 // GetItem returns the (possibly wrapped) item reference.

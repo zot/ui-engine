@@ -154,6 +154,7 @@ export class ViewList {
   // Update views to match the bound array
   // Creates child variables with index paths (1, 2, 3...) for each item
   update(): void {
+    console.log('update 1')
     if (this.variableId === null) {
       return;
     }
@@ -163,6 +164,7 @@ export class ViewList {
       return;
     }
 
+    console.log('update 2')
     const value = data.value;
     if (!Array.isArray(value)) {
       this.clear();
@@ -180,12 +182,15 @@ export class ViewList {
     // Build new views array - one per array index
     const newViews: View[] = [];
 
+    console.log('update 3: ', itemCount, ' views')
+    let reused = 0
     for (let index = 0; index < itemCount; index++) {
       let view = existingViewsByIndex.get(index);
       if (view) {
         // Reuse existing view at this index
         newViews.push(view);
         existingViewsByIndex.delete(index);
+        reused++;
       } else {
         // Create new view with child variable for this index
         view = this.createItemView();
@@ -197,6 +202,7 @@ export class ViewList {
           parentId: this.variableId!,
           properties: { path: indexPath },
         }).then((childVarId) => {
+          console.log('setting view ', index, ' variable ', childVarId)
           view!.setVariable(childVarId);
         }).catch((err) => {
           console.error('Failed to create viewlist item variable:', err);
@@ -208,6 +214,8 @@ export class ViewList {
         }
       }
     }
+
+    console.log('reused ', reused)
 
     // Remove views that are beyond the new array length
     for (const [index, view] of existingViewsByIndex) {

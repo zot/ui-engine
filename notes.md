@@ -1,48 +1,8 @@
 # Current Items
 
-# Current Debugging Session (2025-12-15)
+HandleFrontEndCreate and HandleFrontEndUpdate need sessionIds
 
-## Problem: ViewList still sending watch(-1, -2, -3)
 
-The Contact Manager demo is still trying to watch negative object reference IDs (-1, -2, -3) as variable IDs, despite the fix in `viewlist.ts`.
-
-### What was fixed
-- `viewlist.ts` `update()` method now creates child variables with index paths ("1", "2", "3") instead of using object reference IDs
-- `view.setVariable(childVarId)` is only called in the `.then()` callback after child variable creation
-- The built JS (`site/html/main.js`) shows the correct fix in place
-
-### What's still broken
-Server log shows:
-```
-Line 92: Message: type=watch ... varId:3    (ViewList variable)
-Line 93: handleWatch: sending update for var 3
-Line 94: Message: type=watch ... varId:-1   (WRONG - trying to watch object ref as var)
-Line 95: handleWatch: var -1 not found in store!
-```
-
-The watch(-1, -2, -3) messages are sent IMMEDIATELY after the update for var 3 is received, BEFORE any child variable creation messages.
-
-### Next debugging step
-Add console.trace() in `connection.ts` `watch()` method when varId < 0 to find the call stack:
-```typescript
-watch(varId: number, callback: ValueCallback): () => void {
-  if (varId < 0) {
-    console.error(`watch called with negative varId: ${varId}`);
-    console.trace();
-  }
-  // ...
-}
-```
-
-Then rebuild frontend and check browser console to see which code path is calling watch with negative IDs.
-
-### Hypothesis
-Something other than ViewList.update() is processing the array value and calling watch on the object reference IDs. Possibilities:
-- View.setVariableFromRef() being called somewhere
-- Some widget or binding code processing array items
-- A delegate callback
-
----
 
 # to do
 

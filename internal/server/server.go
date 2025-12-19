@@ -576,7 +576,7 @@ func (a *luaStoreAdapter) CreateVariable(sessionID string, parentID int64, luaOb
 	if wrapperType, ok := properties["wrapper"]; ok && wrapperType != "" && a.wrapperManager != nil {
 		storeVar, ok := a.store.Get(id)
 		if ok {
-			wrapper, err := a.wrapperManager.CreateWrapper(storeVar)
+			wrapper, err := a.wrapperManager.CreateWrapper(sessionID, storeVar)
 			if err != nil {
 				a.config.Log(0, "Warning: failed to create wrapper %s for variable %d: %v", wrapperType, id, err)
 			} else if wrapper != nil {
