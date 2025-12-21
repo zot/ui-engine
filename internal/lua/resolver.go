@@ -29,7 +29,7 @@ func (r *LuaResolver) Get(obj any, pathElement any) (any, error) {
 			case "items":
 				vl.mu.RLock()
 				defer vl.mu.RUnlock()
-				return vl.Items, nil
+				return r.luaValueToGo(vl.Items)
 			}
 		}
 		return nil, fmt.Errorf("Unknown ViewList property: %v", pathElement)
@@ -38,14 +38,13 @@ func (r *LuaResolver) Get(obj any, pathElement any) (any, error) {
 	slice := reflect.ValueOf(obj)
 	// Handle []*ViewListItem slice
 	if slice.Kind() == reflect.Array || slice.Kind() == reflect.Slice {
-		r.Session.Log(4, "Getting element %v from %v", pathElement, obj)
 		if index, ok := pathElement.(int); !ok {
 			return nil, fmt.Errorf("[]*ViewListItem resolution only supports number indexes")
 		} else if index < 0 || index >= slice.Len() {
 			return nil, fmt.Errorf("ViewList index %d out of range", index)
 		} else {
-			r.Session.Log(4, "  Returning %v", slice.Index(index))
-			return slice.Index(index), nil
+			r.Session.Log(4, "  Returning ViewListItem #%d: %v", index, slice.Index(index).Interface())
+			return r.luaValueToGo(slice.Index(index).Interface())
 		}
 	}
 
@@ -57,7 +56,7 @@ func (r *LuaResolver) Get(obj any, pathElement any) (any, error) {
 		}
 		switch prop {
 		case "item":
-			return vli.Item, nil
+			return r.luaValueToGo(vli.Item)
 		case "index":
 			return vli.Index, nil
 		case "list":
@@ -241,25 +240,26 @@ func (r *LuaResolver) Set(obj any, pathElement any, value any) error {
 // - Array tables: -> []any (elements can be *lua.LTable refs for objects)
 // - Object tables: -> keep as *lua.LTable (will be registered by tracker)
 // - Nested arrays: ERROR
-func (r *LuaResolver) luaValueToGo(val lua.LValue) (any, error) {
-	switch v := val.(type) {
-	case lua.LBool:
-		return bool(v), nil
-	case lua.LNumber:
-		return float64(v), nil
-	case lua.LString:
-		return string(v), nil
-	case *lua.LTable:
-		if r.isArray(v) {
-			return r.tableToSlice(v)
+func (r *LuaResolver) luaValueToGo(obj any) (any, error) {
+	if val, ok := obj.(lua.LValue); ok {
+		switch v := val.(type) {
+		case lua.LBool:
+			return bool(v), nil
+		case lua.LNumber:
+			return float64(v), nil
+		case lua.LString:
+			return string(v), nil
+		case *lua.LTable:
+			if r.isArray(v) {
+				return r.tableToSlice(v)
+			}
+			// Object table: return as *lua.LTable for tracker registration
+			return v, nil
+		case *lua.LNilType:
+			return nil, nil
 		}
-		// Object table: return as *lua.LTable for tracker registration
-		return v, nil
-	case *lua.LNilType:
-		return nil, nil
-	default:
-		return nil, nil
 	}
+	return obj, nil
 }
 
 // isArray checks if a Lua table is an array (sequential integer keys starting at 1).
@@ -268,6 +268,9 @@ func (r *LuaResolver) isArray(tbl *lua.LTable) bool {
 	hasNumericKeys := false
 	hasStringKeys := false
 
+	if GetType(r.Session.state, tbl) != "" {
+		return false
+	}
 	tbl.ForEach(func(key, _ lua.LValue) {
 		switch k := key.(type) {
 		case lua.LNumber:
@@ -320,7 +323,7 @@ func (r *LuaResolver) CreateValue(variable *changetracker.Variable, typ string, 
 	if typ == "" {
 		return nil
 	} else if factory, ok := GetGlobalCreateFactory(typ); ok {
-		return factory(r.Session.Runtime, value)
+		return factory(r.Session, value)
 	} else if valueClass := r.Session.state.GetGlobal(typ); valueClass == lua.LNil {
 		return nil // No Lua global by that name
 	} else if valueTable, ok := valueClass.(*lua.LTable); !ok {
@@ -471,9 +474,13 @@ func GetType(L *lua.LState, obj any) string {
 		if typeVal := L.GetField(lObj, "type"); typeVal != lua.LNil {
 			return lua.LVAsString(typeVal)
 		}
-	} else {
+	} else if obj != nil {
 		v := reflect.ValueOf(obj)
-		typename := v.Type().Name()
+		typ := v.Type()
+		if typ.Kind() == reflect.Pointer || typ.Kind() == reflect.UnsafePointer {
+			typ = typ.Elem()
+		}
+		typename := typ.String()
 		_, ok1 := GetGlobalCreateFactory(typename)
 		_, ok2 := GetGlobalWrapperFactory(typename)
 		if ok1 || ok2 {

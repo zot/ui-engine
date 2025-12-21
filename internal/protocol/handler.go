@@ -5,6 +5,7 @@ package protocol
 import (
 	"encoding/json"
 	"fmt"
+	"reflect"
 	"strings"
 	"time"
 
@@ -191,11 +192,44 @@ func (h *Handler) handleCreate(connectionID string, data json.RawMessage) (*Resp
 	}
 
 	// Include initial value as pending update if we have one
-	if initialValue != nil || initialProps != nil {
+	if (initialValue != nil && string(initialValue) != "null") || initialProps != nil {
+		var newprops map[string]string
+		val := initialValue
+		if b := h.backendLookup.GetBackendForConnection(connectionID); b != nil {
+			t := b.GetTracker()
+			v := t.GetVariable(id)
+			typeName := ""
+			if v.NavigationValue() != nil {
+				typ := reflect.ValueOf(v.NavigationValue()).Type()
+				if typ.Kind() == reflect.Pointer || typ.Kind() == reflect.UnsafePointer {
+					typ = typ.Elem()
+				}
+				h.Log(4, "      REFLECT TYPE: %#v\n      NAME: %s\n      STRING: %s\n      NAV VALUE: %#v\n      RESOLVER TYPE: %s\n      MSG PROPS: %#v\n      INITIAL PROPS: %#v\n      V PROPS: %#v", typ, typ.PkgPath()+typ.Name(), typ.String(), v.NavigationValue(), t.Resolver.GetType(v, v.NavigationValue()), msg.Properties, initialProps, v.Properties)
+				typeName = typ.Name()
+			}
+			h.Log(4, "      REFLECT TYPE: %s VAR: %#v", typeName, v)
+			for prop, p := range v.Properties {
+				if msg.Properties[prop] != p {
+					newprops = make(map[string]string)
+					for prop, p := range v.Properties {
+						if msg.Properties[prop] != p {
+							newprops[prop] = p
+						}
+					}
+					break
+				}
+			}
+			if nval, err := t.ToValueJSONBytes(v.NavigationValue()); err != nil {
+				return nil, err
+			} else {
+				val = json.RawMessage(nval)
+			}
+		}
+		h.Log(4, "[OUT] RESPONSE TO CREATE, VALUE: %v PROPS: %#v", string(initialValue), newprops)
 		updateMsg, _ := NewMessage(MsgUpdate, UpdateMessage{
 			VarID:      id,
-			Value:      initialValue,
-			Properties: initialProps,
+			Value:      val,
+			Properties: newprops,
 		})
 		resp.Pending = append(resp.Pending, *updateMsg)
 	}

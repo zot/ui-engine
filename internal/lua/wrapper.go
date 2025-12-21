@@ -25,7 +25,7 @@ type Wrapper interface {
 // --- Create Factory Registry ---
 
 // CreateFactory creates a new object instance from a value.
-type CreateFactory func(runtime *Runtime, value interface{}) interface{}
+type CreateFactory func(session *LuaSession, value interface{}) interface{}
 
 var globalCreateFactories = struct {
 	factories map[string]CreateFactory

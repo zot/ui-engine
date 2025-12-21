@@ -200,7 +200,7 @@ func (vl *ViewList) RemoveAt(index int) error {
 
 // init auto-registers the ViewList wrapper when package is imported.
 func init() {
-	RegisterWrapperType("ViewList", func(sess *LuaSession, variable WrapperVariable) interface{} {
+	RegisterWrapperType("lua.ViewList", func(sess *LuaSession, variable WrapperVariable) interface{} {
 		return NewViewList(sess, variable)
 	})
 }

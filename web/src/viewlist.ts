@@ -29,19 +29,12 @@ export function parseViewListPath(fullPath: string): ParsedViewListPath {
   if (queryPart) {
     const params = new URLSearchParams(queryPart);
     params.forEach((value, key) => {
-      if (key === 'wrapper') {
-        result.wrapper = value;
-      } else if (key === 'item') {
+      if (key === 'item') {
         result.item = value;
       } else {
         result.props[key] = value;
       }
     });
-
-    // If item is specified but wrapper is not, default wrapper to ViewList
-    if (result.item && !result.wrapper) {
-      result.wrapper = 'ViewList';
-    }
   }
 
   return result;
@@ -110,18 +103,12 @@ export class ViewList {
     const props: Record<string, string> = {};
 
     if (this.pathConfig) {
-      // ViewList always uses ViewList wrapper
-      props['wrapper'] = this.pathConfig.wrapper || 'ViewList';
-
       if (this.pathConfig.item) {
         props['item'] = this.pathConfig.item;
       }
 
       // Include any additional properties from path
       Object.assign(props, this.pathConfig.props);
-    } else {
-      // Default wrapper for ViewList elements
-      props['wrapper'] = 'ViewList';
     }
 
     return props;

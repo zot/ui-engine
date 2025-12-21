@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"strings"
 	"sync"
@@ -872,23 +873,24 @@ func (r *Runtime) HandleFrontendCreate(sessionID string, parentID int64, propert
 
 	// Determine the initial value to return to the frontend.
 	// If a wrapper was created, its Value() is the new value.
-	var initialValue any = v.Value
-	if v.WrapperValue != nil {
-		if w, ok := v.WrapperValue.(Wrapper); ok {
-			initialValue = w.Value()
-		} else {
-			initialValue = v.WrapperValue
-		}
-	}
+	val := v.NavigationValue()
 
 	// Convert to JSON
-	jsonValue, err := tracker.ToValueJSONBytes(initialValue)
+	jsonValue, err := tracker.ToValueJSONBytes(val)
 	if err != nil {
 		r.Log(1, "HandleFrontendCreate: JSON conversion failed: %v", err)
 		return v.ID, nil, v.Properties, nil
 	}
 
-	r.Log(2, "HandleFrontendCreate: created var %d for path %s, value=%s", v.ID, path, string(jsonValue))
+	k := reflect.ValueOf(val).Kind()
+	r.Log(2, "HandleFrontendCreate: created var %d for path %s, kind=%d, json=%s, value=%#v", v.ID, path, k, string(jsonValue), val)
+	if string(jsonValue) == "{}" {
+		r.Log(0, "TABLE JSON VALUE IS EMPTY OBJECT, valueJSON: %#v, initialValue: %#v", tracker.ToValueJSON(val), val)
+		r.Log(0, "\n  Pointer: %d\n  Struct: %d\n  UnsafePointer: %d", reflect.Pointer, reflect.Struct, reflect.UnsafePointer)
+	//	if k == reflect.Array || k == reflect.Slice {
+	//		r.Log(2, "!!! LUA VALUE IS A SLICE!")
+	//	} else if k == 
+	}
 
 	return v.ID, jsonValue, v.Properties, nil
 }
@@ -1476,9 +1478,11 @@ func goToLua(L *lua.LState, val interface{}) lua.LValue {
 	}
 }
 
+// DEPRECATE -- not used currently
 // luaToGo converts a Lua value to Go.
 // Fields prefixed with "_" are skipped (internal/private fields).
 func luaToGo(val lua.LValue) interface{} {
+	fmt.Println("luaToGo")
 	switch v := val.(type) {
 	case lua.LBool:
 		return bool(v)

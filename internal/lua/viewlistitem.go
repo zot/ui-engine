@@ -76,3 +76,12 @@ func (vli *ViewListItem) Remove() error {
 	}
 	return nil
 }
+
+// init auto-registers the ViewList wrapper when package is imported.
+func init() {
+	RegisterCreateFactory("lua.ViewListItem", func(sess *LuaSession, value any) interface{} {
+		//return NewViewList(sess, variable)
+		// can't create these from the front end
+		return nil
+	})
+}
