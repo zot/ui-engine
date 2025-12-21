@@ -25,9 +25,12 @@ func (r *LuaResolver) Get(obj any, pathElement any) (any, error) {
 	// Handle ViewList wrapper
 	if vl, ok := obj.(*ViewList); ok {
 		if prop, ok := pathElement.(string); ok && prop == "items" {
-			vl.mu.RLock()
-			defer vl.mu.RUnlock()
-			return vl.Items, nil
+			switch prop {
+			case "items":
+				vl.mu.RLock()
+				defer vl.mu.RUnlock()
+				return vl.Items, nil
+			}
 		}
 		return nil, fmt.Errorf("Unknown ViewList property: %v", pathElement)
 	}
@@ -380,7 +383,7 @@ func (r *LuaResolver) CreateWrapper(variable *changetracker.Variable) any {
 	if factory, ok := GetGlobalWrapperFactory(wrapperType); ok {
 		if r.Session != nil {
 			// Create adapter for WrapperVariable
-			wrapperVar := &trackerVariableAdapter{Variable: variable}
+			wrapperVar := &TrackerVariableAdapter{Variable: variable, Session: r.Session}
 			wrapper := factory(r.Session, wrapperVar)
 			if wrapper != nil {
 				variable.WrapperValue = wrapper

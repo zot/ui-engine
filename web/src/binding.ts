@@ -247,7 +247,7 @@ export class BindingEngine {
     }).then((id) => {
       childVarId = id;
       // Watch the child variable for value updates
-      unbindValue = this.store.watch(id, (value) => update(value));
+      unbindValue = this.store.watch(id, (_v, value) => update(value));
       unbindError = this.store.watchErrors(id, updateError);
 
       // Initial update from cached value
@@ -355,7 +355,7 @@ export class BindingEngine {
       properties,
     }).then((id) => {
       childVarId = id;
-      unbindValue = this.store.watch(id, (value) => update(value));
+      unbindValue = this.store.watch(id, (_v, value) => update(value));
 
       // Initial update from cached value
       const current = this.store.get(id);
@@ -404,7 +404,7 @@ export class BindingEngine {
       properties,
     }).then((id) => {
       childVarId = id;
-      unbindValue = this.store.watch(id, (value) => update(value));
+      unbindValue = this.store.watch(id, (_v, value) => update(value));
 
       // Initial update from cached value
       const current = this.store.get(id);
@@ -454,7 +454,7 @@ export class BindingEngine {
       properties,
     }).then((id) => {
       childVarId = id;
-      unbindValue = this.store.watch(id, (value) => update(value));
+      unbindValue = this.store.watch(id, (_v, value) => update(value));
 
       // Initial update from cached value
       const current = this.store.get(id);

@@ -44,7 +44,7 @@ export class Connection {
       this.ws.onmessage = (event) => {
         try {
           const data = JSON.parse(event.data);
-          console.log('RECEIVED ', data)
+          //console.log('RECEIVED ', data)
           // Check if it's a Response (has result, error, or pending) vs Message (has type)
           if ('result' in data || ('error' in data && !('type' in data)) || 'pending' in data || 'id' in data) {
             this.handleResponse(data as Response<CreateResponse>);
@@ -184,14 +184,16 @@ export interface VariableError {
   description: string;
 }
 
+export type Variable = { value: unknown; properties: Record<string, string> };
+
 // Callback types for watchers
-export type ValueCallback = (value: unknown, props: Record<string, string>) => void;
+export type ValueCallback = (v: Variable, value?: unknown, props?: Record<string, string>) => void;
 export type ErrorCallback = (error: VariableError | null) => void;
 
 // Variable store for client-side caching
 // CRC: crc-VariableStore.md
 export class VariableStore {
-  private variables: Map<number, { value: unknown; properties: Record<string, string> }> = new Map();
+  private variables: Map<number, Variable> = new Map();
   private errors: Map<number, VariableError> = new Map(); // Error state per variable
   private watchers: Map<number, Set<ValueCallback>> = new Map();
   private errorWatchers: Map<number, Set<ErrorCallback>> = new Map();
@@ -240,7 +242,7 @@ export class VariableStore {
     // Notify watchers
     const watchers = this.watchers.get(varId);
     if (watchers) {
-      watchers.forEach((w) => w(existing!.value, existing!.properties));
+      watchers.forEach((w) => w(existing, value, properties));
     }
   }
 
@@ -262,15 +264,17 @@ export class VariableStore {
     this.watchers.delete(varId);
   }
 
-  watch(varId: number, callback: ValueCallback): () => void {
+  watch(varId: number, callback: ValueCallback, send?: boolean): () => void {
     // Add to local watchers
     let watchers = this.watchers.get(varId);
     if (!watchers) {
       watchers = new Set();
       this.watchers.set(varId, watchers);
 
-      // Send watch message to server
-      this.connection.send({ type: 'watch', data: { varId } });
+      if (send) {
+        // Send watch message to server
+        this.connection.send({ type: 'watch', data: { varId } });
+      }
     }
     watchers.add(callback);
 
@@ -322,7 +326,7 @@ export class VariableStore {
     nowatch?: boolean;
     unbound?: boolean;
   }): Promise<number> {
-    console.log('SENDING CREATE')
+    //console.log('SENDING CREATE')
     const resp = await this.connection.sendAndAwaitResponse({ type: 'create', data: options });
     if (resp.error) {
       throw new Error(resp.error);

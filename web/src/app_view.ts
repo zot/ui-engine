@@ -44,12 +44,12 @@ export class AppView {
     );
 
     // Set the variable to 1 (root app variable)
-    this.view.setVariable(this.variableId);
+    this.view.setVariable(this.variableId, true);
 
-    // Also watch variable 1 for viewdefs property updates
-    this.unwatch = this.variableStore.watch(this.variableId, (value, props) => {
-      this.handleRootUpdate(value, props);
-    });
+    //// Also watch variable 1 for viewdefs property updates
+    this.unwatch = this.variableStore.watch(this.variableId, (_v, value, props) => {
+      this.handleRootUpdate(value, props ?? {});
+    }, false);
   }
 
   // Handle updates to variable 1

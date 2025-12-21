@@ -2,7 +2,6 @@
 // CRC: crc-View.md
 // Spec: viewdefs.md
 
-import { isObjectReference } from './variable';
 import { ViewdefStore } from './viewdef_store';
 import { cloneViewdefContent } from './viewdef';
 import { VariableStore } from './connection';
@@ -21,6 +20,7 @@ export class View {
   readonly htmlId: string;
   readonly namespace: string;
 
+  private valueType: string = '';
   private variableId: number | null = null;
   private rendered = false;
   private viewdefStore: ViewdefStore;
@@ -58,7 +58,7 @@ export class View {
   }
 
   // Set the bound variable (object reference)
-  setVariable(variableId: number): void {
+  setVariable(variableId: number, send?: boolean): void {
     // Cleanup old watcher
     if (this.unwatch) {
       this.unwatch();
@@ -69,21 +69,22 @@ export class View {
     this.rendered = false;
 
     // Watch the variable
-    this.unwatch = this.variableStore.watch(variableId, () => {
+    this.unwatch = this.variableStore.watch(variableId, (_v, _value, _props) => {
       this.render();
-    });
+    }, send);
 
     // Initial render
     this.render();
   }
 
   // Set variable from an object reference value
-  setVariableFromRef(value: unknown): void {
-    if (isObjectReference(value)) {
-      this.setVariable(value.obj);
-    } else {
-      this.clear();
-    }
+  setVariableFromRef(_value: unknown): void {
+    console.error('THIS IS ERRONEOUS CODE')
+    //if (isObjectReference(value)) {
+    //  this.setVariable(value.obj);
+    //} else {
+    //  this.clear();
+    //}
   }
 
   // Render the view using TYPE.NAMESPACE viewdef
@@ -114,6 +115,11 @@ export class View {
       return false;
     }
 
+    if (this.rendered && type === this.valueType) {
+      // no need to re-render
+      return false
+    }
+
     // Clear and render
     this.clear();
 
@@ -141,6 +147,7 @@ export class View {
 
     this.element.appendChild(fragment);
     this.rendered = true;
+    this.valueType = type;
 
     // Remove from pending if we were pending
     this.removePending();
@@ -228,7 +235,7 @@ export class View {
         parentId: contextVarId,
         properties: { path: basePath, ...(props.options as any) },
       }).then((childVarId) => {
-        console.log("GET VIEW VARIABLE ", childVarId)
+        console.log("GET VIEW VARIABLE ", childVarId, " props: ", JSON.stringify(this.variableStore.get(childVarId)?.properties))
         view.setVariable(childVarId);
       }).catch((err) => {
         console.error('Failed to create view variable:', err);

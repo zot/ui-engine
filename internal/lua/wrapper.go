@@ -13,7 +13,7 @@ import (
 // The variable reference is passed to the wrapper constructor.
 type WrapperVariable interface {
 	GetID() int64
-	GetValue() interface{}
+	GetValue() any
 	GetProperty(name string) string
 }
 

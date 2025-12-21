@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 
@@ -15,6 +16,7 @@ import (
 	changetracker "github.com/zot/change-tracker"
 	"github.com/zot/ui/internal/bundle"
 	"github.com/zot/ui/internal/config"
+	"github.com/zot/ui/internal/viewdef"
 )
 
 // WorkItem represents a unit of work for the executor.
@@ -57,6 +59,7 @@ type Runtime struct {
 	variableStore   VariableStore          // Backend for variable operations
 	mainLuaCode     string                 // Cached main.lua content (for bundle mode)
 	wrapperRegistry *WrapperRegistry       // Shared wrapper registry (set by server)
+	viewdefManager  *viewdef.ViewdefManager
 }
 
 // PresenterType represents a Lua-defined presenter type.
@@ -85,7 +88,7 @@ type VariableStore interface {
 }
 
 // NewRuntime creates a new Lua runtime with executor goroutine.
-func NewRuntime(cfg *config.Config, luaDir string) (*Runtime, error) {
+func NewRuntime(cfg *config.Config, luaDir string, vdm *viewdef.ViewdefManager) (*Runtime, error) {
 	L := lua.NewState()
 
 	r := &Runtime{
@@ -97,6 +100,7 @@ func NewRuntime(cfg *config.Config, luaDir string) (*Runtime, error) {
 		luaDir:         luaDir,
 		executorChan:   make(chan WorkItem, 100),
 		done:           make(chan struct{}),
+		viewdefManager: vdm,
 	}
 
 	// Load standard libraries
@@ -223,7 +227,7 @@ func (r *Runtime) CreateLuaSession(vendedID string) (*LuaSession, error) {
 			r.variableStore.DestroySession(vendedID)
 			return nil, err
 		}
-
+		//r.AfterBatch(vendedID)
 		r.Log(2, "LuaRuntime: created Lua session %s", vendedID)
 
 		return nil, nil
@@ -742,14 +746,60 @@ func (r *Runtime) AfterBatch(vendedID string) []VariableUpdate {
 		return nil
 	}
 
+	v1 := tracker.GetVariable(1)
+	types := make(map[string]bool)
+	var sending changetracker.Change
+	sent := r.viewdefManager.GetSent(vendedID)
+	for _, change := range changes {
+		if slices.Contains(change.PropertiesChanged, "type") {
+			typ := tracker.GetVariable(change.VariableID).Properties["type"]
+			if !sent[typ] {
+				types[typ] = true
+			}
+		}
+		if change.VariableID == 1 && slices.Contains(change.PropertiesChanged, "viewdefs") {
+			sending = change
+		}
+	}
+	if len(types) > 0 {
+		//  gather viewdefs to send out for this batch
+		defs := make(map[string]string)
+		added := false
+		for typ := range types {
+			added = true
+			r.viewdefManager.AddNewViewdefsForSession(vendedID, typ, defs)
+		}
+		if added {
+			if defBytes, err := json.Marshal(defs); err != nil {
+				r.Log(0, "Error serializing viewdefs: %s", err.Error())
+			} else {
+				v1.Properties["viewdefs"] = string(defBytes)
+				r.Log(4, "SENDING VIEWDEFS: %s", v1.Properties["viewdefs"])
+				if sending.VariableID == 0 {
+					// need to insert a change for the viewdefs
+					new := make([]changetracker.Change, len(changes)+1)
+					new[0] = changetracker.Change{
+						VariableID:        1,
+						Priority:          changetracker.PriorityHigh,
+						ValueChanged:      false,
+						PropertiesChanged: []string{"viewdefs"},
+					}
+					copy(new[1:], changes)
+					changes = new
+				}
+			}
+		}
+	}
+
 	var updates []VariableUpdate
 	for _, change := range changes {
+		v := tracker.GetVariable(change.VariableID)
+		if v == nil {
+			continue
+		}
+		var value json.RawMessage
+		var props map[string]string
 		if change.ValueChanged {
-			v := tracker.GetVariable(change.VariableID)
-			if v == nil {
-				continue
-			}
-
 			// Use wrapped value if present
 			val := v.Value
 			if v.WrapperValue != nil {
@@ -759,29 +809,36 @@ func (r *Runtime) AfterBatch(vendedID string) []VariableUpdate {
 					val = v.WrapperValue
 				}
 			}
-
 			jsonBytes, err := tracker.ToValueJSONBytes(val)
 			if err != nil {
-				r.Log(1, "AfterBatch: failed to marshal variable %d: %v", change.VariableID, err)
+				r.Log(1, "ERROR: AfterBatch failed to marshal variable %d: %v", change.VariableID, err)
 				continue
 			}
-
-			r.Log(2, "AfterBatch: variable %d changed", change.VariableID)
-			props := v.Properties
-
-			updates = append(updates, VariableUpdate{
-				VarID:      change.VariableID,
-				Value:      json.RawMessage(jsonBytes),
-				Properties: props,
-			})
-
-			// Also update the variable store so watchers get notified
-			if err := r.variableStore.Update(change.VariableID, json.RawMessage(jsonBytes), props); err != nil {
-				r.Log(1, "AfterBatch: failed to update store for variable %d: %v", change.VariableID, err)
+			value = json.RawMessage(jsonBytes)
+		}
+		if len(change.PropertiesChanged) > 0 {
+			props = make(map[string]string, len(change.PropertiesChanged))
+			for _, prop := range change.PropertiesChanged {
+				props[prop] = v.Properties[prop]
+			}
+			if props["viewdefs"] != "" {
+				r.Log(4, "ADDING VIEWDEFS TO UPDATES: %s", v1.Properties["viewdefs"])
 			}
 		}
-	}
+		r.Log(2, "AfterBatch: variable %d changed", change.VariableID)
+		updates = append(updates, VariableUpdate{
+			VarID:      change.VariableID,
+			Value:      value,
+			Properties: props,
+		})
 
+		// Also update the variable store so watchers get notified
+		if err := r.variableStore.Update(change.VariableID, value, props); err != nil {
+			r.Log(1, "AfterBatch: failed to update store for variable %d: %v", change.VariableID, err)
+		}
+	}
+	// clear sent viewdefs
+	v1.Properties["viewdefs"] = ""
 	return updates
 }
 
@@ -836,20 +893,35 @@ func (r *Runtime) HandleFrontendCreate(sessionID string, parentID int64, propert
 	return v.ID, jsonValue, v.Properties, nil
 }
 
-// trackerVariableAdapter adapts a change-tracker Variable to WrapperVariable interface
-type trackerVariableAdapter struct {
+// TrackerVariableAdapter adapts a change-tracker Variable to WrapperVariable interface
+type TrackerVariableAdapter struct {
 	*changetracker.Variable
+	Session *LuaSession
 }
 
-func (a *trackerVariableAdapter) GetID() int64 {
+func WrapTrackerVariable(session *LuaSession, v *changetracker.Variable) *TrackerVariableAdapter {
+	return &TrackerVariableAdapter{
+		Variable: v,
+		Session:  session,
+	}
+}
+
+func (a *TrackerVariableAdapter) GetID() int64 {
 	return a.ID
 }
 
-func (a *trackerVariableAdapter) GetValue() interface{} {
-	return a.Value
+func (a *TrackerVariableAdapter) GetValue() interface{} {
+	if a.WrapperValue != nil {
+		return a.WrapperValue
+	}
+	val, err := a.Variable.Get()
+	if err != nil {
+		a.Session.Log(0, "Error getting value for variable %d: %s", a.ID, err.Error())
+	}
+	return val
 }
 
-func (a *trackerVariableAdapter) GetProperty(name string) string {
+func (a *TrackerVariableAdapter) GetProperty(name string) string {
 	return a.Properties[name]
 }
 

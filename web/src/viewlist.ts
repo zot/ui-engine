@@ -21,7 +21,7 @@ export interface ParsedViewListPath {
   props: Record<string, string>;
 }
 
-// Parse a ViewList path like "contacts?item=ContactPresenter"
+// Parse a ViewList path like "contacts?wrapper=CustomListPresenter&item=CustomListItemPresenter"
 export function parseViewListPath(fullPath: string): ParsedViewListPath {
   const [path, queryPart] = fullPath.split('?');
   const result: ParsedViewListPath = { path, props: {} };
@@ -154,7 +154,7 @@ export class ViewList {
   // Update views to match the bound array
   // Creates child variables with index paths (1, 2, 3...) for each item
   update(): void {
-    console.log('update 1')
+    //console.log('update 1')
     if (this.variableId === null) {
       return;
     }
@@ -164,7 +164,7 @@ export class ViewList {
       return;
     }
 
-    console.log('update 2')
+    //console.log('update 2')
     const value = data.value;
     if (!Array.isArray(value)) {
       this.clear();
@@ -174,51 +174,42 @@ export class ViewList {
     const itemCount = value.length;
 
     // Build map of current views by index
-    const existingViewsByIndex = new Map<number, View>();
-    for (let i = 0; i < this.views.length; i++) {
-      existingViewsByIndex.set(i, this.views[i]);
-    }
+    const existingViews = this.views.slice()
 
     // Build new views array - one per array index
     const newViews: View[] = [];
 
-    console.log('update 3: ', itemCount, ' views')
     let reused = 0
-    for (let index = 0; index < itemCount; index++) {
-      let view = existingViewsByIndex.get(index);
-      if (view) {
-        // Reuse existing view at this index
-        newViews.push(view);
-        existingViewsByIndex.delete(index);
-        reused++;
-      } else {
-        // Create new view with child variable for this index
-        view = this.createItemView();
-        newViews.push(view);
+    for (let index = existingViews.length; index < itemCount; index++) {
+      // Create new view with child variable for this index
+      const view = this.createItemView();
+      newViews.push(view);
 
-        // Create child variable with path = index (0-based)
-        const indexPath = String(index);
-        this.variableStore.create({
-          parentId: this.variableId!,
-          properties: { path: indexPath },
-        }).then((childVarId) => {
-          console.log('setting view ', index, ' variable ', childVarId)
-          view!.setVariable(childVarId);
-        }).catch((err) => {
-          console.error('Failed to create viewlist item variable:', err);
-        });
-
-        // Notify delegate
-        if (this.delegate?.onItemAdd) {
-          this.delegate.onItemAdd(view, newViews.length - 1);
-        }
+      this.element.appendChild(view.element);
+      // Create child variable with path = index (0-based)
+      const indexPath = String(index);
+      this.variableStore.create({
+        parentId: this.variableId!,
+        properties: { path: indexPath },
+      }).then((childVarId) => {
+        console.log('setting view ', index, ' variable ', childVarId)
+        view!.setVariable(childVarId);
+      }).catch((err) => {
+        console.error('Failed to create viewlist item variable:', err);
+      });
+      
+      // Notify delegate
+      if (this.delegate?.onItemAdd) {
+        this.delegate.onItemAdd(view, newViews.length - 1);
       }
     }
 
-    console.log('reused ', reused)
+    console.log('reused', reused, 'of', itemCount, 'views')
 
     // Remove views that are beyond the new array length
-    for (const [index, view] of existingViewsByIndex) {
+    while (existingViews.length > itemCount) {
+      const view = this.views.pop()!
+      const index = this.views.length
       // Notify delegate before removing
       if (this.delegate?.onItemRemove) {
         this.delegate.onItemRemove(view, index);
@@ -233,7 +224,7 @@ export class ViewList {
     this.views = newViews;
 
     // Reorder DOM to match array order
-    this.reorderDOM();
+    //this.reorderDOM();
   }
 
   // Create a view element for an item
@@ -250,12 +241,12 @@ export class ViewList {
   }
 
   // Reorder DOM elements to match views array
-  private reorderDOM(): void {
-    for (const view of this.views) {
-      // Append moves element to end if already in DOM, or adds if not
-      this.element.appendChild(view.element);
-    }
-  }
+  //private reorderDOM(): void {
+  //  for (const view of this.views) {
+  //    // Append moves element to end if already in DOM, or adds if not
+  //    this.element.appendChild(view.element);
+  //  }
+  //}
 
   // Add an item manually at the end of the list
   // Creates a child variable with the next index path

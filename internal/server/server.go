@@ -21,6 +21,7 @@ import (
 	"github.com/zot/ui/internal/protocol"
 	"github.com/zot/ui/internal/session"
 	"github.com/zot/ui/internal/variable"
+	"github.com/zot/ui/internal/viewdef"
 )
 
 // Server is the main UI server.
@@ -38,8 +39,8 @@ type Server struct {
 	luaRuntime      *lua.Runtime
 	wrapperRegistry *lua.WrapperRegistry
 	wrapperManager  *lua.WrapperManager
-	storeAdapter    *luaStoreAdapter
-	viewdefManager  *ViewdefManager
+	storeAdapter    *luaTrackerAdapter
+	viewdefManager  *viewdef.ViewdefManager
 }
 
 // New creates a new server with the given configuration.
@@ -228,7 +229,7 @@ func (s *Server) setupSite(cfg *config.Config) {
 
 // setupViewdefs initializes the viewdef manager and loads viewdefs.
 func (s *Server) setupViewdefs(cfg *config.Config) {
-	s.viewdefManager = NewViewdefManager()
+	s.viewdefManager = viewdef.NewViewdefManager()
 
 	// If --dir is specified, load from that directory's viewdefs/ subdirectory
 	if cfg.Server.Dir != "" {
@@ -300,7 +301,7 @@ func (s *Server) setupLua(cfg *config.Config) {
 	}
 
 	// Create runtime
-	runtime, err := lua.NewRuntime(cfg, luaDir)
+	runtime, err := lua.NewRuntime(cfg, luaDir, s.viewdefManager)
 	if err != nil {
 		s.config.Log(0, "Warning: failed to create Lua runtime: %v", err)
 		return
@@ -309,7 +310,7 @@ func (s *Server) setupLua(cfg *config.Config) {
 	s.luaRuntime = runtime
 
 	// Create store adapter and set on runtime
-	s.storeAdapter = &luaStoreAdapter{config: cfg, store: s.store}
+	s.storeAdapter = &luaTrackerAdapter{config: cfg, store: s.store, runtime: runtime}
 	runtime.SetVariableStore(s.storeAdapter)
 
 	// Set wrapper registry on runtime (allows ui.registerWrapper from Lua)
@@ -423,6 +424,9 @@ func (s *Server) AfterBatch(internalSessionID string) {
 			Value:      update.Value,
 			Properties: update.Properties,
 		})
+		if update.Properties["viewdefs"] != "" {
+			s.config.Log(4, "SENDING VIEWDEFS TO ENDPOINT: %#v", update.Properties)
+		}
 		if err != nil {
 			continue
 		}
@@ -450,30 +454,31 @@ func (s *Server) preloadMainLuaFromBundle(runtime *lua.Runtime) {
 	s.config.Log(0, "Preloaded main.lua from bundle")
 }
 
-// luaStoreAdapter adapts variable.Store to lua.VariableStore interface.
+// luaTrackerAdapter adapts variable.Store to lua.VariableStore interface.
 // It coordinates with per-session LuaBackends for change detection.
-type luaStoreAdapter struct {
+type luaTrackerAdapter struct {
 	config         *config.Config
 	store          *variable.Store
+	runtime        *lua.Runtime
 	wrapperManager *lua.WrapperManager
-	viewdefManager *ViewdefManager
+	viewdefManager *viewdef.ViewdefManager
 	backends       map[string]*backend.LuaBackend // vendedID -> backend
 	varToSession   map[int64]string               // variableID -> sessionID
 	mu             sync.RWMutex
 }
 
 // SetWrapperManager sets the wrapper manager for creating wrappers during variable creation.
-func (a *luaStoreAdapter) SetWrapperManager(wm *lua.WrapperManager) {
+func (a *luaTrackerAdapter) SetWrapperManager(wm *lua.WrapperManager) {
 	a.wrapperManager = wm
 }
 
 // SetViewdefManager sets the viewdef manager for sending viewdefs to frontend.
-func (a *luaStoreAdapter) SetViewdefManager(vm *ViewdefManager) {
+func (a *luaTrackerAdapter) SetViewdefManager(vm *viewdef.ViewdefManager) {
 	a.viewdefManager = vm
 }
 
 // SetBackend sets the backend for a session.
-func (a *luaStoreAdapter) SetBackend(sessionID string, lb *backend.LuaBackend) {
+func (a *luaTrackerAdapter) SetBackend(sessionID string, lb *backend.LuaBackend) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	if a.backends == nil {
@@ -484,7 +489,7 @@ func (a *luaStoreAdapter) SetBackend(sessionID string, lb *backend.LuaBackend) {
 }
 
 // RemoveBackend removes the backend for a session.
-func (a *luaStoreAdapter) RemoveBackend(sessionID string) {
+func (a *luaTrackerAdapter) RemoveBackend(sessionID string) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	delete(a.backends, sessionID)
@@ -498,7 +503,7 @@ func (a *luaStoreAdapter) RemoveBackend(sessionID string) {
 
 // CreateSession creates a new tracker for a session.
 // Note: The tracker is now managed by LuaBackend, this just sets up the resolver.
-func (a *luaStoreAdapter) CreateSession(sessionID string, resolver changetracker.Resolver) {
+func (a *luaTrackerAdapter) CreateSession(sessionID string, resolver changetracker.Resolver) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	if a.backends == nil {
@@ -512,7 +517,7 @@ func (a *luaStoreAdapter) CreateSession(sessionID string, resolver changetracker
 }
 
 // DestroySession removes a session's tracker.
-func (a *luaStoreAdapter) DestroySession(sessionID string) {
+func (a *luaTrackerAdapter) DestroySession(sessionID string) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	// Backend removal is handled separately via RemoveBackend
@@ -525,7 +530,7 @@ func (a *luaStoreAdapter) DestroySession(sessionID string) {
 }
 
 // GetTracker returns the tracker for a session.
-func (a *luaStoreAdapter) GetTracker(sessionID string) *changetracker.Tracker {
+func (a *luaTrackerAdapter) GetTracker(sessionID string) *changetracker.Tracker {
 	a.mu.RLock()
 	defer a.mu.RUnlock()
 	if lb, ok := a.backends[sessionID]; ok {
@@ -535,7 +540,7 @@ func (a *luaStoreAdapter) GetTracker(sessionID string) *changetracker.Tracker {
 }
 
 // CreateVariable creates a variable using the session's tracker.
-func (a *luaStoreAdapter) CreateVariable(sessionID string, parentID int64, luaObject *gopher.LTable, properties map[string]string) (int64, error) {
+func (a *luaTrackerAdapter) CreateVariable(sessionID string, parentID int64, luaObject *gopher.LTable, properties map[string]string) (int64, error) {
 	a.mu.RLock()
 	lb := a.backends[sessionID]
 	a.mu.RUnlock()
@@ -545,40 +550,46 @@ func (a *luaStoreAdapter) CreateVariable(sessionID string, parentID int64, luaOb
 	}
 	tracker := lb.GetTracker()
 
+	a.config.Log(0, "CREATING LUA VARIABLE")
 	// Create variable in tracker - it handles object registration
 	v := tracker.CreateVariable(luaObject, parentID, "", properties)
 	id := v.ID
 
-	// Track which session owns this variable
-	a.mu.Lock()
-	a.varToSession[id] = sessionID
-	a.mu.Unlock()
+	a.config.Log(0, "created variable, type = %s, changed: %v", v.Properties["type"], tracker.PropertyChanges[v.ID])
+	//// Track which session owns this variable
+	//a.mu.Lock()
+	//a.varToSession[id] = sessionID
+	//a.mu.Unlock()
 
 	// Track in backend for cleanup
 	lb.TrackVariable(id)
 
-	// If wrapper property is set, create wrapper instance
-	if wrapperType, ok := properties["wrapper"]; ok && wrapperType != "" && a.wrapperManager != nil {
-		storeVar, ok := a.store.Get(id)
-		if ok {
-			wrapper, err := a.wrapperManager.CreateWrapper(sessionID, storeVar)
-			if err != nil {
-				a.config.Log(0, "Warning: failed to create wrapper %s for variable %d: %v", wrapperType, id, err)
-			} else if wrapper != nil {
-				storeVar.SetWrapperInstance(wrapper)
-				storeVar.SetStoredValue(wrapper)
-			}
-		}
-	}
+	//// If wrapper property is set, create wrapper instance
+	//if wrapperType, ok := properties["wrapper"]; ok && wrapperType != "" && a.wrapperManager != nil {
+	//	session, _ := a.runtime.GetLuaSession(sessionID)
+	//	session.Log(0, "ERROR: WHY DOES luaTrackerAdapter.CreateVariable need to create the wrapper when the tracker should do it? wrapper: %v", v.WrapperValue)
+	//	varad := &lua.TrackerVariableAdapter{Variable: v, Session: session}
+	//	//storeVar, ok := a.store.Get(id)
+	//	if ok {
+	//		wrapper, err := a.wrapperManager.CreateWrapper(sessionID, varad)
+	//		if err != nil {
+	//			a.config.Log(0, "Warning: failed to create wrapper %s for variable %d: %v", wrapperType, id, err)
+	//		} else if wrapper != nil {
+	//			varad.WrapperValue = wrapper
+	//			varad.WrapperJSON = tracker.ToValueJSON(wrapper)
+	//		}
+	//	}
+	//}
 
 	// Send viewdefs for new types (per spec: viewdefs.md)
 	// When a variable is created with a type property, send viewdefs if not already sent for this session
-	if typeName, ok := properties["type"]; ok && typeName != "" && a.viewdefManager != nil {
-		newViewdefs := a.viewdefManager.GetNewViewdefsForSession(sessionID, typeName)
-		if len(newViewdefs) > 0 {
-			a.updateVariable1Viewdefs(sessionID, newViewdefs)
-		}
-	}
+	//if typeName, ok := properties["type"]; ok && typeName != "" && a.viewdefManager != nil {
+	//	a.runtime.Log(4, "Sending viewdefs for %s", typeName)
+	//	newViewdefs := a.viewdefManager.GetNewViewdefsForSession(sessionID, typeName)
+	//	if len(newViewdefs) > 0 {
+	//		a.updateVariable1Viewdefs(sessionID, newViewdefs)
+	//	}
+	//}
 
 	return id, nil
 }
@@ -586,7 +597,7 @@ func (a *luaStoreAdapter) CreateVariable(sessionID string, parentID int64, luaOb
 // CreatePathVariable creates a path-based variable initiated by the frontend.
 // This is called when the frontend creates a variable with parentId and path property.
 // The variable is created in the parent's tracker, which resolves the path.
-func (a *luaStoreAdapter) CreatePathVariable(parentID int64, path string, properties map[string]string) (int64, json.RawMessage, error) {
+func (a *luaTrackerAdapter) CreatePathVariable(parentID int64, path string, properties map[string]string) (int64, json.RawMessage, error) {
 	// Find which session owns the parent variable
 	a.mu.RLock()
 	sessionID, ok := a.varToSession[parentID]
@@ -634,7 +645,7 @@ func (a *luaStoreAdapter) CreatePathVariable(parentID int64, path string, proper
 }
 
 // Get retrieves a variable's value and properties.
-func (a *luaStoreAdapter) Get(id int64) (json.RawMessage, map[string]string, bool) {
+func (a *luaTrackerAdapter) Get(id int64) (json.RawMessage, map[string]string, bool) {
 	// First try the backend's tracker
 	a.mu.RLock()
 	sessionID, ok := a.varToSession[id]
@@ -656,7 +667,7 @@ func (a *luaStoreAdapter) Get(id int64) (json.RawMessage, map[string]string, boo
 }
 
 // GetProperty retrieves a property value.
-func (a *luaStoreAdapter) GetProperty(id int64, name string) (string, bool) {
+func (a *luaTrackerAdapter) GetProperty(id int64, name string) (string, bool) {
 	// First try the backend's tracker
 	a.mu.RLock()
 	sessionID, ok := a.varToSession[id]
@@ -678,12 +689,12 @@ func (a *luaStoreAdapter) GetProperty(id int64, name string) (string, bool) {
 }
 
 // Update updates a variable's value and/or properties in the store.
-func (a *luaStoreAdapter) Update(id int64, value json.RawMessage, properties map[string]string) error {
+func (a *luaTrackerAdapter) Update(id int64, value json.RawMessage, properties map[string]string) error {
 	return nil
 }
 
 // Destroy removes a variable.
-func (a *luaStoreAdapter) Destroy(id int64) error {
+func (a *luaTrackerAdapter) Destroy(id int64) error {
 	// Remove from backend's tracker
 	a.mu.Lock()
 	sessionID, ok := a.varToSession[id]
@@ -699,7 +710,7 @@ func (a *luaStoreAdapter) Destroy(id int64) error {
 }
 
 // DetectChanges returns changes for a session.
-func (a *luaStoreAdapter) DetectChanges(sessionID string) []changetracker.Change {
+func (a *luaTrackerAdapter) DetectChanges(sessionID string) []changetracker.Change {
 	a.mu.RLock()
 	lb := a.backends[sessionID]
 	a.mu.RUnlock()
@@ -713,7 +724,7 @@ func (a *luaStoreAdapter) DetectChanges(sessionID string) []changetracker.Change
 
 // updateVariable1Viewdefs updates variable 1's viewdefs property with new viewdefs.
 // Per spec: "pending viewdefs are set on variable 1's viewdefs property"
-func (a *luaStoreAdapter) updateVariable1Viewdefs(sessionID string, viewdefs map[string]string) {
+func (a *luaTrackerAdapter) updateVariable1Viewdefs(sessionID string, viewdefs map[string]string) {
 	// Serialize viewdefs as JSON
 	viewdefsJSON, err := json.Marshal(viewdefs)
 	if err != nil {

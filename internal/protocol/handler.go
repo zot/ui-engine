@@ -302,13 +302,17 @@ func (h *Handler) handleWatch(connectionID string, data json.RawMessage) (*Respo
 		val = v.ValueJSON
 	}
 	if val != nil {
-		valBytes, _ := json.Marshal(val)
-		updateMsg, _ := NewMessage(MsgUpdate, UpdateMessage{
-			VarID:      msg.VarID,
-			Value:      valBytes,
-			Properties: props,
-		})
-		h.sender.Send(connectionID, updateMsg)
+		//if v.ID == 1 {
+		b.GetTracker().ChangeAll(v.ID)
+		//} else {
+		//	valBytes, _ := json.Marshal(val)
+		//	updateMsg, _ := NewMessage(MsgUpdate, UpdateMessage{
+		//		VarID:      msg.VarID,
+		//		Value:      valBytes,
+		//		Properties: props,
+		//	})
+		//	h.sender.Send(connectionID, updateMsg)
+		//}
 	}
 	resp := &Response{}
 	if result.ShouldForward {

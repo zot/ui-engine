@@ -1,6 +1,6 @@
 // ViewdefManager loads and serves viewdefs to frontend sessions.
 // Spec: viewdefs.md
-package server
+package viewdef
 
 import (
 	"io/fs"
@@ -139,9 +139,23 @@ func (m *ViewdefManager) GetViewdefsForType(typeName string) map[string]string {
 	return result
 }
 
+func (m *ViewdefManager) GetSent(sessionID string) map[string]bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.sentTypes[sessionID]
+}
+
 // GetNewViewdefsForSession returns viewdefs for a type that haven't been sent to this session yet.
 // Marks the type as sent for this session.
 func (m *ViewdefManager) GetNewViewdefsForSession(sessionID, typeName string) map[string]string {
+	defs := make(map[string]string)
+	m.AddNewViewdefsForSession(sessionID, typeName, defs)
+	return defs
+}
+
+// GetNewViewdefsForSession returns viewdefs for a type that haven't been sent to this session yet.
+// Marks the type as sent for this session.
+func (m *ViewdefManager) AddNewViewdefsForSession(sessionID, typeName string, defs map[string]string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -152,23 +166,20 @@ func (m *ViewdefManager) GetNewViewdefsForSession(sessionID, typeName string) ma
 
 	// Check if already sent
 	if m.sentTypes[sessionID][typeName] {
-		return nil
+		return
 	}
 
 	// Mark as sent
 	m.sentTypes[sessionID][typeName] = true
 
 	// Get viewdefs for this type
-	result := make(map[string]string)
 	prefix := typeName + "."
 
 	for key, content := range m.viewdefs {
 		if strings.HasPrefix(key, prefix) {
-			result[key] = content
+			defs[key] = content
 		}
 	}
-
-	return result
 }
 
 // ClearSession removes tracking data for a session.
