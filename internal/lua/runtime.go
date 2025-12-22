@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"strings"
 	"sync"
@@ -53,6 +54,7 @@ type Runtime struct {
 	done           chan struct{}
 	config         *config.Config
 	mu             sync.RWMutex
+	batchTriggered bool
 
 	// Session management
 	sessions        map[string]*LuaSession // vendedID -> LuaSession
@@ -84,7 +86,8 @@ type VariableStore interface {
 	Destroy(id int64) error
 
 	// Change detection
-	DetectChanges(sessionID string) []changetracker.Change
+	DetectChanges(sessionID string) bool
+	GetChanges(sessionID string) []changetracker.Change
 }
 
 // NewRuntime creates a new Lua runtime with executor goroutine.
@@ -617,30 +620,6 @@ func (r *Runtime) extractTypeProperty(L *lua.LState, obj any, props map[string]s
 	} else if typ := GetType(L, obj); typ != "" {
 		props["type"] = typ
 	}
-	//} else if lObj, ok := obj.(*lua.LTable); ok {
-	//	// First check metatable
-	//	mt := L.GetMetatable(lObj)
-	//	if mt != lua.LNil {
-	//		if mtTbl, ok := mt.(*lua.LTable); ok {
-	//			if typeVal := L.GetField(mtTbl, "type"); typeVal != lua.LNil {
-	//				props["type"] = lua.LVAsString(typeVal)
-	//				return
-	//			}
-	//		}
-	//	}
-	//	// Fall back to direct "type" field
-	//	if typeVal := L.GetField(lObj, "type"); typeVal != lua.LNil {
-	//		props["type"] = lua.LVAsString(typeVal)
-	//	}
-	//} else {
-	//	v := reflect.ValueOf(obj)
-	//	typename := v.Type().Name()
-	//	_, ok1 := GetGlobalCreateFactory(typename)
-	//	_, ok2 := GetGlobalWrapperFactory(typename)
-	//	if ok1 || ok2 {
-	//		props["type"] = typename
-	//	}
-	//}
 }
 
 // NotifyPropertyChange notifies Lua watchers of a property change for a session.
@@ -731,12 +710,22 @@ type VariableUpdate struct {
 	Properties map[string]string
 }
 
+func (r *Runtime) TriggerBatch() {
+	r.batchTriggered = true
+}
+
 // AfterBatch triggers change detection for a session after processing a message batch.
 // Returns a list of variable updates that need to be sent to the frontend.
 // vendedID is the compact session ID (e.g., "1", "2").
 func (r *Runtime) AfterBatch(vendedID string) []VariableUpdate {
 	// Use tracker's DetectChanges
-	changes := r.variableStore.DetectChanges(vendedID)
+	for range 4 {
+		if !r.variableStore.DetectChanges(vendedID) || !r.batchTriggered {
+			break
+		}
+		r.batchTriggered = false
+	}
+	changes := r.variableStore.GetChanges(vendedID)
 	if len(changes) == 0 {
 		return nil
 	}
@@ -801,14 +790,7 @@ func (r *Runtime) AfterBatch(vendedID string) []VariableUpdate {
 		var props map[string]string
 		if change.ValueChanged {
 			// Use wrapped value if present
-			val := v.Value
-			if v.WrapperValue != nil {
-				if w, ok := v.WrapperValue.(Wrapper); ok {
-					val = w.Value()
-				} else {
-					val = v.WrapperValue
-				}
-			}
+			val := v.NavigationValue()
 			jsonBytes, err := tracker.ToValueJSONBytes(val)
 			if err != nil {
 				r.Log(1, "ERROR: AfterBatch failed to marshal variable %d: %v", change.VariableID, err)
@@ -880,17 +862,6 @@ func (r *Runtime) HandleFrontendCreate(sessionID string, parentID int64, propert
 		r.Log(0, "HandleFrontendCreate: JSON conversion failed: %v", err)
 		return v.ID, nil, v.Properties, nil
 	}
-
-	//k := reflect.ValueOf(val).Kind()
-	//r.Log(2, "HandleFrontendCreate: created var %d for path %s, kind=%d, json=%s, value=%#v", v.ID, path, k, string(jsonValue), val)
-	//if string(jsonValue) == "{}" {
-	//	r.Log(0, "TABLE JSON VALUE IS EMPTY OBJECT, valueJSON: %#v, initialValue: %#v", tracker.ToValueJSON(val), val)
-	//	r.Log(0, "\n  Pointer: %d\n  Struct: %d\n  UnsafePointer: %d", reflect.Pointer, reflect.Struct, reflect.UnsafePointer)
-	//	if k == reflect.Array || k == reflect.Slice {
-	//		r.Log(2, "!!! LUA VALUE IS A SLICE!")
-	//	} else if k ==
-	//}
-
 	return v.ID, jsonValue, v.Properties, nil
 }
 
@@ -905,25 +876,6 @@ func WrapTrackerVariable(session *LuaSession, v *changetracker.Variable) *Tracke
 		Variable: v,
 		Session:  session,
 	}
-}
-
-func (a *TrackerVariableAdapter) GetID() int64 {
-	return a.ID
-}
-
-func (a *TrackerVariableAdapter) GetValue() interface{} {
-	if a.WrapperValue != nil {
-		return a.WrapperValue
-	}
-	val, err := a.Variable.Get()
-	if err != nil {
-		a.Session.Log(0, "Error getting value for variable %d: %s", a.ID, err.Error())
-	}
-	return val
-}
-
-func (a *TrackerVariableAdapter) GetProperty(name string) string {
-	return a.Properties[name]
 }
 
 // HandleFrontendUpdate handles an update to a path-based variable from frontend.
@@ -1109,7 +1061,7 @@ func (r *Runtime) registerUIModule() {
 		}
 
 		// Create a Lua wrapper factory that creates instances from the Lua table
-		r.wrapperRegistry.Register(name, func(session *LuaSession, variable WrapperVariable) interface{} {
+		r.wrapperRegistry.Register(name, func(session *LuaSession, variable *TrackerVariableAdapter) interface{} {
 			return NewLuaWrapper(session, tbl, variable)
 		})
 
@@ -1395,6 +1347,10 @@ func (r *Runtime) CreateItemWrapper(typeName string, viewItem *ViewListItem) (*I
 	return result.(*ItemWrapperInstance), nil
 }
 
+func (s *LuaSession) createLuaViewListItem(viewItem *ViewListItem) *lua.LTable {
+	return s.createViewListItemLuaWrapper(s.state, viewItem)
+}
+
 // createViewListItemLuaWrapper creates a Lua wrapper for a ViewListItem.
 func (r *Runtime) createViewListItemLuaWrapper(L *lua.LState, viewItem *ViewListItem) *lua.LTable {
 	wrapper := L.NewTable()
@@ -1402,16 +1358,11 @@ func (r *Runtime) createViewListItemLuaWrapper(L *lua.LState, viewItem *ViewList
 	// viewListItem.item - the domain object
 	L.SetField(wrapper, "item", r.goToLua(L, viewItem.GetItem()))
 
+	// viewListItem.item - the domain object
+	L.SetField(wrapper, "baseItem", r.goToLua(L, viewItem.GetBaseItem()))
+
 	// viewListItem.index - position in list
 	L.SetField(wrapper, "index", lua.LNumber(viewItem.GetIndex()))
-
-	// viewListItem:remove() - removes this item from the list
-	L.SetField(wrapper, "remove", L.NewFunction(func(L *lua.LState) int {
-		if err := viewItem.Remove(); err != nil {
-			r.Log(1, "ViewListItem.remove error: %v", err)
-		}
-		return 0
-	}))
 
 	return wrapper
 }
@@ -1449,6 +1400,7 @@ func (r *Runtime) goToLua(L *lua.LState, val any) lua.LValue {
 		return lua.LNil
 	}
 
+	_, isTable := val.(*lua.LTable)
 	switch v := val.(type) {
 	case lua.LBool, lua.LNumber, lua.LString, *lua.LTable, *lua.LNilType:
 		return val.(lua.LValue)
@@ -1477,11 +1429,81 @@ func (r *Runtime) goToLua(L *lua.LState, val any) lua.LValue {
 		}
 		return tbl
 	default:
+		if isTable {
+			panic("TYPE SWITCH")
+		}
+		r.Log(4, "VALUE %#v TYPE: %v", val, reflect.ValueOf(val).Type())
 		return lua.LString(fmt.Sprintf("%v", v))
 	}
 }
 
-// DEPRECATE -- not used currently
+// isArray checks if a Lua table is an array (sequential integer keys starting at 1).
+// Returns true if the table has only numeric keys with no string keys (excluding _ prefixed).
+func (s *LuaSession) isArray(tbl *lua.LTable) bool {
+	hasNumericKeys := false
+	hasStringKeys := false
+
+	if GetType(s.state, tbl) != "" {
+		return false
+	}
+	tbl.ForEach(func(key, _ lua.LValue) {
+		switch k := key.(type) {
+		case lua.LNumber:
+			hasNumericKeys = true
+		case lua.LString:
+			// Skip internal fields (prefixed with _)
+			keyStr := string(k)
+			if len(keyStr) > 0 && keyStr[0] != '_' {
+				hasStringKeys = true
+			}
+		}
+	})
+
+	// Pure array: only numeric keys, no string keys
+	return hasNumericKeys && !hasStringKeys
+}
+
+func (s *LuaSession) GetTracker() *changetracker.Tracker {
+	return s.variableStore.GetTracker(s.ID)
+}
+
+func (s *LuaSession) Set(varID int64, value any) error {
+	return s.GetTracker().GetVariable(varID).Set(value)
+}
+
+func (s *LuaSession) ArrayGet(array any, index int) (any, error) {
+	if f, _, err := s.ArrayGetter(array); err != nil {
+		return nil, err
+	} else {
+		return f(index)
+	}
+}
+
+func (s *LuaSession) ArrayGetter(array any) (func(int) (any, error), int, error) {
+	if la, ok := (array).(*lua.LTable); ok {
+		if !s.isArray(la) {
+			return nil, 0, fmt.Errorf("Attempt to index Lua table that is not an array")
+		}
+		return func(index int) (any, error) {
+			index += 1
+			if index < 1 || index > la.Len() {
+				return nil, fmt.Errorf("Bad index %d for Lua table of length %d", index-1, la.Len())
+			}
+			return la.RawGetInt(index), nil
+		}, la.Len(), nil
+	}
+	v := reflect.ValueOf(array)
+	if v.Kind() != reflect.Slice && v.Kind() != reflect.Array {
+		return nil, 0, fmt.Errorf("Attempt to index object that is not a slice: %#v", array)
+	}
+	return func(index int) (any, error) {
+		if index < 0 || v.Len() <= index {
+			return nil, fmt.Errorf("Bad index %d for slice of length %d", index-1, v.Len())
+		}
+		return v.Index(index).Interface(), nil
+	}, v.Len(), nil
+}
+
 // luaToGo converts a Lua value to Go.
 // Fields prefixed with "_" are skipped (internal/private fields).
 func luaToGo(val lua.LValue) interface{} {

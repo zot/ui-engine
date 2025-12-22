@@ -18,10 +18,10 @@ type LuaBackend struct {
 	config            *config.Config
 	sessionID         string
 	tracker           *changetracker.Tracker
-	watchCounts       map[int64]int        // variable ID -> observer count
-	watchers          map[int64][]string   // variable ID -> connection IDs
-	inactiveVariables map[int64]struct{}   // variable IDs marked inactive
-	varToSession      map[int64]struct{}   // track variables owned by this session
+	watchCounts       map[int64]int      // variable ID -> observer count
+	watchers          map[int64][]string // variable ID -> connection IDs
+	inactiveVariables map[int64]struct{} // variable IDs marked inactive
+	varToSession      map[int64]struct{} // track variables owned by this session
 	mu                sync.RWMutex
 }
 
@@ -247,7 +247,8 @@ func (lb *LuaBackend) isInactiveUnsafe(varID int64) bool {
 // CRC: crc-LuaBackend.md
 // Sequence: seq-backend-detect-changes.md
 func (lb *LuaBackend) DetectChanges() []VariableUpdate {
-	changes := lb.tracker.DetectChanges()
+	lb.tracker.DetectChanges()
+	changes := lb.tracker.GetChanges()
 	if len(changes) == 0 {
 		return nil
 	}

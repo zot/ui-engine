@@ -12,10 +12,11 @@ import (
 // It provides domain object access (Item), presenter access (Item),
 // list context (List), and position tracking (Index).
 type ViewListItem struct {
-	Item  interface{} // Domain object reference
-	List  *ViewList
-	Index int
-	mu    sync.RWMutex
+	Item     any // BaseItem or a wrapper, if ViewList.itemType is set
+	BaseItem any // Domain object reference
+	List     *ViewList
+	Index    int
+	mu       sync.RWMutex
 }
 
 // NewViewListItem creates a new ViewListItem for a domain object.
@@ -35,11 +36,23 @@ func (vli *ViewListItem) GetObjID() int64 {
 	return objID
 }
 
+func (vli *ViewListItem) GetItemObjID() int64 {
+	objID, _ := vli.List.Tracker().LookupObject(vli.Item)
+	return objID
+}
+
 // GetItem returns the (possibly wrapped) item reference.
 func (vli *ViewListItem) GetItem() interface{} {
 	vli.mu.RLock()
 	defer vli.mu.RUnlock()
 	return vli.Item
+}
+
+// GetItem returns the (possibly wrapped) item reference.
+func (vli *ViewListItem) GetBaseItem() interface{} {
+	vli.mu.RLock()
+	defer vli.mu.RUnlock()
+	return vli.BaseItem
 }
 
 // GetList returns the owning ViewList.
@@ -61,20 +74,6 @@ func (vli *ViewListItem) SetIndex(index int) {
 	vli.mu.Lock()
 	defer vli.mu.Unlock()
 	vli.Index = index
-}
-
-// Remove removes this item from the list via list.RemoveAt(index).
-// This is a convenience method for presenter delete actions.
-func (vli *ViewListItem) Remove() error {
-	vli.mu.RLock()
-	list := vli.List
-	index := vli.Index
-	vli.mu.RUnlock()
-
-	if list != nil {
-		return list.RemoveAt(index)
-	}
-	return nil
 }
 
 // init auto-registers the ViewList wrapper when package is imported.

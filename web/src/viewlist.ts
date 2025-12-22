@@ -7,12 +7,6 @@ import { View } from './view';
 import { ViewdefStore } from './viewdef_store';
 import { VariableStore } from './connection';
 
-// Delegate interface for notifications
-export interface ViewListDelegate {
-  onItemAdd?(view: View, index: number): void;
-  onItemRemove?(view: View, index: number): void;
-}
-
 // Parsed path with optional URL parameters
 export interface ParsedViewListPath {
   path: string;
@@ -21,7 +15,7 @@ export interface ParsedViewListPath {
   props: Record<string, string>;
 }
 
-// Parse a ViewList path like "contacts?wrapper=CustomListPresenter&item=CustomListItemPresenter"
+// Parse a ViewList path like "contacts?wrapper=CustomListPresenter&itemWrapper=ContactPresenter"
 export function parseViewListPath(fullPath: string): ParsedViewListPath {
   const [path, queryPart] = fullPath.split('?');
   const result: ParsedViewListPath = { path, props: {} };
@@ -51,7 +45,7 @@ export class ViewList {
   private viewdefStore: ViewdefStore;
   private variableStore: VariableStore;
   private unwatch: (() => void) | null = null;
-  private delegate: ViewListDelegate | null = null;
+  //private delegate: ViewListDelegate | null = null;
   private bindCallback?: (element: HTMLElement, variableId: number) => void;
 
   // Path properties for wrapper configuration
@@ -92,11 +86,6 @@ export class ViewList {
   // Set a custom exemplar element (e.g., sl-option)
   setExemplar(exemplar: HTMLElement): void {
     this.exemplar = exemplar.cloneNode(true) as HTMLElement;
-  }
-
-  // Set delegate for notifications
-  setDelegate(delegate: ViewListDelegate): void {
-    this.delegate = delegate;
   }
 
   // Parse and store path configuration from ui-viewlist attribute
@@ -164,20 +153,15 @@ export class ViewList {
       this.clear();
       return;
     }
-
     const itemCount = value.length;
-
     // Build map of current views by index
-    const existingViews = this.views.slice()
+    const newViews: View[] = this.views.slice()
 
-    // Build new views array - one per array index
-    const newViews: View[] = [];
-
-    for (let index = existingViews.length; index < itemCount; index++) {
+    while (newViews.length < itemCount) {
       // Create new view with child variable for this index
       const view = this.createItemView();
+      const index = newViews.length
       newViews.push(view);
-
       this.element.appendChild(view.element);
       // Create child variable with path = index (0-based)
       const indexPath = this.itemWrapper ? `${index}?wrapper=${this.itemWrapper}`
@@ -199,21 +183,11 @@ export class ViewList {
       }).catch((err) => {
         console.error('Failed to create viewlist item variable:', err);
       });
-      
-      // Notify delegate
-      if (this.delegate?.onItemAdd) {
-        this.delegate.onItemAdd(view, newViews.length - 1);
-      }
     }
 
     // Remove views that are beyond the new array length
-    while (existingViews.length > itemCount) {
-      const view = this.views.pop()!
-      const index = this.views.length
-      // Notify delegate before removing
-      if (this.delegate?.onItemRemove) {
-        this.delegate.onItemRemove(view, index);
-      }
+    while (newViews.length > itemCount) {
+      const view = newViews.pop()!
       view.destroy();
       if (view.element.parentNode) {
         view.element.parentNode.removeChild(view.element);
@@ -223,8 +197,6 @@ export class ViewList {
     // Update views array
     this.views = newViews;
 
-    // Reorder DOM to match array order
-    //this.reorderDOM();
   }
 
   // Create a view element for an item
@@ -241,69 +213,10 @@ export class ViewList {
     return view;
   }
 
-  // Reorder DOM elements to match views array
-  //private reorderDOM(): void {
-  //  for (const view of this.views) {
-  //    // Append moves element to end if already in DOM, or adds if not
-  //    this.element.appendChild(view.element);
-  //  }
-  //}
-
-  //// Add an item manually at the end of the list
-  //// Creates a child variable with the next index path
-  //addItem(): View {
-  //  const view = this.createItemView();
-  //  const index = this.views.length;
-  //  this.views.push(view);
-  //  this.element.appendChild(view.element);
-
-  //  // Create child variable with path = index (0-based)
-  //  if (this.variableId !== null) {
-  //    const indexPath = String(index);
-  //    this.variableStore.create({
-  //      parentId: this.variableId,
-  //      properties: { path: indexPath },
-  //    }).then((childVarId) => {
-  //      view.setVariable(childVarId);
-  //    }).catch((err) => {
-  //      console.error('Failed to create viewlist item variable:', err);
-  //    });
-  //  }
-
-  //  if (this.delegate?.onItemAdd) {
-  //    this.delegate.onItemAdd(view, this.views.length - 1);
-  //  }
-
-  //  return view;
-  //}
-
-  //// Remove an item by index
-  //removeItem(index: number): void {
-  //  if (index < 0 || index >= this.views.length) {
-  //    return;
-  //  }
-
-  //  const view = this.views[index];
-
-  //  if (this.delegate?.onItemRemove) {
-  //    this.delegate.onItemRemove(view, index);
-  //  }
-
-  //  view.destroy();
-  //  if (view.element.parentNode) {
-  //    view.element.parentNode.removeChild(view.element);
-  //  }
-
-  //  this.views.splice(index, 1);
-  //}
-
   // Clear all items
   clear(): void {
     for (let i = this.views.length - 1; i >= 0; i--) {
       const view = this.views[i];
-      if (this.delegate?.onItemRemove) {
-        this.delegate.onItemRemove(view, i);
-      }
       view.destroy();
     }
     this.views = [];

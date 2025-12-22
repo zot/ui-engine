@@ -198,16 +198,6 @@ func (h *Handler) handleCreate(connectionID string, data json.RawMessage) (*Resp
 		if b := h.backendLookup.GetBackendForConnection(connectionID); b != nil {
 			t := b.GetTracker()
 			v := t.GetVariable(id)
-			//typeName := ""
-			//if v.NavigationValue() != nil {
-			//	typ := reflect.ValueOf(v.NavigationValue()).Type()
-			//	if typ.Kind() == reflect.Pointer || typ.Kind() == reflect.UnsafePointer {
-			//		typ = typ.Elem()
-			//	}
-			//	h.Log(4, "      REFLECT TYPE: %#v\n      NAME: %s\n      STRING: %s\n      NAV VALUE: %#v\n      RESOLVER TYPE: %s\n      MSG PROPS: %#v\n      INITIAL PROPS: %#v\n      V PROPS: %#v", typ, typ.PkgPath()+typ.Name(), typ.String(), v.NavigationValue(), t.Resolver.GetType(v, v.NavigationValue()), msg.Properties, initialProps, v.Properties)
-			//	typeName = typ.Name()
-			//}
-			//h.Log(4, "      REFLECT TYPE: %s VAR: %#v", typeName, v)
 			for prop, p := range v.Properties {
 				if msg.Properties[prop] != p {
 					newprops = make(map[string]string)
@@ -335,17 +325,7 @@ func (h *Handler) handleWatch(connectionID string, data json.RawMessage) (*Respo
 		val = v.ValueJSON
 	}
 	if val != nil {
-		//if v.ID == 1 {
 		b.GetTracker().ChangeAll(v.ID)
-		//} else {
-		//	valBytes, _ := json.Marshal(val)
-		//	updateMsg, _ := NewMessage(MsgUpdate, UpdateMessage{
-		//		VarID:      msg.VarID,
-		//		Value:      valBytes,
-		//		Properties: props,
-		//	})
-		//	h.sender.Send(connectionID, updateMsg)
-		//}
 	}
 	resp := &Response{}
 	if result.ShouldForward {

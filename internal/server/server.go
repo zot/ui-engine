@@ -564,33 +564,6 @@ func (a *luaTrackerAdapter) CreateVariable(sessionID string, parentID int64, lua
 	// Track in backend for cleanup
 	lb.TrackVariable(id)
 
-	//// If wrapper property is set, create wrapper instance
-	//if wrapperType, ok := properties["wrapper"]; ok && wrapperType != "" && a.wrapperManager != nil {
-	//	session, _ := a.runtime.GetLuaSession(sessionID)
-	//	session.Log(0, "ERROR: WHY DOES luaTrackerAdapter.CreateVariable need to create the wrapper when the tracker should do it? wrapper: %v", v.WrapperValue)
-	//	varad := &lua.TrackerVariableAdapter{Variable: v, Session: session}
-	//	//storeVar, ok := a.store.Get(id)
-	//	if ok {
-	//		wrapper, err := a.wrapperManager.CreateWrapper(sessionID, varad)
-	//		if err != nil {
-	//			a.config.Log(0, "Warning: failed to create wrapper %s for variable %d: %v", wrapperType, id, err)
-	//		} else if wrapper != nil {
-	//			varad.WrapperValue = wrapper
-	//			varad.WrapperJSON = tracker.ToValueJSON(wrapper)
-	//		}
-	//	}
-	//}
-
-	// Send viewdefs for new types (per spec: viewdefs.md)
-	// When a variable is created with a type property, send viewdefs if not already sent for this session
-	//if typeName, ok := properties["type"]; ok && typeName != "" && a.viewdefManager != nil {
-	//	a.runtime.Log(4, "Sending viewdefs for %s", typeName)
-	//	newViewdefs := a.viewdefManager.GetNewViewdefsForSession(sessionID, typeName)
-	//	if len(newViewdefs) > 0 {
-	//		a.updateVariable1Viewdefs(sessionID, newViewdefs)
-	//	}
-	//}
-
 	return id, nil
 }
 
@@ -710,7 +683,18 @@ func (a *luaTrackerAdapter) Destroy(id int64) error {
 }
 
 // DetectChanges returns changes for a session.
-func (a *luaTrackerAdapter) DetectChanges(sessionID string) []changetracker.Change {
+func (a *luaTrackerAdapter) DetectChanges(sessionID string) bool {
+	a.mu.RLock()
+	lb := a.backends[sessionID]
+	a.mu.RUnlock()
+	if lb != nil {
+		return lb.GetTracker().DetectChanges()
+	}
+	return false
+}
+
+// DetectChanges returns changes for a session.
+func (a *luaTrackerAdapter) GetChanges(sessionID string) []changetracker.Change {
 	a.mu.RLock()
 	lb := a.backends[sessionID]
 	a.mu.RUnlock()
@@ -719,7 +703,7 @@ func (a *luaTrackerAdapter) DetectChanges(sessionID string) []changetracker.Chan
 		return nil
 	}
 
-	return lb.GetTracker().DetectChanges()
+	return lb.GetTracker().GetChanges()
 }
 
 // updateVariable1Viewdefs updates variable 1's viewdefs property with new viewdefs.

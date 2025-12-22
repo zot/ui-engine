@@ -10,9 +10,10 @@ Contact = {type = "Contact"}
 Contact.__index = Contact
 
 function Contact:new(tbl)
-    tbl = tbl or {}
-    setmetatable(tbl, self)
-    return tbl
+   tbl = tbl or {}
+   setmetatable(tbl, self)
+   print("LUA: made Contact", tbl, "type", tbl.type, "metatable", getmetatable(tbl))
+   return tbl
 end
 
 function Contact:fullName()
@@ -29,13 +30,14 @@ end
 ContactPresenter = {type = "ContactPresenter"}
 ContactPresenter.__index = ContactPresenter
 
-function ContactPresenter:new(viewVar)
-   local viewItem = viewVar:getValue()
+function ContactPresenter:new(listItem)
    local tbl = {
-      viewItem = viewItem,
-      contact = viewItem.item  -- the domain Contact
+      viewItem = listItem,
+      contact = listItem.baseItem  -- the domain Contact
    }
    setmetatable(tbl, self)
+   local i = listItem.baseItem
+   print("LUA: ContactPresenter on ", i, " type ", i.type, "metatable", getmetatable(i))
    return tbl
 end
 
@@ -176,6 +178,8 @@ end
 function ContactApp:contactCount()
     return #self.contacts
 end
+
+print("LUA: initialized. Contact", Contact, "ContactPresenter", ContactPresenter, "ContactApp", ContactApp)
 
 -- Create the app instance
 app = ContactApp:new({

@@ -63,11 +63,6 @@ func (r *LuaResolver) Get(obj any, pathElement any) (any, error) {
 			return vli.List, nil
 		case "type":
 			return "ViewListItem", nil
-		case "remove()":
-			if err := vli.Remove(); err != nil {
-				return nil, err
-			}
-			return nil, nil
 		default:
 			return nil, fmt.Errorf("Unknown ViewListItem property: %s", prop)
 		}
@@ -250,7 +245,7 @@ func (r *LuaResolver) luaValueToGo(obj any) (any, error) {
 		case lua.LString:
 			return string(v), nil
 		case *lua.LTable:
-			if r.isArray(v) {
+			if r.Session.isArray(v) {
 				return r.tableToSlice(v)
 			}
 		case *lua.LNilType:
@@ -258,32 +253,6 @@ func (r *LuaResolver) luaValueToGo(obj any) (any, error) {
 		}
 	}
 	return obj, nil
-}
-
-// isArray checks if a Lua table is an array (sequential integer keys starting at 1).
-// Returns true if the table has only numeric keys with no string keys (excluding _ prefixed).
-func (r *LuaResolver) isArray(tbl *lua.LTable) bool {
-	hasNumericKeys := false
-	hasStringKeys := false
-
-	if GetType(r.Session.state, tbl) != "" {
-		return false
-	}
-	tbl.ForEach(func(key, _ lua.LValue) {
-		switch k := key.(type) {
-		case lua.LNumber:
-			hasNumericKeys = true
-		case lua.LString:
-			// Skip internal fields (prefixed with _)
-			keyStr := string(k)
-			if len(keyStr) > 0 && keyStr[0] != '_' {
-				hasStringKeys = true
-			}
-		}
-	})
-
-	// Pure array: only numeric keys, no string keys
-	return hasNumericKeys && !hasStringKeys
 }
 
 // tableToSlice converts a Lua array table to a Go slice.
@@ -297,7 +266,7 @@ func (r *LuaResolver) tableToSlice(tbl *lua.LTable) ([]any, error) {
 		elem := r.Session.state.RawGetInt(tbl, i)
 
 		if elemTbl, ok := elem.(*lua.LTable); ok {
-			if r.isArray(elemTbl) {
+			if r.Session.isArray(elemTbl) {
 				return nil, fmt.Errorf("nested arrays not supported")
 			}
 			// Keep table ref for tracker registration
@@ -333,8 +302,9 @@ func (r *LuaResolver) CreateValue(variable *changetracker.Variable, typ string, 
 	} else {
 		// Call WrapperType:new(variable)
 		r.Session.state.Push(fn)
-		r.Session.state.Push(valueTable) // self (the class table)
-		if err := r.Session.state.PCall(1, 1, nil); err != nil {
+		r.Session.state.Push(valueTable)       // self (the class table)
+		r.Session.state.Push(r.goToLua(value)) // the value arg
+		if err := r.Session.state.PCall(2, 1, nil); err != nil {
 			return nil // Constructor failed
 		}
 		// Get the result
@@ -452,9 +422,6 @@ func (r *LuaResolver) CreateWrapper(variable *changetracker.Variable) any {
 // Spec: protocol.md (Variable Wrappers section)
 func (r *LuaResolver) GetType(variable *changetracker.Variable, obj any) string {
 	typ := GetType(r.Session.state, obj)
-	//if typ != "" {
-	//	r.Session.Log(4, "Got type %s for value %v", typ, obj)
-	//}
 	return typ
 }
 
@@ -535,37 +502,3 @@ func (r *LuaResolver) createLuaVariableWrapper(v *changetracker.Variable) *lua.L
 func (r *LuaResolver) goToLua(value any) lua.LValue {
 	return r.Session.Runtime.goToLua(r.Session.state, value)
 }
-
-//// goToLuaValue converts a Go value to a Lua value.
-//func (r *LuaResolver) goToLuaValue(value any) lua.LValue {
-//	if value == nil {
-//		return lua.LNil
-//	}
-//
-//	switch v := value.(type) {
-//	case bool:
-//		return lua.LBool(v)
-//	case float64:
-//		return lua.LNumber(v)
-//	case float32:
-//		return lua.LNumber(v)
-//	case int:
-//		return lua.LNumber(v)
-//	case int64:
-//		return lua.LNumber(v)
-//	case string:
-//		return lua.LString(v)
-//	case *lua.LTable:
-//		return v
-//	case *ViewListItem:
-//		return r.Session.Runtime.createViewListItemLuaWrapper(r.Session.state, v)
-//	case []any:
-//		tbl := r.Session.state.NewTable()
-//		for i, elem := range v {
-//			r.Session.state.RawSetInt(tbl, i+1, r.goToLuaValue(elem))
-//		}
-//		return tbl
-//	default:
-//		return lua.LNil
-//	}
-//}

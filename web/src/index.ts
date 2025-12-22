@@ -33,7 +33,7 @@ export { ViewdefStore } from './viewdef_store';
 export type { PendingView } from './viewdef_store';
 export { View, createView } from './view';
 export { ViewList, createViewList } from './viewlist';
-export type { ViewListDelegate } from './viewlist';
+//export type { ViewListDelegate } from './viewlist';
 export { ViewRenderer, createViewRenderer } from './renderer';
 export { MessageBatcher, Priority, parsePrioritySuffix, parseBatch } from './batcher';
 export { Router, parseUrl, getSessionIdFromLocation, navigateTo } from './router';

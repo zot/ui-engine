@@ -9,19 +9,6 @@ import (
 	"sync"
 )
 
-// WrapperVariable provides the interface wrappers need from a variable.
-// The variable reference is passed to the wrapper constructor.
-type WrapperVariable interface {
-	GetID() int64
-	GetValue() any
-	GetProperty(name string) string
-}
-
-// Wrapper represents a value transformer.
-type Wrapper interface {
-	Value() any
-}
-
 // --- Create Factory Registry ---
 
 // CreateFactory creates a new object instance from a value.
@@ -52,7 +39,7 @@ func GetGlobalCreateFactory(typeName string) (CreateFactory, bool) {
 // --- Wrapper Factory Registry ---
 
 // WrapperFactory creates a new wrapper instance for a variable.
-type WrapperFactory func(session *LuaSession, variable WrapperVariable) interface{}
+type WrapperFactory func(session *LuaSession, variable *TrackerVariableAdapter) interface{}
 
 var globalWrapperFactories = struct {
 	factories map[string]WrapperFactory
@@ -123,7 +110,7 @@ func NewWrapperManager(runtime *Runtime, registry *WrapperRegistry) *WrapperMana
 }
 
 // CreateWrapper creates a new wrapper instance for a variable.
-func (m *WrapperManager) CreateWrapper(sessionId string, variable WrapperVariable) (interface{}, error) {
+func (m *WrapperManager) CreateWrapper(sessionId string, variable *TrackerVariableAdapter) (interface{}, error) {
 	wrapperType := variable.GetProperty("wrapper")
 	if wrapperType == "" {
 		return nil, nil // No wrapper
@@ -150,14 +137,14 @@ type LuaWrapper struct {
 	session  *LuaSession
 	template luaTable // The registered Lua table (prototype)
 	instance luaTable // The instance for this variable
-	variable WrapperVariable
+	variable *TrackerVariableAdapter
 }
 
 // luaTable is an interface to abstract Lua tables for testing
 type luaTable interface{}
 
 // NewLuaWrapper creates a wrapper from a Lua table definition.
-func NewLuaWrapper(session *LuaSession, template luaTable, variable WrapperVariable) *LuaWrapper {
+func NewLuaWrapper(session *LuaSession, template luaTable, variable *TrackerVariableAdapter) *LuaWrapper {
 	return &LuaWrapper{
 		session:  session,
 		template: template,
