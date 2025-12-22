@@ -21,6 +21,10 @@ export interface ParsedPath {
   options: PathOptions;
 }
 
+function isSlInput(element: any) {
+  return element instanceof HTMLElement && (element.nodeName == 'SL-INPUT' || element.nodeName == 'SL-TEXTAREA')
+}
+
 // Parse a path like "father.name?create=Person&wrapper=ViewList&item=ContactPresenter"
 // Properties without values default to "true": "name?keypress" equals "name?keypress=true"
 // Spec: protocol.md - Path property syntax, libraries.md - View rendering
@@ -210,8 +214,8 @@ export class BindingEngine {
     let unbindError: (() => void) | null = null;
 
     const update = (value: unknown) => {
-      if (element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement) {
-        element.value = value?.toString() ?? '';
+      if (element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement || isSlInput(element)) {
+        (element as any).value = value?.toString() ?? '';
       } else if (element instanceof HTMLSelectElement) {
         element.value = value?.toString() ?? '';
       } else {
