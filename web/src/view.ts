@@ -68,6 +68,7 @@ export class View {
     this.variableId = variableId;
     this.rendered = false;
 
+    console.log('SET VIEW VARIABLE', this, this.variableStore.get(this.variableId!))
     // Watch the variable
     this.unwatch = this.variableStore.watch(variableId, (_v, _value, _props) => {
       this.render();
@@ -90,31 +91,30 @@ export class View {
   // Render the view using TYPE.NAMESPACE viewdef
   // Returns true if rendered successfully
   render(): boolean {
+    console.log('1')
     if (this.variableId === null) {
       return false;
     }
-
     const data = this.variableStore.get(this.variableId);
     if (!data) {
       // Variable not in cache yet, wait for update
       this.markPending();
       return false;
     }
-
+    console.log('2')
     const type = data.properties['type'];
     if (!type) {
       // No type property yet, wait for it
       this.markPending();
       return false;
     }
-
     const viewdef = this.viewdefStore.get(type, this.namespace);
     if (!viewdef) {
       // Viewdef not loaded yet, wait for it
       this.markPending();
       return false;
     }
-
+    console.log('3')
     if (this.rendered && type === this.valueType) {
       // no need to re-render
       return false
@@ -123,7 +123,7 @@ export class View {
     // Clear and render
     this.clear();
 
-    console.log('RENDER VIEWDEF ', viewdef)
+    console.log('RENDER VIEW', this)
 
     // Clone template content
     const fragment = cloneViewdefContent(viewdef);
@@ -230,10 +230,16 @@ export class View {
       const props = parsePath(path)
 
       console.log('CREATING VIEW FOR ', path, ' parent: ', contextVarId)
+      let extra = props.options.props
+      if (extra) {
+        delete props.options.props
+      } else {
+        extra = {}
+      }
       // Create child variable with path property
       this.variableStore.create({
         parentId: contextVarId,
-        properties: { path: basePath, ...(props.options as any) },
+        properties: { path: basePath, ...(props.options as any), ...extra },
       }).then((childVarId) => {
         console.log("GET VIEW VARIABLE ", childVarId, " props: ", JSON.stringify(this.variableStore.get(childVarId)?.properties))
         view.setVariable(childVarId);

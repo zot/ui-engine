@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"reflect"
 	"slices"
 	"strings"
 	"sync"
@@ -354,7 +353,7 @@ func (r *Runtime) injectSessionFunctions(L *lua.LState, session *lua.LTable, ven
 			if len(value) > 0 {
 				json.Unmarshal(value, &goVal)
 			}
-			L.Push(goToLua(L, goVal))
+			L.Push(r.goToLua(L, goVal))
 			return 1
 		}))
 		L.PCall(2, 0, nil)
@@ -672,7 +671,7 @@ func (r *Runtime) notifyPropertyChangeInternal(L *lua.LState, session *lua.LTabl
 		return
 	}
 
-	luaValue := goToLua(L, value)
+	luaValue := r.goToLua(L, value)
 
 	// Call property-specific watchers
 	propWatchers := L.GetField(varWatchers.(*lua.LTable), property)
@@ -878,19 +877,19 @@ func (r *Runtime) HandleFrontendCreate(sessionID string, parentID int64, propert
 	// Convert to JSON
 	jsonValue, err := tracker.ToValueJSONBytes(val)
 	if err != nil {
-		r.Log(1, "HandleFrontendCreate: JSON conversion failed: %v", err)
+		r.Log(0, "HandleFrontendCreate: JSON conversion failed: %v", err)
 		return v.ID, nil, v.Properties, nil
 	}
 
-	k := reflect.ValueOf(val).Kind()
-	r.Log(2, "HandleFrontendCreate: created var %d for path %s, kind=%d, json=%s, value=%#v", v.ID, path, k, string(jsonValue), val)
-	if string(jsonValue) == "{}" {
-		r.Log(0, "TABLE JSON VALUE IS EMPTY OBJECT, valueJSON: %#v, initialValue: %#v", tracker.ToValueJSON(val), val)
-		r.Log(0, "\n  Pointer: %d\n  Struct: %d\n  UnsafePointer: %d", reflect.Pointer, reflect.Struct, reflect.UnsafePointer)
+	//k := reflect.ValueOf(val).Kind()
+	//r.Log(2, "HandleFrontendCreate: created var %d for path %s, kind=%d, json=%s, value=%#v", v.ID, path, k, string(jsonValue), val)
+	//if string(jsonValue) == "{}" {
+	//	r.Log(0, "TABLE JSON VALUE IS EMPTY OBJECT, valueJSON: %#v, initialValue: %#v", tracker.ToValueJSON(val), val)
+	//	r.Log(0, "\n  Pointer: %d\n  Struct: %d\n  UnsafePointer: %d", reflect.Pointer, reflect.Struct, reflect.UnsafePointer)
 	//	if k == reflect.Array || k == reflect.Slice {
 	//		r.Log(2, "!!! LUA VALUE IS A SLICE!")
-	//	} else if k == 
-	}
+	//	} else if k ==
+	//}
 
 	return v.ID, jsonValue, v.Properties, nil
 }
@@ -1092,7 +1091,7 @@ func (r *Runtime) registerUIModule() {
 			L.Push(lua.LString(err.Error()))
 			return 2
 		}
-		L.Push(goToLua(L, val))
+		L.Push(r.goToLua(L, val))
 		return 1
 	}))
 
@@ -1200,7 +1199,7 @@ func (r *Runtime) CallMethod(instance *lua.LTable, method string, args ...interf
 
 		// Push arguments
 		for _, arg := range args {
-			L.Push(goToLua(L, arg))
+			L.Push(r.goToLua(L, arg))
 		}
 
 		// Call method (self + args)
@@ -1251,10 +1250,10 @@ func (r *Runtime) CallLuaWrapperMethod(instance interface{}, method string, args
 				if err := json.Unmarshal(raw, &val); err != nil {
 					L.Push(lua.LNil)
 				} else {
-					L.Push(goToLua(L, val))
+					L.Push(r.goToLua(L, val))
 				}
 			} else {
-				L.Push(goToLua(L, arg))
+				L.Push(r.goToLua(L, arg))
 			}
 		}
 
@@ -1294,7 +1293,7 @@ func (r *Runtime) CreateInstance(typeName string, props map[string]interface{}) 
 
 		// Set initial properties
 		for k, v := range props {
-			L.SetField(instance, k, goToLua(L, v))
+			L.SetField(instance, k, r.goToLua(L, v))
 		}
 
 		// Call init method if exists
@@ -1401,7 +1400,7 @@ func (r *Runtime) createViewListItemLuaWrapper(L *lua.LState, viewItem *ViewList
 	wrapper := L.NewTable()
 
 	// viewListItem.item - the domain object
-	L.SetField(wrapper, "item", goToLua(L, viewItem.GetItem()))
+	L.SetField(wrapper, "item", r.goToLua(L, viewItem.GetItem()))
 
 	// viewListItem.index - position in list
 	L.SetField(wrapper, "index", lua.LNumber(viewItem.GetIndex()))
@@ -1429,7 +1428,7 @@ func (r *Runtime) GetValue(tbl *lua.LTable, key string) interface{} {
 // SetValue sets a value on a Lua table via executor.
 func (r *Runtime) SetValue(tbl *lua.LTable, key string, value interface{}) {
 	r.execute(func() (interface{}, error) {
-		r.state.SetField(tbl, key, goToLua(r.state, value))
+		r.state.SetField(tbl, key, r.goToLua(r.state, value))
 		return nil, nil
 	})
 }
@@ -1445,12 +1444,14 @@ func (r *Runtime) Shutdown() {
 }
 
 // goToLua converts a Go value to Lua.
-func goToLua(L *lua.LState, val interface{}) lua.LValue {
+func (r *Runtime) goToLua(L *lua.LState, val any) lua.LValue {
 	if val == nil {
 		return lua.LNil
 	}
 
 	switch v := val.(type) {
+	case lua.LBool, lua.LNumber, lua.LString, *lua.LTable, *lua.LNilType:
+		return val.(lua.LValue)
 	case bool:
 		return lua.LBool(v)
 	case int:
@@ -1461,16 +1462,18 @@ func goToLua(L *lua.LState, val interface{}) lua.LValue {
 		return lua.LNumber(v)
 	case string:
 		return lua.LString(v)
-	case []interface{}:
+	case *ViewListItem:
+		return r.createViewListItemLuaWrapper(L, v)
+	case []any:
 		tbl := L.NewTable()
 		for i, item := range v {
-			L.RawSetInt(tbl, i+1, goToLua(L, item))
+			L.RawSetInt(tbl, i+1, r.goToLua(L, item))
 		}
 		return tbl
 	case map[string]interface{}:
 		tbl := L.NewTable()
 		for k, item := range v {
-			L.SetField(tbl, k, goToLua(L, item))
+			L.SetField(tbl, k, r.goToLua(L, item))
 		}
 		return tbl
 	default:

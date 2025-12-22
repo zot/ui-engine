@@ -43,7 +43,7 @@ func (r *LuaResolver) Get(obj any, pathElement any) (any, error) {
 		} else if index < 0 || index >= slice.Len() {
 			return nil, fmt.Errorf("ViewList index %d out of range", index)
 		} else {
-			r.Session.Log(4, "  Returning ViewListItem #%d: %v", index, slice.Index(index).Interface())
+			//r.Session.Log(4, "  Returning ViewListItem #%d: %v", index, slice.Index(index).Interface())
 			return r.luaValueToGo(slice.Index(index).Interface())
 		}
 	}
@@ -204,8 +204,8 @@ func (r *LuaResolver) CallWith(obj any, methodName string, value any) error {
 
 	// Call the method with self and value arguments
 	r.Session.state.Push(fn)
-	r.Session.state.Push(tbl)                   // self
-	r.Session.state.Push(r.goToLuaValue(value)) // value argument
+	r.Session.state.Push(tbl)              // self
+	r.Session.state.Push(r.goToLua(value)) // value argument
 
 	if err := r.Session.state.PCall(2, 0, nil); err != nil {
 		return fmt.Errorf("method call failed: %w", err)
@@ -221,7 +221,7 @@ func (r *LuaResolver) Set(obj any, pathElement any, value any) error {
 		return fmt.Errorf("LuaResolver.Set: expected *lua.LTable, got %T", obj)
 	}
 
-	lval := r.goToLuaValue(value)
+	lval := r.goToLua(value)
 
 	switch pe := pathElement.(type) {
 	case string:
@@ -253,8 +253,6 @@ func (r *LuaResolver) luaValueToGo(obj any) (any, error) {
 			if r.isArray(v) {
 				return r.tableToSlice(v)
 			}
-			// Object table: return as *lua.LTable for tracker registration
-			return v, nil
 		case *lua.LNilType:
 			return nil, nil
 		}
@@ -355,6 +353,7 @@ func (r *LuaResolver) CreateValue(variable *changetracker.Variable, typ string, 
 // CRC: crc-LuaResolver.md
 // Spec: protocol.md (Variable Wrappers section)
 func (r *LuaResolver) CreateWrapper(variable *changetracker.Variable) any {
+	r.Session.Log(4, "CREATE WRAPPER %#v", variable)
 	// Check if wrapper property is set
 	wrapperType := variable.GetProperty("wrapper")
 	if wrapperType == "" {
@@ -365,7 +364,7 @@ func (r *LuaResolver) CreateWrapper(variable *changetracker.Variable) any {
 	if existing := variable.WrapperValue; existing != nil {
 		// Update wrapper's value property (reuse pattern)
 		if luaWrapper, ok := existing.(*lua.LTable); ok {
-			r.Session.state.SetField(luaWrapper, "value", r.goToLuaValue(variable.Value))
+			r.Session.state.SetField(luaWrapper, "value", r.goToLua(variable.Value))
 			// Call sync() if it exists (for ViewList sync)
 			syncFn := r.Session.state.GetField(luaWrapper, "sync")
 			if syncFn != lua.LNil {
@@ -453,9 +452,9 @@ func (r *LuaResolver) CreateWrapper(variable *changetracker.Variable) any {
 // Spec: protocol.md (Variable Wrappers section)
 func (r *LuaResolver) GetType(variable *changetracker.Variable, obj any) string {
 	typ := GetType(r.Session.state, obj)
-	if typ != "" {
-		r.Session.Log(4, "Got type %s for value %v", typ, obj)
-	}
+	//if typ != "" {
+	//	r.Session.Log(4, "Got type %s for value %v", typ, obj)
+	//}
 	return typ
 }
 
@@ -493,6 +492,7 @@ func GetType(L *lua.LState, obj any) string {
 // createLuaVariableWrapper creates a Lua table that wraps a change-tracker Variable.
 // This provides the Lua-accessible interface to the Variable.
 func (r *LuaResolver) createLuaVariableWrapper(v *changetracker.Variable) *lua.LTable {
+	r.Session.Log(4, "CREATE LUA VARIABLE WRAPPER %#v", v)
 	wrapper := r.Session.state.NewTable()
 
 	// Store the variable ID for reference
@@ -500,7 +500,7 @@ func (r *LuaResolver) createLuaVariableWrapper(v *changetracker.Variable) *lua.L
 
 	// getValue() - returns the current value
 	r.Session.state.SetField(wrapper, "getValue", r.Session.state.NewFunction(func(L *lua.LState) int {
-		L.Push(r.goToLuaValue(v.Value))
+		L.Push(r.goToLua(v.Value))
 		return 1
 	}))
 
@@ -532,34 +532,40 @@ func (r *LuaResolver) createLuaVariableWrapper(v *changetracker.Variable) *lua.L
 	return wrapper
 }
 
-// goToLuaValue converts a Go value to a Lua value.
-func (r *LuaResolver) goToLuaValue(value any) lua.LValue {
-	if value == nil {
-		return lua.LNil
-	}
-
-	switch v := value.(type) {
-	case bool:
-		return lua.LBool(v)
-	case float64:
-		return lua.LNumber(v)
-	case float32:
-		return lua.LNumber(v)
-	case int:
-		return lua.LNumber(v)
-	case int64:
-		return lua.LNumber(v)
-	case string:
-		return lua.LString(v)
-	case *lua.LTable:
-		return v
-	case []any:
-		tbl := r.Session.state.NewTable()
-		for i, elem := range v {
-			r.Session.state.RawSetInt(tbl, i+1, r.goToLuaValue(elem))
-		}
-		return tbl
-	default:
-		return lua.LNil
-	}
+func (r *LuaResolver) goToLua(value any) lua.LValue {
+	return r.Session.Runtime.goToLua(r.Session.state, value)
 }
+
+//// goToLuaValue converts a Go value to a Lua value.
+//func (r *LuaResolver) goToLuaValue(value any) lua.LValue {
+//	if value == nil {
+//		return lua.LNil
+//	}
+//
+//	switch v := value.(type) {
+//	case bool:
+//		return lua.LBool(v)
+//	case float64:
+//		return lua.LNumber(v)
+//	case float32:
+//		return lua.LNumber(v)
+//	case int:
+//		return lua.LNumber(v)
+//	case int64:
+//		return lua.LNumber(v)
+//	case string:
+//		return lua.LString(v)
+//	case *lua.LTable:
+//		return v
+//	case *ViewListItem:
+//		return r.Session.Runtime.createViewListItemLuaWrapper(r.Session.state, v)
+//	case []any:
+//		tbl := r.Session.state.NewTable()
+//		for i, elem := range v {
+//			r.Session.state.RawSetInt(tbl, i+1, r.goToLuaValue(elem))
+//		}
+//		return tbl
+//	default:
+//		return lua.LNil
+//	}
+//}

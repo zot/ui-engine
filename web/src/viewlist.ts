@@ -44,6 +44,7 @@ export class ViewList {
   readonly element: HTMLElement;
   readonly namespace: string;
 
+  private itemWrapper?: string;
   private variableId: number | null = null;
   private views: View[] = [];
   private exemplar: HTMLElement;
@@ -66,6 +67,7 @@ export class ViewList {
     // ViewList uses list-item namespace by default (not DEFAULT)
     // per specs/viewdefs.md
     this.namespace = element.getAttribute('ui-namespace') || 'list-item';
+    this.itemWrapper = element.getAttribute('ui-item-wrapper') || undefined;
     this.viewdefStore = viewdefStore;
     this.variableStore = variableStore;
     this.bindCallback = bindCallback;
@@ -80,6 +82,11 @@ export class ViewList {
       // Default exemplar is a div
       this.exemplar = document.createElement('div');
     }
+  }
+
+  getItemWrapper(): string | undefined {
+    // RETURN PARENT's itemWrapper property
+    return
   }
 
   // Set a custom exemplar element (e.g., sl-option)
@@ -166,7 +173,6 @@ export class ViewList {
     // Build new views array - one per array index
     const newViews: View[] = [];
 
-    let reused = 0
     for (let index = existingViews.length; index < itemCount; index++) {
       // Create new view with child variable for this index
       const view = this.createItemView();
@@ -174,10 +180,19 @@ export class ViewList {
 
       this.element.appendChild(view.element);
       // Create child variable with path = index (0-based)
-      const indexPath = String(index);
+      const indexPath = this.itemWrapper ? `${index}?wrapper=${this.itemWrapper}`
+        : String(index);
+      const variable = this.variableStore.get(this.variableId!)
+      const parent = variable?.parentId ? this.variableStore.get(variable.parentId) : undefined
+      console.log('CREATE LIST ITEM VIEW WITH PARENT', JSON.stringify(parent))
+      const itemProps = { path: indexPath } as any
+      const itemWrapper = parent?.properties.itemWrapper
+      if (itemWrapper) {
+        itemProps.wrapper = itemWrapper
+      }
       this.variableStore.create({
         parentId: this.variableId!,
-        properties: { path: indexPath },
+        properties: itemProps,
       }).then((childVarId) => {
         console.log('setting view ', index, ' variable ', childVarId)
         view!.setVariable(childVarId);
@@ -190,8 +205,6 @@ export class ViewList {
         this.delegate.onItemAdd(view, newViews.length - 1);
       }
     }
-
-    console.log('reused', reused, 'of', itemCount, 'views')
 
     // Remove views that are beyond the new array length
     while (existingViews.length > itemCount) {
@@ -217,6 +230,7 @@ export class ViewList {
   // Create a view element for an item
   private createItemView(): View {
     const element = this.exemplar.cloneNode(true) as HTMLElement;
+    //this.getItemNamespace()
     // Don't set ui-view attribute - ViewList manages the variable directly
     const view = new View(
       element,
@@ -235,53 +249,53 @@ export class ViewList {
   //  }
   //}
 
-  // Add an item manually at the end of the list
-  // Creates a child variable with the next index path
-  addItem(): View {
-    const view = this.createItemView();
-    const index = this.views.length;
-    this.views.push(view);
-    this.element.appendChild(view.element);
+  //// Add an item manually at the end of the list
+  //// Creates a child variable with the next index path
+  //addItem(): View {
+  //  const view = this.createItemView();
+  //  const index = this.views.length;
+  //  this.views.push(view);
+  //  this.element.appendChild(view.element);
 
-    // Create child variable with path = index (0-based)
-    if (this.variableId !== null) {
-      const indexPath = String(index);
-      this.variableStore.create({
-        parentId: this.variableId,
-        properties: { path: indexPath },
-      }).then((childVarId) => {
-        view.setVariable(childVarId);
-      }).catch((err) => {
-        console.error('Failed to create viewlist item variable:', err);
-      });
-    }
+  //  // Create child variable with path = index (0-based)
+  //  if (this.variableId !== null) {
+  //    const indexPath = String(index);
+  //    this.variableStore.create({
+  //      parentId: this.variableId,
+  //      properties: { path: indexPath },
+  //    }).then((childVarId) => {
+  //      view.setVariable(childVarId);
+  //    }).catch((err) => {
+  //      console.error('Failed to create viewlist item variable:', err);
+  //    });
+  //  }
 
-    if (this.delegate?.onItemAdd) {
-      this.delegate.onItemAdd(view, this.views.length - 1);
-    }
+  //  if (this.delegate?.onItemAdd) {
+  //    this.delegate.onItemAdd(view, this.views.length - 1);
+  //  }
 
-    return view;
-  }
+  //  return view;
+  //}
 
-  // Remove an item by index
-  removeItem(index: number): void {
-    if (index < 0 || index >= this.views.length) {
-      return;
-    }
+  //// Remove an item by index
+  //removeItem(index: number): void {
+  //  if (index < 0 || index >= this.views.length) {
+  //    return;
+  //  }
 
-    const view = this.views[index];
+  //  const view = this.views[index];
 
-    if (this.delegate?.onItemRemove) {
-      this.delegate.onItemRemove(view, index);
-    }
+  //  if (this.delegate?.onItemRemove) {
+  //    this.delegate.onItemRemove(view, index);
+  //  }
 
-    view.destroy();
-    if (view.element.parentNode) {
-      view.element.parentNode.removeChild(view.element);
-    }
+  //  view.destroy();
+  //  if (view.element.parentNode) {
+  //    view.element.parentNode.removeChild(view.element);
+  //  }
 
-    this.views.splice(index, 1);
-  }
+  //  this.views.splice(index, 1);
+  //}
 
   // Clear all items
   clear(): void {

@@ -12,14 +12,14 @@ type MessageType string
 
 const (
 	// Relayed messages (frontend <-> UI server <-> backend)
-	MsgCreate   MessageType = "create"
-	MsgDestroy  MessageType = "destroy"
-	MsgUpdate   MessageType = "update"
-	MsgWatch    MessageType = "watch"
-	MsgUnwatch  MessageType = "unwatch"
+	MsgCreate  MessageType = "create"
+	MsgDestroy MessageType = "destroy"
+	MsgUpdate  MessageType = "update"
+	MsgWatch   MessageType = "watch"
+	MsgUnwatch MessageType = "unwatch"
 
 	// Server-response messages
-	MsgError    MessageType = "error"
+	MsgError MessageType = "error"
 
 	// UI server-handled messages (not relayed)
 	MsgGet        MessageType = "get"

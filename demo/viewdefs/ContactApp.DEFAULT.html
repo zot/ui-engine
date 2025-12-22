@@ -29,7 +29,7 @@
       </div>
 
       <!-- Contact List (each contact wrapped with ContactPresenter) -->
-      <div class="contact-list" ui-view="contacts?wrapper=lua.ViewList"></div>
+      <div class="contact-list" ui-view="contacts?wrapper=lua.ViewList&itemWrapper=ContactPresenter"></div>
 
       <!-- Empty state -->
       <div class="empty-state" ui-attr-hidden="hasContacts">

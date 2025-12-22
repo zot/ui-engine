@@ -12,6 +12,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"regexp"
 	"strings"
 )
 
@@ -21,6 +22,8 @@ const (
 	// FooterSize: 8 bytes magic + 8 bytes offset + 8 bytes size
 	FooterSize = 24
 )
+
+var IGNORE_FILES = regexp.MustCompile(`^(|.*/)((#|\.#)[^/]*|[^/]*~)$`)
 
 // Footer contains metadata about the bundled ZIP
 type Footer struct {
@@ -109,7 +112,10 @@ func addDirToZip(zipWriter *zip.Writer, sourceDir, basePath string) error {
 		}
 
 		// Skip directories
-		if info.IsDir() {
+		if info.IsDir() || IGNORE_FILES.MatchString(filePath) {
+			if !info.IsDir() {
+				fmt.Println("IGNORING ", filePath)
+			}
 			return nil
 		}
 

@@ -1,9 +1,9 @@
 <template>
   <div class="contact-card">
     <div class="contact-info">
-      <div class="contact-name" ui-value="fullName"></div>
-      <div class="contact-email" ui-value="email"></div>
-      <div class="contact-phone" ui-value="phone" ui-attr-hidden="noPhone"></div>
+      <div class="contact-name" ui-value="contact.fullName()?access=r"></div>
+      <div class="contact-email" ui-value="contact.email"></div>
+      <div class="contact-phone" ui-value="contact.phone" ui-attr-hidden="noPhone"></div>
     </div>
     <div class="contact-actions">
       <!-- ContactPresenter has edit() and delete() methods -->

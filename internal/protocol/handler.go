@@ -5,7 +5,6 @@ package protocol
 import (
 	"encoding/json"
 	"fmt"
-	"reflect"
 	"strings"
 	"time"
 
@@ -118,9 +117,10 @@ func (h *Handler) HandleMessage(connectionID string, msg *Message) (*Response, e
 
 // handleCreate processes a create message.
 func (h *Handler) handleCreate(connectionID string, data json.RawMessage) (*Response, error) {
-	h.Log(2, "handleCreate 1, connection %s", connectionID)
+	//h.Log(2, "handleCreate 1, connection %s", connectionID)
 	var msg CreateMessage
 	if err := json.Unmarshal(data, &msg); err != nil {
+		h.Log(0, "ERROR unmarshalling CreateMessage from %s", string(data))
 		return nil, err
 	}
 
@@ -135,7 +135,7 @@ func (h *Handler) handleCreate(connectionID string, data json.RawMessage) (*Resp
 		pathProp = msg.Properties["path"]
 	}
 
-	h.Log(2, "handleCreate 2")
+	//h.Log(2, "handleCreate 2")
 	if pathProp != "" && msg.ParentID != 0 && h.pathVariableHandler != nil {
 		// Path-based variable: delegate to Lua runtime
 		var sessionID string
@@ -151,7 +151,7 @@ func (h *Handler) handleCreate(connectionID string, data json.RawMessage) (*Resp
 
 		id, initialValue, initialProps, err = h.pathVariableHandler.HandleFrontendCreate(sessionID, msg.ParentID, msg.Properties)
 		if err != nil {
-			h.Log(2, "handleCreate 2.1 ERROR: %s", err.Error())
+			h.Log(2, "Error, handleCreate: %s", err.Error())
 			return &Response{Error: err.Error()}, nil
 		}
 
@@ -173,12 +173,12 @@ func (h *Handler) handleCreate(connectionID string, data json.RawMessage) (*Resp
 			Unbound:    msg.Unbound,
 		})
 		if err != nil {
-			h.Log(2, "handleCreate 2.2 ERROR: %s", err.Error())
+			h.Log(0, "ERROR, handleCreate: %s", err.Error())
 			return &Response{Error: err.Error()}, nil
 		}
 	}
 
-	h.Log(2, "handleCreate 3")
+	//h.Log(2, "handleCreate 3")
 	// Auto-watch unless nowatch is set
 	if !msg.NoWatch && h.backendLookup != nil {
 		if b := h.backendLookup.GetBackendForConnection(connectionID); b != nil {
@@ -198,16 +198,16 @@ func (h *Handler) handleCreate(connectionID string, data json.RawMessage) (*Resp
 		if b := h.backendLookup.GetBackendForConnection(connectionID); b != nil {
 			t := b.GetTracker()
 			v := t.GetVariable(id)
-			typeName := ""
-			if v.NavigationValue() != nil {
-				typ := reflect.ValueOf(v.NavigationValue()).Type()
-				if typ.Kind() == reflect.Pointer || typ.Kind() == reflect.UnsafePointer {
-					typ = typ.Elem()
-				}
-				h.Log(4, "      REFLECT TYPE: %#v\n      NAME: %s\n      STRING: %s\n      NAV VALUE: %#v\n      RESOLVER TYPE: %s\n      MSG PROPS: %#v\n      INITIAL PROPS: %#v\n      V PROPS: %#v", typ, typ.PkgPath()+typ.Name(), typ.String(), v.NavigationValue(), t.Resolver.GetType(v, v.NavigationValue()), msg.Properties, initialProps, v.Properties)
-				typeName = typ.Name()
-			}
-			h.Log(4, "      REFLECT TYPE: %s VAR: %#v", typeName, v)
+			//typeName := ""
+			//if v.NavigationValue() != nil {
+			//	typ := reflect.ValueOf(v.NavigationValue()).Type()
+			//	if typ.Kind() == reflect.Pointer || typ.Kind() == reflect.UnsafePointer {
+			//		typ = typ.Elem()
+			//	}
+			//	h.Log(4, "      REFLECT TYPE: %#v\n      NAME: %s\n      STRING: %s\n      NAV VALUE: %#v\n      RESOLVER TYPE: %s\n      MSG PROPS: %#v\n      INITIAL PROPS: %#v\n      V PROPS: %#v", typ, typ.PkgPath()+typ.Name(), typ.String(), v.NavigationValue(), t.Resolver.GetType(v, v.NavigationValue()), msg.Properties, initialProps, v.Properties)
+			//	typeName = typ.Name()
+			//}
+			//h.Log(4, "      REFLECT TYPE: %s VAR: %#v", typeName, v)
 			for prop, p := range v.Properties {
 				if msg.Properties[prop] != p {
 					newprops = make(map[string]string)
@@ -233,8 +233,7 @@ func (h *Handler) handleCreate(connectionID string, data json.RawMessage) (*Resp
 		})
 		resp.Pending = append(resp.Pending, *updateMsg)
 	}
-
-	h.Log(2, "handleCreate 4")
+	//h.Log(2, "handleCreate 4")
 	return resp, nil
 }
 
@@ -303,7 +302,7 @@ func (h *Handler) handleUpdate(connectionID string, data json.RawMessage) (*Resp
 			return &Response{Error: "session context required for path variables"}, nil
 		}
 		if err := h.pathVariableHandler.HandleFrontendUpdate(sessionID, msg.VarID, msg.Value); err != nil {
-			h.Log(1, "handleUpdate: backend update failed for var %d: %v", msg.VarID, err)
+			h.Log(0, "ERROR, handleUpdate: backend update failed for var %d: %v", msg.VarID, err)
 			return &Response{Error: err.Error()}, nil
 		}
 	}
@@ -329,8 +328,8 @@ func (h *Handler) handleWatch(connectionID string, data json.RawMessage) (*Respo
 	v := b.GetTracker().GetVariable(msg.VarID)
 
 	// Send current value immediately
-	props := v.Properties
-	h.Log(2, "handleWatch: sending update for var %d, type=%s, viewdefs=%d chars", msg.VarID, props["type"], len(props["viewdefs"]))
+	//props := v.Properties
+	//h.Log(2, "handleWatch: sending update for var %d, type=%s, viewdefs=%d chars", msg.VarID, props["type"], len(props["viewdefs"]))
 	val := v.WrapperJSON
 	if val == nil {
 		val = v.ValueJSON

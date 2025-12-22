@@ -18,7 +18,7 @@ type ViewList struct {
 	session        *LuaSession
 	variable       WrapperVariable // The variable being wrapped (for property access)
 	value          interface{}     // The raw array of domain objects (slice or array)
-	Items          []*ViewListItem // The list of ViewListItem objects
+	Items          []*ViewListItem // The actual list of ViewListItem objects
 	SelectionIndex int             // The current selection index
 	itemType       string          // ItemWrapper type name from "item" property
 	nextObjID      int64           // counter for generating ViewListItem object IDs

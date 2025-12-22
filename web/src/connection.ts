@@ -3,6 +3,7 @@
 // Spec: interfaces.md
 
 import { Message, Response, CreateResponse, encodeMessage, UpdateMessage, ErrorMessage } from './protocol';
+import { Variable } from './variable';
 
 export type MessageHandler = (msg: Message) => void;
 export type ErrorHandler = (error: string) => void;
@@ -47,8 +48,10 @@ export class Connection {
           //console.log('RECEIVED ', data)
           // Check if it's a Response (has result, error, or pending) vs Message (has type)
           if ('result' in data || ('error' in data && !('type' in data)) || 'pending' in data || 'id' in data) {
+            console.log('RECEIVED RESPONSE', JSON.stringify(data))
             this.handleResponse(data as Response<CreateResponse>);
           } else {
+            console.log('RECEIVED MESSAGE', JSON.stringify(data))
             this.handleMessage(data as Message);
           }
         } catch (e) {
@@ -91,9 +94,9 @@ export class Connection {
 
   private handleResponse(resp: Response<CreateResponse>): void {
     // Handle pending messages in the response
-    if (resp.pending) {
-      resp.pending.forEach((msg) => this.handleMessage(msg));
-    }
+    //if (resp.pending) {
+    //  resp.pending.forEach((msg) => this.handleMessage(msg));
+    //}
     // Only call the callback for create responses (those with id in result)
     // Watch responses have {forward: true} and should not consume the callback
     const isCreateResponse = resp.result && typeof resp.result === 'object' && 'id' in resp.result;
@@ -184,7 +187,7 @@ export interface VariableError {
   description: string;
 }
 
-export type Variable = { value: unknown; properties: Record<string, string> };
+//export type Variable = { value: unknown; properties: Record<string, string> };
 
 // Callback types for watchers
 export type ValueCallback = (v: Variable, value?: unknown, props?: Record<string, string>) => void;
@@ -219,13 +222,17 @@ export class VariableStore {
     });
   }
 
-  private handleUpdate(varId: number, value?: unknown, properties?: Record<string, string>): void {
+  private handleUpdate(varId: number, value?: unknown, properties?: Record<string, string>, parentId?: number): void {
     let existing = this.variables.get(varId);
     if (!existing) {
-      existing = { value: undefined, properties: {} };
+      existing = { varId, value: undefined, properties: {} } as Variable;
+      if (parentId !== undefined) {
+        existing.parentId = parentId
+      }
       this.variables.set(varId, existing);
     }
 
+    console.log('handleUpdate varId', varId, 'parentId', existing.parentId)
     if (value !== undefined) {
       existing.value = value;
     }
@@ -314,7 +321,7 @@ export class VariableStore {
     return this.errors.get(varId) ?? null;
   }
 
-  get(varId: number): { value: unknown; properties: Record<string, string> } | undefined {
+  get(varId: number): Variable | undefined {
     return this.variables.get(varId);
   }
 
@@ -326,13 +333,27 @@ export class VariableStore {
     nowatch?: boolean;
     unbound?: boolean;
   }): Promise<number> {
-    //console.log('SENDING CREATE')
+    console.log('SENDING CREATE')
     const resp = await this.connection.sendAndAwaitResponse({ type: 'create', data: options });
     if (resp.error) {
       throw new Error(resp.error);
     }
     if (!resp.result) {
       throw new Error('No result from create');
+    }
+    if (resp.pending?.length) {
+      const data = resp.pending[0].data as any as UpdateMessage;
+      
+      console.log('CREATE RESPONSE', resp.result.id, resp)
+      const variable = { varId: data.varId, value: undefined, properties: options.properties || {} } as Variable;
+      if (options.parentId !== undefined) {
+        variable.parentId = options.parentId
+      }
+      this.variables.set(data.varId, variable);
+      setTimeout(()=> {
+        console.log('UPDATE FROM CREATE RESPONSE', data.varId, resp)
+        this.handleUpdate(data.varId, data.value, data.properties, options.parentId)
+      })
     }
     return resp.result.id;
   }

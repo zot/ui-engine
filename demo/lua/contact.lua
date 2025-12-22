@@ -3,6 +3,8 @@
 -- CRC: crc-LuaSession.md
 -- Uses automatic change detection - no manual update() calls needed
 
+local app
+
 -- Contact type for individual contacts
 Contact = {type = "Contact"}
 Contact.__index = Contact
@@ -22,39 +24,23 @@ function Contact:fullName()
     return first .. last
 end
 
-function Contact:noPhone()
-    return not self.phone or self.phone == ""
-end
-
 -- ContactPresenter - wraps Contact for UI interactions
 -- Constructed by ViewList with viewItem: {baseItem, list, index}
 ContactPresenter = {type = "ContactPresenter"}
 ContactPresenter.__index = ContactPresenter
 
-function ContactPresenter:new(viewItem)
-    local tbl = {
-        viewItem = viewItem,
-        contact = viewItem.baseItem  -- the domain Contact
-    }
-    setmetatable(tbl, self)
-    return tbl
-end
-
--- Delegate to domain object for display
-function ContactPresenter:fullName()
-    return self.contact:fullName()
-end
-
-function ContactPresenter:email()
-    return self.contact.email
-end
-
-function ContactPresenter:phone()
-    return self.contact.phone
+function ContactPresenter:new(viewVar)
+   local viewItem = viewVar:getValue()
+   local tbl = {
+      viewItem = viewItem,
+      contact = viewItem.item  -- the domain Contact
+   }
+   setmetatable(tbl, self)
+   return tbl
 end
 
 function ContactPresenter:noPhone()
-    return self.contact:noPhone()
+    return not self.contact.phone or self.contact.phone == ""
 end
 
 -- UI actions (app is accessible as upvalue from module scope)
@@ -192,7 +178,7 @@ function ContactApp:contactCount()
 end
 
 -- Create the app instance
-local app = ContactApp:new({
+app = ContactApp:new({
     title = "Contact Manager"
 })
 

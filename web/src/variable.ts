@@ -3,7 +3,7 @@
 // Spec: protocol.md
 
 export interface Variable {
-  id: number;
+  varId: number;
   parentId?: number;
   value: unknown;
   properties: Record<string, string>;
