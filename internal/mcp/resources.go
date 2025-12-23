@@ -50,23 +50,44 @@ func (s *Server) handleGetStateResource(ctx context.Context, request mcp.ReadRes
 		return nil, fmt.Errorf("tracker not found")
 	}
 
-	v1 := tracker.GetVariable(1)
-	if v1 == nil {
-		return nil, fmt.Errorf("variable 1 not found")
+	var result interface{}
+
+	// 1. Try to use the explicit MCP state variable
+	if session.McpStateID != 0 {
+		v := tracker.GetVariable(session.McpStateID)
+		if v != nil {
+			val := v.NavigationValue()
+			jsonVal, err := tracker.ToValueJSONBytes(val)
+			if err == nil {
+				result = map[string]interface{}{
+					"id":         v.ID,
+					"properties": v.Properties,
+					"value":      json.RawMessage(jsonVal),
+				}
+			}
+		}
 	}
 
-	val := v1.NavigationValue()
-	jsonVal, err := tracker.ToValueJSONBytes(val)
-	if err != nil {
-		return nil, fmt.Errorf("marshaling error: %v", err)
+	// 2. Fallback to Variable 1 (App)
+	if result == nil {
+		v1 := tracker.GetVariable(1)
+		if v1 == nil {
+			return nil, fmt.Errorf("variable 1 not found")
+		}
+
+		val := v1.NavigationValue()
+		jsonVal, err := tracker.ToValueJSONBytes(val)
+		if err != nil {
+			return nil, fmt.Errorf("marshaling error: %v", err)
+		}
+
+		result = map[string]interface{}{
+			"id":         1,
+			"properties": v1.Properties,
+			"value":      json.RawMessage(jsonVal),
+		}
 	}
 
-	result := map[string]interface{}{
-		"id":         1,
-		"properties": v1.Properties,
-		"value":      json.RawMessage(jsonVal),
-	}
-	
 	content, _ := json.MarshalIndent(result, "", "  ")
 
 	return []mcp.ResourceContents{

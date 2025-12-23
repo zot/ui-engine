@@ -42,6 +42,8 @@ type LuaSession struct {
 	sessionTable  *lua.LTable // The session object exposed to Lua
 	appVariableID int64       // Variable 1 for this session (set by Lua code)
 	appObject     *lua.LTable // Reference to the app Lua object
+	McpState      *lua.LTable // Logical state root for MCP (defaults to appObject)
+	McpStateID    int64       // Variable ID of mcpState (if tracked)
 }
 
 // Runtime manages embedded Lua VM execution with multiple sessions.
@@ -62,6 +64,7 @@ type Runtime struct {
 	mainLuaCode     string                 // Cached main.lua content (for bundle mode)
 	wrapperRegistry *WrapperRegistry       // Shared wrapper registry (set by server)
 	viewdefManager  *viewdef.ViewdefManager
+	onNotification  func(method string, params interface{}) // Callback for MCP notifications
 }
 
 // PresenterType represents a Lua-defined presenter type.
@@ -221,6 +224,9 @@ func (r *Runtime) CreateLuaSession(vendedID string) (*LuaSession, error) {
 		// Set session global (will be replaced for each session's code execution)
 		L.SetGlobal("session", sessionTable)
 
+		// Register MCP global
+		r.registerMCPGlobal(L, luaSession)
+
 		// Load main.lua for this session
 		if err := r.loadMainLua(L); err != nil {
 			// Remove from sessions on failure
@@ -322,6 +328,72 @@ func (r *Runtime) createSessionTable(L *lua.LState, vendedID string) *lua.LTable
 	r.addGoSessionMethods(L, session, vendedID)
 
 	return session
+}
+
+// registerMCPGlobal injects the 'mcp' global object for AI agent interaction.
+func (r *Runtime) registerMCPGlobal(L *lua.LState, luaSess *LuaSession) {
+	mcp := L.NewTable()
+	L.SetGlobal("mcp", mcp)
+
+	// mcp.notify(method, params)
+	L.SetField(mcp, "notify", L.NewFunction(func(L *lua.LState) int {
+		method := L.CheckString(1)
+		params := L.OptTable(2, nil)
+
+		var goParams interface{}
+		if params != nil {
+			goParams = luaToGo(params)
+		}
+
+		r.mu.RLock()
+		cb := r.onNotification
+		r.mu.RUnlock()
+
+		if cb != nil {
+			cb(method, goParams)
+		}
+		return 0
+	}))
+
+	// mcp.state (getter/setter via metatable)
+	mt := L.NewTable()
+	L.SetField(mt, "__index", L.NewFunction(func(L *lua.LState) int {
+		key := L.CheckString(2)
+		if key == "state" {
+			if luaSess.McpState != nil {
+				L.Push(luaSess.McpState)
+			} else if luaSess.appObject != nil {
+				L.Push(luaSess.appObject)
+			} else {
+				L.Push(lua.LNil)
+			}
+			return 1
+		}
+		return 0
+	}))
+	L.SetField(mt, "__newindex", L.NewFunction(func(L *lua.LState) int {
+		key := L.CheckString(2)
+		if key == "state" {
+			val := L.CheckTable(3)
+			luaSess.McpState = val
+			luaSess.McpStateID = 0 // Reset, then try to find
+
+			// Try to find variable ID if it's tracked
+			tracker := r.variableStore.GetTracker(luaSess.ID)
+			if tracker != nil {
+				for _, v := range tracker.Variables() {
+					if v.Value == val {
+						luaSess.McpStateID = v.ID
+						break
+					}
+				}
+			}
+			return 0
+		}
+		L.RawSet(mcp, L.Get(2), L.Get(3))
+		return 0
+	}))
+	L.SetMetatable(mcp, mt)
 }
 
 // createFallbackSessionTable creates a minimal session table for testing when module not loaded.
@@ -493,6 +565,11 @@ func (r *Runtime) addGoSessionMethods(L *lua.LState, session *lua.LTable, vended
 		if ok {
 			luaSess.appVariableID = id
 			luaSess.appObject = luaObject
+			// Default MCP state to app object
+			if luaSess.McpState == nil {
+				luaSess.McpState = luaObject
+				luaSess.McpStateID = id
+			}
 		}
 
 		// Track in session's _objectToId
@@ -779,6 +856,13 @@ func (r *Runtime) RedirectOutput(logPath, errPath string) error {
 	})
 
 	return nil
+}
+
+// SetNotificationHandler sets the callback for MCP notifications.
+func (r *Runtime) SetNotificationHandler(handler func(method string, params interface{})) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.onNotification = handler
 }
 
 // VariableUpdate represents a detected change to be sent to the frontend.

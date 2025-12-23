@@ -342,28 +342,29 @@
 ### crc-MCPServer.md
 **Source Spec:** specs/mcp.md
 **Implementation:**
-- [x] `internal/mcp/server.go` - MCP server
+- [x] `internal/mcp/server.go` - MCP server (Lifecycle FSM, configuration, startup, notifications)
 
 ### crc-MCPResource.md
 **Source Spec:** specs/mcp.md
 **Implementation:**
-- [x] `internal/mcp/resources.go` - MCP resources
+- [x] `internal/mcp/resources.go` - MCP resources (State root redirection via mcp.state)
 
 ### crc-MCPTool.md
 **Source Spec:** specs/mcp.md
 **Implementation:**
-- [x] `internal/mcp/tools.go` - MCP tools
+- [x] `internal/mcp/tools.go` - MCP tools (configure, start, run, upload_viewdef, open_browser)
 
 ### crc-LuaRuntime.md
-**Source Spec:** interfaces.md, deployment.md
+**Source Spec:** interfaces.md, deployment.md, specs/mcp.md
 **Implementation:**
-- [x] `internal/lua/runtime.go` - Lua runtime with session API
+- [x] `internal/lua/runtime.go` - Lua runtime with session API, I/O redirection, and mcp global
 
 ### crc-LuaSession.md
-**Source Spec:** libraries.md, interfaces.md, protocol.md
+**Source Spec:** libraries.md, interfaces.md, protocol.md, specs/mcp.md
 **Implementation:**
 - [x] `internal/lua/runtime.go` - Go-side LuaSession implementation (uses vended session IDs)
 - [x] `internal/lua/runtime.go` - Automatic change detection via AfterBatch()
+- [x] `internal/lua/runtime.go` - Support for mcp.state and mcp.notify
 
 ### crc-LuaVariable.md
 **Source Spec:** libraries.md

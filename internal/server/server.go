@@ -142,6 +142,11 @@ func New(cfg *config.Config) *Server {
 			s.onViewdefUploaded,
 		)
 		s.config.Log(0, "MCP server initialized")
+
+		// Relay Lua notifications to MCP
+		s.luaRuntime.SetNotificationHandler(func(method string, params interface{}) {
+			s.mcpServer.SendNotification(method, params)
+		})
 	}
 
 	return s
