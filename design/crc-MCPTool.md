@@ -11,15 +11,13 @@
 - handler: Function to execute tool
 
 ### Does
-- createSession: Create new session, return session URL
-- createPresenter: Create presenter with type and properties
-- updatePresenter: Update presenter properties or call method
-- destroyPresenter: Remove presenter
-- createViewdef: Create HTML viewdef for TYPE.VIEW
-- updateViewdef: Modify existing viewdef
-- loadPresenterLogic: Load Lua code into runtime
-- registerUrlPath: Associate URL path with presenter
-- activateTab: Bring user's browser tab to focus
+- define: Define tool schema (name, description, input schema)
+- handle: Execute tool logic (interface implementation)
+
+### Standard Tools
+- ui_get_state: Get current session state (Variable 1)
+- ui_run: Execute Lua code in session context
+- ui_upload_viewdef: Add dynamic view definition
 
 ## Collaborators
 

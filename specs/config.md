@@ -6,7 +6,9 @@ The `Config` object is the central source of truth for application settings, inc
 
 ## Logging Architecture
 
-To ensure consistent output formatting and centralized verbosity control, **all logging must be performed through the `Config` object**. 
+To ensure consistent output formatting and centralized verbosity control, **all logging must be performed through the `Config` object**.
+
+**Output Stream:** All application logging must be written to **Standard Error (stderr)**. This ensures that Standard Output (stdout) remains available for protocol data (such as MCP) and simplifies log capture in many environments.
 
 ### The `Log` Method
 

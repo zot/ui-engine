@@ -71,6 +71,9 @@ func runServe(args []string) {
 		log.Fatalf("Failed to load config: %v", err)
 	}
 
+	// Ensure logs always go to Stderr to keep Stdout clean for protocol data
+	log.SetOutput(os.Stderr)
+
 	srv := server.New(cfg)
 
 	// Start cleanup worker

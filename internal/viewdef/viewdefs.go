@@ -62,6 +62,13 @@ func (m *ViewdefManager) LoadFromDirectory(dir string) error {
 	})
 }
 
+// AddViewdef adds or updates a viewdef dynamically.
+func (m *ViewdefManager) AddViewdef(key, content string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.viewdefs[key] = content
+}
+
 // LoadFromBundle loads viewdefs from the embedded bundle.
 func (m *ViewdefManager) LoadFromBundle() error {
 	m.mu.Lock()

@@ -18,6 +18,7 @@
 - getLuaSession: Get LuaSession by session ID
 - loadFile: Load and execute Lua file (via executor)
 - loadCode: Load and execute Lua code string (via executor)
+- executeInSession: Execute Lua code in the context of a specific session (sets 'session' global)
 - afterBatch: Trigger change detection for a session after processing message batch
 - shutdown: Close executor channel, clean up all Lua sessions
 

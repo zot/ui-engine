@@ -1,5 +1,13 @@
 # Project Instructions
 
+## 🛑 STOP: MANDATORY BEHAVIORAL RULES
+1. **NEVER COMMIT AUTONOMOUSLY.** You must ALWAYS ask for explicit user permission before running `git commit`.
+2. **NEVER INITIATE IMPLEMENTATION AUTONOMOUSLY.** After creating or modifying a plan (e.g., in `.scratch/*.md`), you must STOP and ask for user confirmation before writing any code.
+3. **Planning Discipline:**
+   - **Strict Separation:** Do not mix planning and implementation in the same turn.
+   - **Stop After Planning:** After updating the plan, present a very brief summary and **STOP**. Do NOT ask "Shall I proceed?" or automatically move to implementation. Wait for the user to explicitly initiate the next step.
+   - **Plan First:** Always update the plan file to reflect the latest understanding *before* writing code.
+
 ## Essential Reading: Architecture Overview
 
 **ALWAYS read `ARCHITECTURE.md` before working on frontend/backend integration.**
@@ -18,19 +26,13 @@ You can use the playwright browser to connect to it.
 - Use **SOLID principles** in all implementations
 - Create comprehensive **unit tests** for all components
 - code and specs are as MINIMAL as POSSIBLE
-- **Never commit without user permission**
 
 ## When committing
 1. Check git status and diff to analyze changes
 2. Ask about any new files to ensure test/temp files aren't added accidentally
 3. Add all changes (or only staged files if you specify "staged only")
-4. Generate a clear commit message with terse bullet points, followed by "co-authored by AI" where AI is your name (e.g. Claude, Gemini, etc.)
+4. Generate a clear commit message with terse bullet points, followed by "co-authored by AI" where AI is your name (like "co-authored by Claude" or "co-authored by Gemini")
 5. Create the commit and verify success
-
-## 🛑 Planning Discipline
-- **Strict Separation:** Do not mix planning and implementation in the same turn unless explicitly requested.
-- **Explicit Confirmation:** After creating or modifying a plan (e.g., in `.scratch/*.md`), **STOP** and ask for user confirmation before executing any code changes.
-- **Plan First:** Always update the plan file to reflect the latest understanding *before* writing code.
 
 ## CRC Modeling Workflow
 
@@ -54,13 +56,13 @@ Level 3: Implementation (source code)
 
 **When Designer Agent is Required vs Direct CRC Creation:**
 
-| Scenario | Use Designer Agent? | Required Follow-up |
-|----------|---------------------|-------------------|
-| New feature design | YES | Full workflow (sequences, test designs, gap analysis) |
-| Significant architectural change | YES | Full workflow |
-| Documenting existing code | Optional | Run gap-analyzer to verify completeness |
-| Fixing/cleaning up CRC cards | No | Verify sequence references exist |
-| Creating CRC for existing interface | Optional | Run gap-analyzer to verify completeness |
+| Scenario                            | Use Designer Agent? | Required Follow-up                                    |
+|-------------------------------------|---------------------|-------------------------------------------------------|
+| New feature design                  | YES                 | Full workflow (sequences, test designs, gap analysis) |
+| Significant architectural change    | YES                 | Full workflow                                         |
+| Documenting existing code           | Optional            | Run gap-analyzer to verify completeness               |
+| Fixing/cleaning up CRC cards        | No                  | Verify sequence references exist                      |
+| Creating CRC for existing interface | Optional            | Run gap-analyzer to verify completeness               |
 
 **CRITICAL: Regardless of how CRC cards are created:**
 1. All sequence references must point to existing files (fix or create)
@@ -145,16 +147,16 @@ When you've made code changes, invoke the design-maintainer agent to:
 
 **When the user asks to update, modify, or add to the design (Level 2 artifacts), ALWAYS use the appropriate agent:**
 
-| User Request | Agent to Use |
-|--------------|--------------|
-| "Update the design for X" | `designer` |
-| "Add X to the design" | `designer` |
-| "Reflect spec changes in design" | `designer` |
-| "Update CRC cards / sequences" | `designer` |
-| "Update design based on these changes" | `designer` |
-| "Update design after code changes" | `design-maintainer` |
-| "Run gap analysis" | `gap-analyzer` |
-| "Generate/update documentation" | `documenter` |
+| User Request                           | Agent to Use        |
+|----------------------------------------|---------------------|
+| "Update the design for X"              | `designer`          |
+| "Add X to the design"                  | `designer`          |
+| "Reflect spec changes in design"       | `designer`          |
+| "Update CRC cards / sequences"         | `designer`          |
+| "Update design based on these changes" | `designer`          |
+| "Update design after code changes"     | `design-maintainer` |
+| "Run gap analysis"                     | `gap-analyzer`      |
+| "Generate/update documentation"        | `documenter`        |
 
 **Do NOT manually edit design files** unless it's a trivial fix (typo, formatting). Always delegate to the appropriate agent to ensure:
 - Consistency across CRC cards, sequences, and architecture

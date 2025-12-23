@@ -18,6 +18,7 @@ import (
 	"github.com/zot/ui/internal/bundle"
 	"github.com/zot/ui/internal/config"
 	"github.com/zot/ui/internal/lua"
+	"github.com/zot/ui/internal/mcp"
 	"github.com/zot/ui/internal/protocol"
 	"github.com/zot/ui/internal/session"
 	"github.com/zot/ui/internal/variable"
@@ -37,6 +38,7 @@ type Server struct {
 	wsEndpoint      *WebSocketEndpoint
 	backendSocket   *BackendSocket
 	luaRuntime      *lua.Runtime
+	mcpServer       *mcp.Server
 	wrapperRegistry *lua.WrapperRegistry
 	wrapperManager  *lua.WrapperManager
 	storeAdapter    *luaTrackerAdapter
@@ -128,11 +130,26 @@ func New(cfg *config.Config) *Server {
 		s.handler.SetPathVariableHandler(s.luaRuntime)
 	}
 
+	// Initialize MCP server if enabled
+	if cfg.MCP.Enabled && cfg.Lua.Enabled {
+		s.mcpServer = mcp.NewServer(cfg, s.luaRuntime, s.viewdefManager)
+		s.config.Log(0, "MCP server initialized")
+	}
+
 	return s
 }
 
 // Start starts the server.
 func (s *Server) Start() error {
+	// Start MCP server if enabled
+	if s.mcpServer != nil {
+		go func() {
+			if err := s.mcpServer.ServeStdio(); err != nil {
+				s.config.Log(0, "MCP server error: %v", err)
+			}
+		}()
+	}
+
 	// Start backend socket
 	if err := s.backendSocket.Listen(); err != nil {
 		return fmt.Errorf("failed to start backend socket: %w", err)

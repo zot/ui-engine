@@ -1,190 +1,130 @@
+// Package mcp implements the Model Context Protocol server.
 // CRC: crc-MCPTool.md
 // Spec: interfaces.md
+// Sequence: seq-mcp-run.md, seq-mcp-get-state.md
 package mcp
 
-// Tool represents an MCP tool.
-type Tool struct {
-	Name        string
-	Description string
-	InputSchema map[string]interface{}
-	Handler     func(args map[string]interface{}) (interface{}, error)
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+
+	"github.com/mark3labs/mcp-go/mcp"
+)
+
+func (s *Server) registerTools() {
+	// ui_get_state
+	s.mcpServer.AddTool(mcp.NewTool("ui_get_state",
+		mcp.WithDescription("Get the current state (Variable 1) of a session"),
+		mcp.WithString("sessionId", mcp.Description("The session ID to inspect (defaults to '1')")),
+	), s.handleGetState)
+
+	// ui_run
+	s.mcpServer.AddTool(mcp.NewTool("ui_run",
+		mcp.WithDescription("Execute Lua code in a session context"),
+		mcp.WithString("code", mcp.Required(), mcp.Description("Lua code to execute")),
+		mcp.WithString("sessionId", mcp.Description("The session ID to run in (defaults to '1')")),
+	), s.handleRun)
+
+	// ui_upload_viewdef
+	s.mcpServer.AddTool(mcp.NewTool("ui_upload_viewdef",
+		mcp.WithDescription("Upload a dynamic view definition"),
+		mcp.WithString("type", mcp.Required(), mcp.Description("Presenter type (e.g. 'MyPresenter')")),
+		mcp.WithString("namespace", mcp.Required(), mcp.Description("Namespace (e.g. 'DEFAULT')")),
+		mcp.WithString("content", mcp.Required(), mcp.Description("HTML content")),
+	), s.handleUploadViewdef)
 }
 
-// NewTool creates a new tool definition.
-func NewTool(name, description string, schema map[string]interface{}) *Tool {
-	return &Tool{
-		Name:        name,
-		Description: description,
-		InputSchema: schema,
+func (s *Server) handleGetState(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	args, ok := request.Params.Arguments.(map[string]interface{})
+	if !ok {
+		return mcp.NewToolResultError("arguments must be a map"), nil
 	}
-}
-
-// WithHandler sets the tool handler.
-func (t *Tool) WithHandler(handler func(args map[string]interface{}) (interface{}, error)) *Tool {
-	t.Handler = handler
-	return t
-}
-
-// Schema helper for building JSON schemas.
-type Schema map[string]interface{}
-
-// ObjectSchema creates an object schema.
-func ObjectSchema(properties Schema, required []string) Schema {
-	return Schema{
-		"type":       "object",
-		"properties": properties,
-		"required":   required,
+	
+	sessionID, ok := args["sessionId"].(string)
+	if !ok || sessionID == "" {
+		sessionID = "1"
 	}
-}
 
-// StringProp creates a string property.
-func StringProp(description string) Schema {
-	return Schema{
-		"type":        "string",
-		"description": description,
+	session, ok := s.runtime.GetLuaSession(sessionID)
+	if !ok {
+		return mcp.NewToolResultError(fmt.Sprintf("session %s not found", sessionID)), nil
 	}
-}
 
-// IntProp creates an integer property.
-func IntProp(description string) Schema {
-	return Schema{
-		"type":        "integer",
-		"description": description,
+	tracker := session.GetTracker()
+	if tracker == nil {
+		return mcp.NewToolResultError("tracker not found"), nil
 	}
-}
-
-// BoolProp creates a boolean property.
-func BoolProp(description string) Schema {
-	return Schema{
-		"type":        "boolean",
-		"description": description,
+	
+	v1 := tracker.GetVariable(1)
+	if v1 == nil {
+		return mcp.NewToolResultError("variable 1 (app root) not found"), nil
 	}
-}
 
-// ObjectProp creates an object property.
-func ObjectProp(description string) Schema {
-	return Schema{
-		"type":        "object",
-		"description": description,
+	val := v1.NavigationValue()
+	jsonVal, err := tracker.ToValueJSONBytes(val)
+	if err != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("failed to marshal value: %v", err)), nil
 	}
+
+	result := map[string]interface{}{
+		"id":         1,
+		"properties": v1.Properties,
+		"value":      json.RawMessage(jsonVal),
+	}
+	
+	jsonResult, _ := json.MarshalIndent(result, "", "  ")
+
+	return mcp.NewToolResultText(string(jsonResult)), nil
 }
 
-// CreateSessionTool creates a new session.
-func CreateSessionTool() *Tool {
-	return NewTool(
-		"create_session",
-		"Create a new UI session and return the session URL",
-		ObjectSchema(Schema{}, []string{}),
-	)
+func (s *Server) handleRun(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	args, ok := request.Params.Arguments.(map[string]interface{})
+	if !ok {
+		return mcp.NewToolResultError("arguments must be a map"), nil
+	}
+
+	code, ok := args["code"].(string)
+	if !ok {
+		return mcp.NewToolResultError("code must be a string"), nil
+	}
+	sessionID, ok := args["sessionId"].(string)
+	if !ok || sessionID == "" {
+		sessionID = "1"
+	}
+	
+	err := s.runtime.ExecuteInSession(sessionID, func() error {
+		return s.runtime.LoadCode("mcp-run", code)
+	})
+
+	if err != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("execution failed: %v", err)), nil
+	}
+
+	return mcp.NewToolResultText("Executed successfully"), nil
 }
 
-// CreatePresenterTool creates a presenter.
-func CreatePresenterTool() *Tool {
-	return NewTool(
-		"create_presenter",
-		"Create a presenter with type and properties",
-		ObjectSchema(Schema{
-			"type":       StringProp("Presenter type name"),
-			"properties": ObjectProp("Initial properties"),
-			"parentId":   IntProp("Parent variable ID (default: session root)"),
-		}, []string{"type"}),
-	)
-}
+func (s *Server) handleUploadViewdef(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	args, ok := request.Params.Arguments.(map[string]interface{})
+	if !ok {
+		return mcp.NewToolResultError("arguments must be a map"), nil
+	}
 
-// UpdatePresenterTool updates a presenter.
-func UpdatePresenterTool() *Tool {
-	return NewTool(
-		"update_presenter",
-		"Update presenter properties or call a method",
-		ObjectSchema(Schema{
-			"id":         IntProp("Presenter variable ID"),
-			"properties": ObjectProp("Properties to update"),
-			"call":       StringProp("Method to call"),
-			"args":       ObjectProp("Method arguments"),
-		}, []string{"id"}),
-	)
-}
+	typeName, ok := args["type"].(string)
+	if !ok {
+		return mcp.NewToolResultError("type must be a string"), nil
+	}
+	namespace, ok := args["namespace"].(string)
+	if !ok {
+		return mcp.NewToolResultError("namespace must be a string"), nil
+	}
+	content, ok := args["content"].(string)
+	if !ok {
+		return mcp.NewToolResultError("content must be a string"), nil
+	}
 
-// DestroyPresenterTool destroys a presenter.
-func DestroyPresenterTool() *Tool {
-	return NewTool(
-		"destroy_presenter",
-		"Remove a presenter",
-		ObjectSchema(Schema{
-			"id": IntProp("Presenter variable ID"),
-		}, []string{"id"}),
-	)
-}
+	key := fmt.Sprintf("%s.%s", typeName, namespace)
+	s.viewdefs.AddViewdef(key, content)
 
-// CreateViewdefTool creates a viewdef.
-func CreateViewdefTool() *Tool {
-	return NewTool(
-		"create_viewdef",
-		"Create an HTML viewdef for TYPE.VIEW",
-		ObjectSchema(Schema{
-			"key":     StringProp("Viewdef key (TYPE.NAMESPACE)"),
-			"content": StringProp("HTML template with ui-* bindings"),
-		}, []string{"key", "content"}),
-	)
-}
-
-// UpdateViewdefTool updates a viewdef.
-func UpdateViewdefTool() *Tool {
-	return NewTool(
-		"update_viewdef",
-		"Modify an existing viewdef",
-		ObjectSchema(Schema{
-			"key":     StringProp("Viewdef key (TYPE.NAMESPACE)"),
-			"content": StringProp("New HTML template content"),
-		}, []string{"key", "content"}),
-	)
-}
-
-// LoadPresenterLogicTool loads Lua code.
-func LoadPresenterLogicTool() *Tool {
-	return NewTool(
-		"load_presenter_logic",
-		"Load Lua presenter logic code into the runtime",
-		ObjectSchema(Schema{
-			"name": StringProp("Logic module name"),
-			"code": StringProp("Lua source code"),
-		}, []string{"name", "code"}),
-	)
-}
-
-// RegisterURLPathTool registers a URL path.
-func RegisterURLPathTool() *Tool {
-	return NewTool(
-		"register_url_path",
-		"Associate a URL path with a presenter",
-		ObjectSchema(Schema{
-			"path":        StringProp("URL path (after session ID)"),
-			"presenterId": IntProp("Presenter variable ID"),
-		}, []string{"path", "presenterId"}),
-	)
-}
-
-// ActivateTabTool activates the browser tab.
-func ActivateTabTool() *Tool {
-	return NewTool(
-		"activate_tab",
-		"Bring the user's browser tab to focus via notification",
-		ObjectSchema(Schema{
-			"sessionId": StringProp("Session ID to activate"),
-			"message":   StringProp("Optional notification message"),
-		}, []string{"sessionId"}),
-	)
-}
-
-// RegisterStandardTools adds the standard UI tools to a server.
-func RegisterStandardTools(s *Server) {
-	s.RegisterTool(CreateSessionTool())
-	s.RegisterTool(CreatePresenterTool())
-	s.RegisterTool(UpdatePresenterTool())
-	s.RegisterTool(DestroyPresenterTool())
-	s.RegisterTool(CreateViewdefTool())
-	s.RegisterTool(UpdateViewdefTool())
-	s.RegisterTool(LoadPresenterLogicTool())
-	s.RegisterTool(RegisterURLPathTool())
-	s.RegisterTool(ActivateTabTool())
+	return mcp.NewToolResultText(fmt.Sprintf("Viewdef %s uploaded", key)), nil
 }

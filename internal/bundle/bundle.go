@@ -113,9 +113,6 @@ func addDirToZip(zipWriter *zip.Writer, sourceDir, basePath string) error {
 
 		// Skip directories
 		if info.IsDir() || IGNORE_FILES.MatchString(filePath) {
-			if !info.IsDir() {
-				fmt.Println("IGNORING ", filePath)
-			}
 			return nil
 		}
 

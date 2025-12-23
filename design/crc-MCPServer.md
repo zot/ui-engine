@@ -12,10 +12,10 @@
 
 ### Does
 - initialize: Set up MCP server connection
-- listResources: Return available resources (presenter types, viewdefs, session state)
-- listTools: Return available tools
-- handleResourceRequest: Process resource queries
-- handleToolCall: Execute tool operations
+- listResources: Return available resources (session state)
+- listTools: Return available tools (ui_get_state, ui_run, ui_upload_viewdef)
+- handleResourceRequest: Process resource queries (ui://state/{sessionId})
+- handleToolCall: Execute tool operations by delegating to specific handlers
 - sendNotification: Push events to AI client
 - shutdown: Clean up MCP connection
 

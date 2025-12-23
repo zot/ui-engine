@@ -703,6 +703,35 @@ func (r *Runtime) execute(fn func() (interface{}, error)) (interface{}, error) {
 	return res.Value, res.Err
 }
 
+// ExecuteInSession executes a function within the context of a specific session.
+// It sets the global 'session' variable to the target session's table before execution.
+// CRC: crc-LuaRuntime.md
+// Sequence: seq-mcp-run.md
+func (r *Runtime) ExecuteInSession(sessionID string, fn func() error) error {
+	_, err := r.execute(func() (interface{}, error) {
+		r.mu.RLock()
+		session, ok := r.sessions[sessionID]
+		r.mu.RUnlock()
+		
+		if !ok {
+			return nil, fmt.Errorf("session %s not found", sessionID)
+		}
+		
+		L := r.state
+		
+		// Set the global 'session' variable
+		L.SetGlobal("session", session.sessionTable)
+		
+		// Execute the function
+		if err := fn(); err != nil {
+			return nil, err
+		}
+		
+		return nil, nil
+	})
+	return err
+}
+
 // VariableUpdate represents a detected change to be sent to the frontend.
 type VariableUpdate struct {
 	VarID      int64
@@ -1507,7 +1536,6 @@ func (s *LuaSession) ArrayGetter(array any) (func(int) (any, error), int, error)
 // luaToGo converts a Lua value to Go.
 // Fields prefixed with "_" are skipped (internal/private fields).
 func luaToGo(val lua.LValue) interface{} {
-	fmt.Println("luaToGo")
 	switch v := val.(type) {
 	case lua.LBool:
 		return bool(v)

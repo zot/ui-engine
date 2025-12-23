@@ -153,6 +153,8 @@ Each session has an associated Backend that handles variable management. Two imp
 - seq-mcp-create-session.md
 - seq-mcp-create-presenter.md
 - seq-mcp-receive-event.md
+- seq-mcp-run.md
+- seq-mcp-get-state.md
 
 ### Lua Runtime System
 
