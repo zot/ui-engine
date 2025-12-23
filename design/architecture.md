@@ -150,6 +150,7 @@ Each session has an associated Backend that handles variable management. Two imp
 - crc-MCPServer.md
 - crc-MCPResource.md
 - crc-MCPTool.md
+- seq-mcp-lifecycle.md
 - seq-mcp-create-session.md
 - seq-mcp-create-presenter.md
 - seq-mcp-receive-event.md

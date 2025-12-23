@@ -101,9 +101,6 @@
 - crc-Router.md
 - crc-WebSocketEndpoint.md
 - crc-SharedWorker.md
-- crc-MCPServer.md
-- crc-MCPResource.md
-- crc-MCPTool.md
 - crc-LuaRuntime.md
 - crc-LuaSession.md
 - crc-LuaPresenterLogic.md
@@ -115,9 +112,6 @@
 - seq-frontend-reconnect.md
 - seq-activate-tab.md
 - seq-navigate-url.md
-- seq-mcp-create-session.md
-- seq-mcp-create-presenter.md
-- seq-mcp-receive-event.md
 - seq-lua-executor-init.md
 - seq-lua-session-init.md
 - seq-lua-execute.md
@@ -126,6 +120,23 @@
 
 **UI Specs:**
 - manifest-ui.md
+
+---
+
+### specs/mcp.md
+
+**CRC Cards:**
+- crc-MCPServer.md
+- crc-MCPResource.md
+- crc-MCPTool.md
+
+**Sequence Diagrams:**
+- seq-mcp-lifecycle.md
+- seq-mcp-create-session.md
+- seq-mcp-create-presenter.md
+- seq-mcp-receive-event.md
+- seq-mcp-run.md
+- seq-mcp-get-state.md
 
 ---
 
@@ -329,17 +340,17 @@
 - [x] `web/src/batcher.ts` - Frontend batch processing
 
 ### crc-MCPServer.md
-**Source Spec:** interfaces.md
+**Source Spec:** specs/mcp.md
 **Implementation:**
 - [x] `internal/mcp/server.go` - MCP server
 
 ### crc-MCPResource.md
-**Source Spec:** interfaces.md
+**Source Spec:** specs/mcp.md
 **Implementation:**
 - [x] `internal/mcp/resources.go` - MCP resources
 
 ### crc-MCPTool.md
-**Source Spec:** interfaces.md
+**Source Spec:** specs/mcp.md
 **Implementation:**
 - [x] `internal/mcp/tools.go` - MCP tools
 

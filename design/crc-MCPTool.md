@@ -1,6 +1,6 @@
 # MCPTool
 
-**Source Spec:** interfaces.md
+**Source Spec:** specs/mcp.md
 
 ## Responsibilities
 
@@ -15,21 +15,24 @@
 - handle: Execute tool logic (interface implementation)
 
 ### Standard Tools
-- ui_get_state: Get current session state (Variable 1)
+- ui_configure: Prepare server environment (files, logs, I/O)
+- ui_start: Launch HTTP server
 - ui_run: Execute Lua code in session context
-- ui_upload_viewdef: Add dynamic view definition
+- ui_upload_viewdef: Add dynamic view definition and push to frontend
+- ui_open_browser: Open system browser to session URL
 
 ## Collaborators
 
-- MCPServer: Registers and invokes tools
+- MCPServer: Registers and invokes tools, manages lifecycle
 - SessionManager: Session creation
 - VariableStore: Presenter creation/update
 - ViewdefStore: Viewdef management
 - LuaRuntime: Lua code loading
 - Router: URL path registration
+- SharedWorker: Frontend coordination for conserve mode (via browser)
 
 ## Sequences
 
-- seq-mcp-create-session.md: Session creation tool
-- seq-mcp-create-presenter.md: Presenter/viewdef creation
-- seq-mcp-receive-event.md: Event handling tools
+- seq-mcp-lifecycle.md: Server lifecycle tools (configure, start, open_browser)
+- seq-mcp-run.md: Code execution
+- seq-mcp-create-presenter.md: Viewdef creation

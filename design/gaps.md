@@ -1,5 +1,61 @@
 # Gap Analysis
 
+**Date:** 2025-12-23
+**CRC Cards:** 46 | **Sequences:** 34 | **UI Specs:** 1
+
+## Type A Issues (Critical)
+
+### A1: Missing Implementation of MCP Lifecycle & Tools
+**Issue:** The new MCP lifecycle FSM and tools are specified and designed but not yet implemented.
+**Required by:** specs/mcp.md (Sections 3 & 5)
+**Expected in:** internal/mcp/server.go, internal/mcp/tools.go
+**Impact:** AI agents cannot configure or start the server, nor use the browser integration.
+**Status:** Open
+
+## Type B Issues (Quality)
+
+### B1: Architecture.md missing seq-mcp-lifecycle.md
+**Issue:** The new sequence diagram `seq-mcp-lifecycle.md` is not listed in `design/architecture.md`.
+**Current:** Lists other mcp sequences but not the lifecycle one.
+**Location:** design/architecture.md (MCP Integration System)
+**Recommendation:** Add `seq-mcp-lifecycle.md` to the list.
+**Status:** Open
+
+### B2: Traceability.md references outdated spec
+**Issue:** MCP components in `traceability.md` reference `interfaces.md` instead of the new `specs/mcp.md`.
+**Current:** "Source Spec: interfaces.md"
+**Location:** design/traceability.md (Level 1 <-> Level 2)
+**Recommendation:** Create a new section for `specs/mcp.md` or update the references.
+**Status:** Open
+
+## Type C Issues (Enhancements)
+
+### C1: SharedWorker Logic for Conserve Mode
+**Issue:** The frontend SharedWorker logic for "Conserve Mode" is specified but not detailed in a specific CRC card.
+**Current:** Mentioned in `specs/mcp.md` and `crc-MCPTool.md`.
+**Better:** Detailed CRC card for the SharedWorker's role in conserve mode, or update `crc-SharedWorker.md` to explicitly include this responsibility.
+**Priority:** Medium
+
+## Coverage Summary
+
+**CRC Responsibilities:** High (Design updated)
+**Sequences:** High (New sequence created)
+**UI Specs:** N/A
+
+**Traceability:**
+- ⚠️ MCP components point to old spec in traceability.md
+
+## Summary
+
+**Status:** Yellow
+**Type A (Critical):** 1 (Pending Implementation)
+**Type B (Quality):** 2 (Documentation updates needed)
+**Type C (Enhancements):** 1
+
+----
+
+# Gap Analysis
+
 **Date:** 2025-12-10
 **CRC Cards:** 45 | **Sequences:** 35 | **UI Specs:** 1
 
