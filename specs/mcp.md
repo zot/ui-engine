@@ -155,6 +155,7 @@ return session:getApp().contacts[1].firstName
 **Behavior:**
 - Constructs the full URL using the running server's port and session ID.
 - **URL Pattern:** `http://127.0.0.1:PORT/SESSION-ID/PATH?conserve=true`
+- **Default:** Always appends `?conserve=true` unless explicitly disabled, ensuring the SharedWorker coordination logic is engaged to prevent duplicate tabs.
 - Invokes the system's default browser opener (e.g., `xdg-open`, `open`, or `start`).
 
 **Returns:**
@@ -168,6 +169,7 @@ To prevent cluttering the user's workspace with multiple tabs for the same sessi
 **Mechanism:**
 1.  **SharedWorker Coordination:**
     - The frontend connects to a SharedWorker unique to the session/server origin.
+    - **Initialization:** If the SharedWorker is not running, the presence of `?conserve=true` MUST trigger its creation and initialization.
     - The SharedWorker maintains a count or list of active clients (tabs/windows).
 2.  **Detection:**
     - On load, if `?conserve=true` is present, the client queries the SharedWorker.

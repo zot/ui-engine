@@ -138,7 +138,7 @@ func New(cfg *config.Config) *Server {
 			cfg, 
 			s.luaRuntime, 
 			s.viewdefManager, 
-			s.StartHTTP, 
+			s.startHTTPAsync, 
 			s.onViewdefUploaded,
 		)
 		s.config.Log(0, "MCP server initialized")
@@ -164,17 +164,45 @@ func (s *Server) Start() error {
 		return nil
 	}
 
-	// Normal mode: Start HTTP server immediately
-	_, err := s.StartHTTP(s.config.Server.Port)
-	return err
+	// Normal mode: Start HTTP server immediately and block
+	srv, ln, url, err := s.configureHTTP(s.config.Server.Port)
+	if err != nil {
+		return err
+	}
+	
+	s.config.Log(0, "HTTP server listening on %s", url)
+	
+	// Block until shutdown
+	if err := srv.Serve(ln); err != nil && err != http.ErrServerClosed {
+		return fmt.Errorf("HTTP server error: %v", err)
+	}
+	return nil
 }
 
-// StartHTTP starts the backend socket and HTTP server on the specified port.
-// It returns the full base URL.
-func (s *Server) StartHTTP(port int) (string, error) {
+// startHTTPAsync starts the HTTP server in a background goroutine.
+// Used by MCP start tool.
+func (s *Server) startHTTPAsync(port int) (string, error) {
+	srv, ln, url, err := s.configureHTTP(port)
+	if err != nil {
+		return "", err
+	}
+
+	go func() {
+		s.config.Log(0, "HTTP server listening on %s", url)
+		if err := srv.Serve(ln); err != nil && err != http.ErrServerClosed {
+			s.config.Log(0, "HTTP server error: %v", err)
+		}
+	}()
+
+	return url, nil
+}
+
+// configureHTTP sets up the backend socket and HTTP server listener.
+// Returns the server, listener, and base URL.
+func (s *Server) configureHTTP(port int) (*http.Server, net.Listener, string, error) {
 	// Start backend socket
 	if err := s.backendSocket.Listen(); err != nil {
-		return "", fmt.Errorf("failed to start backend socket: %w", err)
+		return nil, nil, "", fmt.Errorf("failed to start backend socket: %w", err)
 	}
 	s.config.Log(0, "Backend socket listening on %s", s.backendSocket.GetSocketPath())
 
@@ -188,7 +216,7 @@ func (s *Server) StartHTTP(port int) (string, error) {
 	// We need to capture the actual port if 0 was passed
 	listener, err := net.Listen("tcp", addr)
 	if err != nil {
-		return "", fmt.Errorf("failed to listen on %s: %w", addr, err)
+		return nil, nil, "", fmt.Errorf("failed to listen on %s: %w", addr, err)
 	}
 
 	// Update port in config if it was 0
@@ -197,20 +225,14 @@ func (s *Server) StartHTTP(port int) (string, error) {
 		_, portStr, _ := net.SplitHostPort(addr)
 		s.config.Server.Port, _ = strconv.Atoi(portStr)
 	}
-
-	go func() {
-		s.config.Log(0, "HTTP server listening on %s", addr)
-		if err := s.httpServer.Serve(listener); err != nil && err != http.ErrServerClosed {
-			s.config.Log(0, "HTTP server error: %v", err)
-		}
-	}()
 	
 	host := s.config.Server.Host
 	if host == "" || host == "0.0.0.0" {
 		host = "127.0.0.1"
 	}
 	
-	return fmt.Sprintf("http://%s:%d", host, s.config.Server.Port), nil
+	url := fmt.Sprintf("http://%s:%d", host, s.config.Server.Port)
+	return s.httpServer, listener, url, nil
 }
 
 // onViewdefUploaded is called by MCP when a viewdef is updated.

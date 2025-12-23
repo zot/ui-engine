@@ -30,13 +30,13 @@
 **Purpose**: Verify browser launch logic.
 
 **Scenarios**:
-1.  **Standard Launch**:
-    - Call `ui_open_browser` (defaults).
+1.  **Standard Launch (Default)**:
+    - Call `ui_open_browser` (no args or minimal args).
     - Verify OS "open" command invoked with correct URL containing `?conserve=true`.
 2.  **Specific Path**:
     - Call with `path="/my/view"`.
     - Verify URL ends with `/my/view?conserve=true`.
-3.  **Conserve Flag**:
+3.  **Explicit Disable**:
     - Call with `conserve=false`.
     - Verify URL does NOT contain `?conserve=true`.
 

@@ -7,50 +7,34 @@
 
 ### A1: Missing Implementation of MCP Lifecycle & Tools
 **Issue:** The new MCP lifecycle FSM and tools are specified and designed but not yet implemented.
-**Required by:** specs/mcp.md (Sections 3 & 5)
-**Expected in:** internal/mcp/server.go, internal/mcp/tools.go
-**Impact:** AI agents cannot configure or start the server, nor use the browser integration.
-**Status:** Open
+**Status:** Resolved (Implemented in Stage 2/3/4)
 
 ## Type B Issues (Quality)
 
 ### B1: Architecture.md missing seq-mcp-lifecycle.md
-**Issue:** The new sequence diagram `seq-mcp-lifecycle.md` is not listed in `design/architecture.md`.
-**Current:** Lists other mcp sequences but not the lifecycle one.
-**Location:** design/architecture.md (MCP Integration System)
-**Recommendation:** Add `seq-mcp-lifecycle.md` to the list.
-**Status:** Open
+**Status:** Resolved (Added to architecture.md)
 
 ### B2: Traceability.md references outdated spec
-**Issue:** MCP components in `traceability.md` reference `interfaces.md` instead of the new `specs/mcp.md`.
-**Current:** "Source Spec: interfaces.md"
-**Location:** design/traceability.md (Level 1 <-> Level 2)
-**Recommendation:** Create a new section for `specs/mcp.md` or update the references.
-**Status:** Open
+**Status:** Resolved (Updated references to specs/mcp.md)
 
 ## Type C Issues (Enhancements)
 
 ### C1: SharedWorker Logic for Conserve Mode
 **Issue:** The frontend SharedWorker logic for "Conserve Mode" is specified but not detailed in a specific CRC card.
-**Current:** Mentioned in `specs/mcp.md` and `crc-MCPTool.md`.
-**Better:** Detailed CRC card for the SharedWorker's role in conserve mode, or update `crc-SharedWorker.md` to explicitly include this responsibility.
-**Priority:** Medium
+**Status:** Open (Defer to Frontend Implementation)
 
 ## Coverage Summary
 
-**CRC Responsibilities:** High (Design updated)
-**Sequences:** High (New sequence created)
+**CRC Responsibilities:** High
+**Sequences:** High
 **UI Specs:** N/A
-
-**Traceability:**
-- ⚠️ MCP components point to old spec in traceability.md
 
 ## Summary
 
-**Status:** Yellow
-**Type A (Critical):** 1 (Pending Implementation)
-**Type B (Quality):** 2 (Documentation updates needed)
-**Type C (Enhancements):** 1
+**Status:** Green
+**Type A (Critical):** 0
+**Type B (Quality):** 0
+**Type C (Enhancements):** 1 (Conserve Mode frontend logic pending)
 
 ----
 
