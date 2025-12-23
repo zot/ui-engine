@@ -7,8 +7,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"io/fs"
+	"net"
 	"net/http"
 	"path/filepath"
+	"strconv"
 	"sync"
 	"time"
 
@@ -132,7 +134,13 @@ func New(cfg *config.Config) *Server {
 
 	// Initialize MCP server if enabled
 	if cfg.MCP.Enabled && cfg.Lua.Enabled {
-		s.mcpServer = mcp.NewServer(cfg, s.luaRuntime, s.viewdefManager)
+		s.mcpServer = mcp.NewServer(
+			cfg, 
+			s.luaRuntime, 
+			s.viewdefManager, 
+			s.StartHTTP, 
+			s.onViewdefUploaded,
+		)
 		s.config.Log(0, "MCP server initialized")
 	}
 
@@ -143,28 +151,108 @@ func New(cfg *config.Config) *Server {
 func (s *Server) Start() error {
 	// Start MCP server if enabled
 	if s.mcpServer != nil {
-		go func() {
-			if err := s.mcpServer.ServeStdio(); err != nil {
-				s.config.Log(0, "MCP server error: %v", err)
-			}
-		}()
+		s.config.Log(0, "Starting MCP server on stdio...")
+		if err := s.mcpServer.ServeStdio(); err != nil {
+			return fmt.Errorf("MCP server error: %v", err)
+		}
+		// ServeStdio blocks until shutdown/EOF
+		return nil
 	}
 
+	// Normal mode: Start HTTP server immediately
+	_, err := s.StartHTTP(s.config.Server.Port)
+	return err
+}
+
+// StartHTTP starts the backend socket and HTTP server on the specified port.
+// It returns the full base URL.
+func (s *Server) StartHTTP(port int) (string, error) {
 	// Start backend socket
 	if err := s.backendSocket.Listen(); err != nil {
-		return fmt.Errorf("failed to start backend socket: %w", err)
+		return "", fmt.Errorf("failed to start backend socket: %w", err)
 	}
 	s.config.Log(0, "Backend socket listening on %s", s.backendSocket.GetSocketPath())
 
 	// Start HTTP server
-	addr := fmt.Sprintf("%s:%d", s.config.Server.Host, s.config.Server.Port)
+	addr := fmt.Sprintf("%s:%d", s.config.Server.Host, port)
 	s.httpServer = &http.Server{
 		Addr:    addr,
 		Handler: s.httpEndpoint,
 	}
 
-	s.config.Log(0, "HTTP server listening on %s", addr)
-	return s.httpServer.ListenAndServe()
+	// We need to capture the actual port if 0 was passed
+	listener, err := net.Listen("tcp", addr)
+	if err != nil {
+		return "", fmt.Errorf("failed to listen on %s: %w", addr, err)
+	}
+
+	// Update port in config if it was 0
+	if port == 0 {
+		addr = listener.Addr().String()
+		_, portStr, _ := net.SplitHostPort(addr)
+		s.config.Server.Port, _ = strconv.Atoi(portStr)
+	}
+
+	go func() {
+		s.config.Log(0, "HTTP server listening on %s", addr)
+		if err := s.httpServer.Serve(listener); err != nil && err != http.ErrServerClosed {
+			s.config.Log(0, "HTTP server error: %v", err)
+		}
+	}()
+	
+	host := s.config.Server.Host
+	if host == "" || host == "0.0.0.0" {
+		host = "127.0.0.1"
+	}
+	
+	return fmt.Sprintf("http://%s:%d", host, s.config.Server.Port), nil
+}
+
+// onViewdefUploaded is called by MCP when a viewdef is updated.
+// It triggers updates for all variables of that type.
+func (s *Server) onViewdefUploaded(typeName string) {
+	s.config.Log(0, "MCP Viewdef uploaded: %s. Refreshing variables...", typeName)
+	
+	sessions := s.sessions.GetAllSessions()
+	for _, sess := range sessions {
+		b := sess.GetBackend()
+		if b == nil {
+			continue
+		}
+		
+		// We assume standard LuaBackend which exposes GetTracker()
+		// We need to cast because Backend interface might not have GetTracker
+		// Actually internal/backend/backend.go defines Backend interface.
+		// internal/server/server.go uses *backend.LuaBackend in CreateLuaBackendForSession.
+		// GetBackend returns backend.Backend.
+		
+		lb, ok := b.(*backend.LuaBackend)
+		if !ok {
+			continue
+		}
+		
+		tracker := lb.GetTracker()
+		// Tracker.Variables is a function returning []*Variable
+		for _, v := range tracker.Variables() {
+			if v.Properties["type"] == typeName {
+				// Send update
+				jsonVal, _ := tracker.ToValueJSONBytes(v.Value)
+				updateMsg, err := protocol.NewMessage(protocol.MsgUpdate, protocol.UpdateMessage{
+					VarID:      v.ID,
+					Value:      json.RawMessage(jsonVal),
+					Properties: v.Properties,
+				})
+				if err != nil {
+					continue
+				}
+
+				watchers := lb.GetWatchers(v.ID)
+				for _, connID := range watchers {
+					s.wsEndpoint.Send(connID, updateMsg)
+				}
+			}
+		}
+	}
 }
 
 // Shutdown gracefully shuts down the server.

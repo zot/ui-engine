@@ -1,23 +1,41 @@
 // Package mcp implements the Model Context Protocol server.
 // CRC: crc-MCPTool.md
-// Spec: interfaces.md
-// Sequence: seq-mcp-run.md, seq-mcp-get-state.md
+// Spec: specs/mcp.md
+// Sequence: seq-mcp-lifecycle.md, seq-mcp-run.md, seq-mcp-get-state.md
 package mcp
 
 import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"runtime"
+	"strings"
 
 	"github.com/mark3labs/mcp-go/mcp"
 )
 
 func (s *Server) registerTools() {
-	// ui_get_state
-	s.mcpServer.AddTool(mcp.NewTool("ui_get_state",
-		mcp.WithDescription("Get the current state (Variable 1) of a session"),
-		mcp.WithString("sessionId", mcp.Description("The session ID to inspect (defaults to '1')")),
-	), s.handleGetState)
+	// ui_configure
+	s.mcpServer.AddTool(mcp.NewTool("ui_configure",
+		mcp.WithDescription("Prepare the server environment and file system. Must be the first tool called."),
+		mcp.WithString("base_dir", mcp.Required(), mcp.Description("Absolute path to the project root directory")),
+	), s.handleConfigure)
+
+	// ui_start
+	s.mcpServer.AddTool(mcp.NewTool("ui_start",
+		mcp.WithDescription("Start the embedded HTTP UI server. Requires server to be Configured."),
+	), s.handleStart)
+
+	// ui_open_browser
+	s.mcpServer.AddTool(mcp.NewTool("ui_open_browser",
+		mcp.WithDescription("Open the system's default web browser to the UI session."),
+		mcp.WithString("sessionId", mcp.Description("The session to open (defaults to '1')")),
+		mcp.WithString("path", mcp.Description("The URL path to open (defaults to '/')")),
+		mcp.WithBoolean("conserve", mcp.Description("Use conserve mode to prevent duplicate tabs (defaults to true)")),
+	), s.handleOpenBrowser)
 
 	// ui_run
 	s.mcpServer.AddTool(mcp.NewTool("ui_run",
@@ -35,50 +53,126 @@ func (s *Server) registerTools() {
 	), s.handleUploadViewdef)
 }
 
-func (s *Server) handleGetState(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+func (s *Server) handleConfigure(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	// Spec: mcp.md
+	// CRC: crc-MCPTool.md
+	// Sequence: seq-mcp-lifecycle.md
 	args, ok := request.Params.Arguments.(map[string]interface{})
 	if !ok {
 		return mcp.NewToolResultError("arguments must be a map"), nil
 	}
-	
+
+	baseDir, ok := args["base_dir"].(string)
+	if !ok {
+		return mcp.NewToolResultError("base_dir must be a string"), nil
+	}
+
+	// 1. Directory Creation
+	if err := os.MkdirAll(filepath.Join(baseDir, "log"), 0755); err != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("failed to create directories: %v", err)), nil
+	}
+
+	// 2. Runtime Setup (Lua I/O Redirection)
+	logPath := filepath.Join(baseDir, "log", "lua.log")
+	errPath := filepath.Join(baseDir, "log", "lua-err.log")
+	if err := s.runtime.RedirectOutput(logPath, errPath); err != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("failed to redirect Lua output: %v", err)), nil
+	}
+
+	// 3. State Transition
+	if err := s.Configure(baseDir); err != nil {
+		return mcp.NewToolResultError(err.Error()), nil
+	}
+
+	return mcp.NewToolResultText(fmt.Sprintf("Server configured. Log files created at %s", filepath.Join(baseDir, "log"))), nil
+}
+
+func (s *Server) handleStart(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	// Spec: mcp.md
+	// CRC: crc-MCPTool.md
+	// Sequence: seq-mcp-lifecycle.md
+	url, err := s.Start()
+	if err != nil {
+		return mcp.NewToolResultError(err.Error()), nil
+	}
+
+	return mcp.NewToolResultText(url), nil
+}
+
+func (s *Server) handleOpenBrowser(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	// Spec: mcp.md
+	// CRC: crc-MCPTool.md
+	// Sequence: seq-mcp-lifecycle.md
+	args, ok := request.Params.Arguments.(map[string]interface{})
+	if !ok {
+		return mcp.NewToolResultError("arguments must be a map"), nil
+	}
+
 	sessionID, ok := args["sessionId"].(string)
 	if !ok || sessionID == "" {
 		sessionID = "1"
 	}
 
-	session, ok := s.runtime.GetLuaSession(sessionID)
+	path, ok := args["path"].(string)
 	if !ok {
-		return mcp.NewToolResultError(fmt.Sprintf("session %s not found", sessionID)), nil
+		path = "/"
+	}
+	if !strings.HasPrefix(path, "/") {
+		path = "/" + path
 	}
 
-	tracker := session.GetTracker()
-	if tracker == nil {
-		return mcp.NewToolResultError("tracker not found"), nil
-	}
-	
-	v1 := tracker.GetVariable(1)
-	if v1 == nil {
-		return mcp.NewToolResultError("variable 1 (app root) not found"), nil
+	conserve := true
+	if c, ok := args["conserve"].(bool); ok {
+		conserve = c
 	}
 
-	val := v1.NavigationValue()
-	jsonVal, err := tracker.ToValueJSONBytes(val)
-	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("failed to marshal value: %v", err)), nil
+	s.mu.RLock()
+	baseURL := s.url
+	state := s.state
+	s.mu.RUnlock()
+
+	if state != Running {
+		return mcp.NewToolResultError("Server not running"), nil
 	}
 
-	result := map[string]interface{}{
-		"id":         1,
-		"properties": v1.Properties,
-		"value":      json.RawMessage(jsonVal),
+	// Construct URL: baseURL + "/" + sessionID + path
+	fullURL := fmt.Sprintf("%s/%s%s", baseURL, sessionID, path)
+	if conserve {
+		if strings.Contains(fullURL, "?") {
+			fullURL += "&conserve=true"
+		} else {
+			fullURL += "?conserve=true"
+		}
 	}
-	
-	jsonResult, _ := json.MarshalIndent(result, "", "  ")
 
-	return mcp.NewToolResultText(string(jsonResult)), nil
+	var cmd *exec.Cmd
+	switch runtime.GOOS {
+	case "linux":
+		cmd = exec.Command("xdg-open", fullURL)
+	case "darwin":
+		cmd = exec.Command("open", fullURL)
+	case "windows":
+		cmd = exec.Command("cmd", "/c", "start", fullURL)
+	default:
+		return mcp.NewToolResultError(fmt.Sprintf("unsupported platform: %s", runtime.GOOS)), nil
+	}
+
+	if err := cmd.Start(); err != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("failed to open browser: %v", err)), nil
+	}
+
+	return mcp.NewToolResultText(fmt.Sprintf("Opened %s", fullURL)), nil
+}
+
+func (s *Server) handleGetState(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	// Removed in favor of ui_run
+	return mcp.NewToolResultError("Tool removed. Use ui_run to inspect state."), nil
 }
 
 func (s *Server) handleRun(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	// Spec: mcp.md
+	// CRC: crc-MCPTool.md
+	// Sequence: seq-mcp-run.md
 	args, ok := request.Params.Arguments.(map[string]interface{})
 	if !ok {
 		return mcp.NewToolResultError("arguments must be a map"), nil
@@ -92,8 +186,8 @@ func (s *Server) handleRun(ctx context.Context, request mcp.CallToolRequest) (*m
 	if !ok || sessionID == "" {
 		sessionID = "1"
 	}
-	
-	err := s.runtime.ExecuteInSession(sessionID, func() error {
+
+	result, err := s.runtime.ExecuteInSession(sessionID, func() (interface{}, error) {
 		return s.runtime.LoadCode("mcp-run", code)
 	})
 
@@ -101,10 +195,22 @@ func (s *Server) handleRun(ctx context.Context, request mcp.CallToolRequest) (*m
 		return mcp.NewToolResultError(fmt.Sprintf("execution failed: %v", err)), nil
 	}
 
-	return mcp.NewToolResultText("Executed successfully"), nil
+	// Marshal result
+	jsonResult, err := json.MarshalIndent(result, "", "  ")
+	if err != nil {
+		// Fallback for non-serializable results
+		fallback := map[string]string{
+			"non-json": fmt.Sprintf("%v", result),
+		}
+		jsonResult, _ = json.Marshal(fallback)
+	}
+
+	return mcp.NewToolResultText(string(jsonResult)), nil
 }
 
 func (s *Server) handleUploadViewdef(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	// Spec: mcp.md
+	// CRC: crc-MCPTool.md
 	args, ok := request.Params.Arguments.(map[string]interface{})
 	if !ok {
 		return mcp.NewToolResultError("arguments must be a map"), nil
@@ -126,5 +232,10 @@ func (s *Server) handleUploadViewdef(ctx context.Context, request mcp.CallToolRe
 	key := fmt.Sprintf("%s.%s", typeName, namespace)
 	s.viewdefs.AddViewdef(key, content)
 
+	// Notify server to refresh variables of this type
+	if s.onViewdefUploaded != nil {
+		s.onViewdefUploaded(typeName)
+	}
+	
 	return mcp.NewToolResultText(fmt.Sprintf("Viewdef %s uploaded", key)), nil
 }

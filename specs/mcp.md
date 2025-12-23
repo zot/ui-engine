@@ -20,11 +20,11 @@ The MCP server operates as a strict Finite State Machine (FSM).
 
 ### 3.1 States
 
-| State | HTTP Server Status | Configuration | Lua I/O | Description |
-| :--- | :--- | :--- | :--- | :--- |
-| **UNCONFIGURED** | **Stopped** | None | Standard | Initial state on process start. Only `ui_configure` is permitted. |
-| **CONFIGURED** | **Stopped** | Loaded | Redirected | Environment is prepped, logs are active, but no network port is bound. Ready for `ui_start`. |
-| **RUNNING** | **Active** | Loaded | Redirected | Server is listening on a port. All tools are fully operational. |
+| State            | HTTP Server Status | Configuration | Lua I/O    | Description                                                                                  |
+|:-----------------|:-------------------|:--------------|:-----------|:---------------------------------------------------------------------------------------------|
+| **UNCONFIGURED** | **Stopped**        | None          | Standard   | Initial state on process start. Only `ui_configure` is permitted.                            |
+| **CONFIGURED**   | **Stopped**        | Loaded        | Redirected | Environment is prepped, logs are active, but no network port is bound. Ready for `ui_start`. |
+| **RUNNING**      | **Active**         | Loaded        | Redirected | Server is listening on a port. All tools are fully operational.                              |
 
 ### 3.2 Transitions
 

@@ -705,31 +705,80 @@ func (r *Runtime) execute(fn func() (interface{}, error)) (interface{}, error) {
 
 // ExecuteInSession executes a function within the context of a specific session.
 // It sets the global 'session' variable to the target session's table before execution.
+// Spec: mcp.md
 // CRC: crc-LuaRuntime.md
 // Sequence: seq-mcp-run.md
-func (r *Runtime) ExecuteInSession(sessionID string, fn func() error) error {
-	_, err := r.execute(func() (interface{}, error) {
+func (r *Runtime) ExecuteInSession(sessionID string, fn func() (interface{}, error)) (interface{}, error) {
+	return r.execute(func() (interface{}, error) {
 		r.mu.RLock()
 		session, ok := r.sessions[sessionID]
 		r.mu.RUnlock()
-		
+
 		if !ok {
 			return nil, fmt.Errorf("session %s not found", sessionID)
 		}
-		
+
 		L := r.state
-		
+
 		// Set the global 'session' variable
 		L.SetGlobal("session", session.sessionTable)
-		
+
 		// Execute the function
-		if err := fn(); err != nil {
-			return nil, err
-		}
-		
+		return fn()
+	})
+}
+// RedirectOutput redirects Lua's print function and standard streams to log files.
+// It is used by the MCP server in Configured state.
+// Spec: mcp.md
+// CRC: crc-LuaRuntime.md
+func (r *Runtime) RedirectOutput(logPath, errPath string) error {
+	// Create/Open log files
+	logFile, err := os.OpenFile(logPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	if err != nil {
+		return fmt.Errorf("failed to open log file: %v", err)
+	}
+
+	errFile, err := os.OpenFile(errPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	if err != nil {
+		logFile.Close()
+		return fmt.Errorf("failed to open error log file: %v", err)
+	}
+	// Keep file open for the process duration
+	_ = errFile 
+
+	// We don't close these files here; they remain open for the process lifetime
+	// or until reconfigured. In a robust system we might want to manage them better.
+
+	r.execute(func() (interface{}, error) {
+		L := r.state
+
+		// Override print
+		L.SetGlobal("print", L.NewFunction(func(L *lua.LState) int {
+			top := L.GetTop()
+			for i := 1; i <= top; i++ {
+				str := L.ToStringMeta(L.Get(i)).String()
+				if i > 1 {
+					logFile.WriteString("\t")
+				}
+				logFile.WriteString(str)
+			}
+			logFile.WriteString("\n")
+			// Sync/Flush to ensure output is visible immediately (e.g. to tail -f)
+			logFile.Sync() 
+			return 0
+		}))
+
+		// Redirect io.stdout / io.stderr (if your Lua environment uses the io library)
+		// Note: gopher-lua's io library writes to os.Stdout/Stderr by default.
+		// Changing that requires hacking the library or standard library options,
+		// which is complex. For now, replacing 'print' covers most user code.
+		// System-level fmt.Println from Go code will still go to process Stdout/Stderr.
+		// We've already redirected global Go logging to Stderr in main.go.
+
 		return nil, nil
 	})
-	return err
+
+	return nil
 }
 
 // VariableUpdate represents a detected change to be sent to the frontend.
@@ -1129,14 +1178,36 @@ func (r *Runtime) LoadFileAbsolute(path string) error {
 }
 
 // LoadCode loads and executes Lua code string via executor.
-func (r *Runtime) LoadCode(name, code string) error {
-	_, err := r.execute(func() (interface{}, error) {
-		if err := r.state.DoString(code); err != nil {
+// It returns the result of the execution (if any).
+// Spec: mcp.md
+// CRC: crc-LuaRuntime.md
+func (r *Runtime) LoadCode(name, code string) (interface{}, error) {
+	return r.execute(func() (interface{}, error) {
+		// Load the string into a function
+		fn, err := r.state.LoadString(code)
+		if err != nil {
 			return nil, fmt.Errorf("failed to load code %s: %w", name, err)
 		}
-		return nil, nil
+
+		// Push function
+		r.state.Push(fn)
+
+		// Call it (0 arguments, 1 result)
+		if err := r.state.PCall(0, 1, nil); err != nil {
+			return nil, fmt.Errorf("failed to execute code %s: %w", name, err)
+		}
+
+		// Get result
+		ret := r.state.Get(-1) // Get top
+		r.state.Pop(1)         // Pop it
+
+		if ret == lua.LNil {
+			return nil, nil
+		}
+
+		// Convert to Go
+		return luaToGo(ret), nil
 	})
-	return err
 }
 
 // GetPresenterType returns a registered presenter type.
