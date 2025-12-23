@@ -39,8 +39,16 @@ build-sqlite:
 # Build bundled binary for current platform
 bundle: build frontend
 	@echo "Creating bundled binary..."
-	$(BUILD_DIR)/$(BINARY_NAME) bundle -o $(BUILD_DIR)/$(BINARY_NAME)-bundled $(SITE_DIR)
+	@mkdir -p $(BUILD_DIR)/bundle_root
+	@cp -r $(SITE_DIR)/* $(BUILD_DIR)/bundle_root/
+	@mkdir -p $(BUILD_DIR)/bundle_root/resources
+	@if [ -d "resources" ]; then cp -r resources/* $(BUILD_DIR)/bundle_root/resources/; fi
+	$(BUILD_DIR)/$(BINARY_NAME) bundle -o $(BUILD_DIR)/$(BINARY_NAME)-bundled $(BUILD_DIR)/bundle_root
+	@rm -rf $(BUILD_DIR)/bundle_root
 	@echo "Created: $(BUILD_DIR)/$(BINARY_NAME)-bundled"
+
+# Build MCP-optimized binary (alias for bundle)
+mcp: bundle
 
 # Build frontend
 frontend:

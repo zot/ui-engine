@@ -4,14 +4,14 @@ View definitions (viewdefs) are HTML fragments wrapped in a `<template>` tag. Th
 
 ## Core Binding Attributes
 
-| Attribute | Description | Example |
-| :--- | :--- | :--- |
-| `ui-value` | Binds element value or content to a Lua path. | `<span ui-value="name"></span>` |
-| `ui-action` | Binds user events (click, etc.) to a Lua method call. | `<button ui-action="save()">Save</button>` |
-| `ui-view` | Renders a child object using its own viewdef. | `<div ui-view="selectedItem"></div>` |
-| `ui-attr-*` | Binds an HTML attribute to a Lua path. | `<sl-alert ui-attr-open="hasError">` |
-| `ui-class-*` | Toggles a CSS class based on a Lua boolean path. | `<div ui-class-active="isSelected">` |
-| `ui-style-*` | Binds a CSS style property to a Lua path. | `<div ui-style-color="themeColor">` |
+| Attribute    | Description                                           | Example                                    |
+|:-------------|:------------------------------------------------------|:-------------------------------------------|
+| `ui-value`   | Binds element value or content to a Lua path.         | `<span ui-value="name"></span>`            |
+| `ui-action`  | Binds user events (click, etc.) to a Lua method call. | `<button ui-action="save()">Save</button>` |
+| `ui-view`    | Renders a child object using its own viewdef.         | `<div ui-view="selectedItem"></div>`       |
+| `ui-attr-*`  | Binds an HTML attribute to a Lua path.                | `<sl-alert ui-attr-open="hasError">`       |
+| `ui-class-*` | Toggles a CSS class based on a Lua boolean path.      | `<div ui-class-active="isSelected">`       |
+| `ui-style-*` | Binds a CSS style property to a Lua path.             | `<div ui-style-color="themeColor">`        |
 
 ## Path Syntax
 
