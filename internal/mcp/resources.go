@@ -8,6 +8,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
 
 	"github.com/mark3labs/mcp-go/mcp"
 )
@@ -24,6 +27,57 @@ func (s *Server) registerResources() {
 		mcp.WithResourceDescription("Current JSON state of the session (Variable 1)"),
 		mcp.WithMIMEType("application/json"),
 	), s.handleGetStateResource)
+
+	// ui://{path} - Generic resource server for static content
+	s.mcpServer.AddResource(mcp.NewResource("ui://{path}", "Static Resource",
+		mcp.WithResourceDescription("Static documentation or pattern resource"),
+	), s.handleGetStaticResource)
+}
+
+// handleGetStaticResource serves static documentation or pattern resources.
+// Spec: mcp.md
+// CRC: crc-MCPResource.md
+func (s *Server) handleGetStaticResource(ctx context.Context, request mcp.ReadResourceRequest) ([]mcp.ResourceContents, error) {
+	uri := request.Params.URI
+	path := strings.TrimPrefix(uri, "ui://")
+
+	s.mu.RLock()
+	baseDir := s.baseDir
+	s.mu.RUnlock()
+
+	if baseDir == "" {
+		return nil, fmt.Errorf("Server not configured")
+	}
+
+	// Clean path to prevent directory traversal
+	cleanPath := filepath.Clean(path)
+	if strings.HasPrefix(cleanPath, "..") {
+		return nil, fmt.Errorf("Invalid resource path")
+	}
+
+	fullPath := filepath.Join(baseDir, "resources", cleanPath+".md")
+	// Try with .md extension first, then without
+	if _, err := os.Stat(fullPath); os.IsNotExist(err) {
+		fullPath = filepath.Join(baseDir, "resources", cleanPath)
+	}
+
+	content, err := os.ReadFile(fullPath)
+	if err != nil {
+		return nil, fmt.Errorf("Resource not found: %s", path)
+	}
+
+	mimeType := "text/markdown"
+	if !strings.HasSuffix(fullPath, ".md") {
+		mimeType = "text/plain"
+	}
+
+	return []mcp.ResourceContents{
+		mcp.TextResourceContents{
+			URI:      uri,
+			MIMEType: mimeType,
+			Text:     string(content),
+		},
+	}, nil
 }
 
 func (s *Server) handleGetStateResource(ctx context.Context, request mcp.ReadResourceRequest) ([]mcp.ResourceContents, error) {

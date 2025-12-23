@@ -15,6 +15,7 @@ import (
 	"strings"
 
 	"github.com/mark3labs/mcp-go/mcp"
+	"github.com/zot/ui/internal/bundle"
 )
 
 func (s *Server) registerTools() {
@@ -82,6 +83,23 @@ func (s *Server) handleConfigure(ctx context.Context, request mcp.CallToolReques
 	// 3. State Transition
 	if err := s.Configure(baseDir); err != nil {
 		return mcp.NewToolResultError(err.Error()), nil
+	}
+
+	// 4. Resource Extraction (Optional - only if resources dir is missing)
+	resourcesDir := filepath.Join(baseDir, "resources")
+	if _, err := os.Stat(resourcesDir); os.IsNotExist(err) {
+		// Try to extract only the resources directory from bundle
+		if isBundled, _ := bundle.IsBundled(); isBundled {
+			// List files in resources/ from bundle
+			files, _ := bundle.ListFilesInDir("resources")
+			if len(files) > 0 {
+				os.MkdirAll(resourcesDir, 0755)
+				for _, f := range files {
+					content, _ := bundle.ReadFile(f)
+					os.WriteFile(filepath.Join(baseDir, f), content, 0644)
+				}
+			}
+		}
 	}
 
 	return mcp.NewToolResultText(fmt.Sprintf("Server configured. Log files created at %s", filepath.Join(baseDir, "log"))), nil

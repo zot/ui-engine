@@ -347,7 +347,7 @@
 ### crc-MCPResource.md
 **Source Spec:** specs/mcp.md
 **Implementation:**
-- [x] `internal/mcp/resources.go` - MCP resources (State root redirection via mcp.state)
+- [x] `internal/mcp/resources.go` - MCP resources (State root redirection via mcp.state, static resources from baseDir/resources)
 
 ### crc-MCPTool.md
 **Source Spec:** specs/mcp.md
