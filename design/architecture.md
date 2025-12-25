@@ -180,19 +180,19 @@ Each session has an associated Backend that handles variable management. Two imp
 
 **Purpose**: Path navigation, change detection, and object identity for backend integration
 
-**Design Elements**:
+**External Package**: Core tracking provided by `change-tracker` (`github.com/zot/change-tracker`)
+- Variable management, change detection, object registry, value serialization
+- See change-tracker docs for details
+
+**Design Elements** (UI-specific extensions):
 - crc-PathNavigator.md
-- crc-ChangeDetector.md
-- crc-ObjectRegistry.md
 - crc-BackendConnection.md
 - seq-path-resolve.md
 - seq-backend-refresh.md
-- seq-object-registry.md
 
 **Notes**:
 - BackendConnection used by external Go backends (connected backend mode)
 - Embedded Lua uses LuaSession instead of BackendConnection
-- ObjectRegistry provides identity-based serialization for Go backends (requires Go 1.25+)
 
 ### Frontend Library System
 

@@ -145,17 +145,19 @@
 **CRC Cards:**
 - crc-VariableStore.md (unbound model)
 - crc-BackendConnection.md (bound model)
-- crc-ChangeDetector.md
+
+**External Package:** Change detection provided by `change-tracker` (`github.com/zot/change-tracker`)
 
 ---
 
 ### libraries.md
 
+**External Package:** Core tracking provided by `change-tracker` (`github.com/zot/change-tracker`)
+- Variable management, change detection, object registry, value serialization
+
 **CRC Cards:**
 - crc-PathNavigator.md
 - crc-PathSyntax.md (path property defaults)
-- crc-ChangeDetector.md
-- crc-ObjectRegistry.md
 - crc-BackendConnection.md
 - crc-FrontendApp.md
 - crc-SPANavigator.md
@@ -172,13 +174,11 @@
 - seq-bootstrap.md
 - seq-lua-session-init.md
 - seq-backend-refresh.md
-- seq-object-registry.md
 - seq-input-value-binding.md
 
 **Notes:**
 - BackendConnection used by external Go backends (connected backend mode)
 - Embedded Lua uses LuaSession instead of BackendConnection
-- ObjectRegistry provides identity-based serialization for Go backends (requires Go 1.25+)
 - Path properties without values default to `true` (e.g., `?keypress` equals `?keypress=true`)
 - Input elements use blur-based events by default; `keypress` property switches to keystroke events
 
@@ -390,17 +390,12 @@
 - [x] `lib/lua/path.lua` - Lua path navigation
 - [x] `web/src/path.ts` - Frontend path resolution
 
-### crc-ChangeDetector.md
-**Source Spec:** libraries.md
+### External: change-tracker package
+**Source Spec:** libraries.md, data-models.md
+**Package:** `github.com/zot/change-tracker`
+**Provides:** Variable management, change detection, object registry, value serialization
 **Implementation:**
-- [x] `lib/go/change.go` - Go change detection
-- [x] `lib/lua/change.lua` - Lua change detection (to be removed - superseded by Go change-tracker)
-
-### crc-ObjectRegistry.md
-**Source Spec:** libraries.md
-**Notes:** Go 1.25+ required for weak package; provides identity-based serialization
-**Implementation:**
-- [ ] `lib/go/registry.go` - Object registry with weak references
+- [x] External package - see change-tracker repository for details
 
 ### crc-FrontendApp.md
 **Source Spec:** libraries.md, interfaces.md
@@ -459,11 +454,11 @@
 
 ---
 
-## Removed Design Elements
+## Historical: Removed Design Elements
 
-### crc-WatchManager.md (REMOVED)
-**Status:** Functionality merged into crc-LuaBackend.md
-**Reason:** WatchManager used global maps keyed by varID, but variable IDs are only unique within a session. Per-session watch management is now handled by LuaBackend.
-**Implementation to remove:**
-- [ ] `internal/variable/watch.go` - WatchManager (remove)
-- [ ] `lib/lua/change.lua` - Lua change detection (remove - superseded by Go change-tracker)
+The following design elements were removed as their functionality is now provided externally:
+
+- **crc-WatchManager.md** - Merged into crc-LuaBackend.md (per-session watch management)
+- **crc-ChangeDetector.md** - Now provided by change-tracker package
+- **crc-ObjectRegistry.md** - Now provided by change-tracker package
+- **seq-object-registry.md** - Internal to change-tracker package

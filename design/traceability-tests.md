@@ -28,7 +28,8 @@
 **Test Designs**: test-Session.md, test-Communication.md, test-MCP.md, test-Lua.md
 
 ### libraries.md
-**CRC Cards**: crc-BackendConnection.md, crc-PathNavigator.md, crc-ChangeDetector.md, crc-FrontendApp.md, crc-SPANavigator.md, crc-ViewRenderer.md, crc-WidgetBinder.md
+**CRC Cards**: crc-BackendConnection.md, crc-PathNavigator.md, crc-FrontendApp.md, crc-SPANavigator.md, crc-ViewRenderer.md, crc-WidgetBinder.md
+**External Package**: `change-tracker` (`github.com/zot/change-tracker`) - change detection, object registry
 **Sequences**: seq-backend-refresh.md, seq-spa-navigate.md, seq-bootstrap.md, seq-render-view.md
 **Test Designs**: test-Backend.md, test-Frontend.md
 

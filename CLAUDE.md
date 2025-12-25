@@ -1,13 +1,5 @@
 # Project Instructions
 
-## 🛑 STOP: MANDATORY BEHAVIORAL RULES
-1. **NEVER COMMIT AUTONOMOUSLY.** You must ALWAYS ask for explicit user permission before running `git commit`.
-2. **NEVER INITIATE IMPLEMENTATION AUTONOMOUSLY.** After creating or modifying a plan (e.g., in `.scratch/*.md`), you must STOP and ask for user confirmation before writing any code.
-3. **Planning Discipline:**
-   - **Strict Separation:** Do not mix planning and implementation in the same turn.
-   - **Stop After Planning:** After updating the plan, present a very brief summary and **STOP**. Do NOT ask "Shall I proceed?" or automatically move to implementation. Wait for the user to explicitly initiate the next step.
-   - **Plan First:** Always update the plan file to reflect the latest understanding *before* writing code.
-
 ## Essential Reading: Architecture Overview
 
 **ALWAYS read `ARCHITECTURE.md` before working on frontend/backend integration.**
@@ -31,7 +23,7 @@ You can use the playwright browser to connect to it.
 1. Check git status and diff to analyze changes
 2. Ask about any new files to ensure test/temp files aren't added accidentally
 3. Add all changes (or only staged files if you specify "staged only")
-4. Generate a clear commit message with terse bullet points, followed by "co-authored by AI" where AI is your name (like "co-authored by Claude" or "co-authored by Gemini")
+4. Generate a clear commit message with terse bullet points
 5. Create the commit and verify success
 
 ## Using the ui mcp
