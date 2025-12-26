@@ -33,8 +33,8 @@ Provides access to session-level services.
 - `session:createAppVariable(obj)`: Sets the initial app object.
 
 ### 2. `mcp` (AI Agents Only)
-Provides communication between the Lua app and the AI Agent.
-- `mcp.state`: Set this to define what the Agent sees in `ui://state`. Defaults to the app object.
+Provides display and communication for AI Agents.
+- `mcp.state`: Set this to display an object on screen. Starts as `nil` (blank). The object must have a `type` field matching a viewdef.
 - `mcp.notify(method, params)`: Sends a notification to the Agent.
 
 ## Change Detection

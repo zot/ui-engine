@@ -8,8 +8,8 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/zot/ui/internal/protocol"
-	"github.com/zot/ui/internal/session"
+	"github.com/zot/ui-engine/internal/protocol"
+	"github.com/zot/ui-engine/internal/session"
 )
 
 // HTTPEndpoint handles HTTP requests.

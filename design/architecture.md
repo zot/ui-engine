@@ -142,21 +142,6 @@ Each session has an associated Backend that handles variable management. Two imp
 - Session-wrapped batching: `{"session": "abc123", "messages": [...]}`
 - Backend creates variable 1 (unless hybrid mode with Lua creating it)
 
-### MCP Integration System
-
-**Purpose**: AI assistant integration via Model Context Protocol
-
-**Design Elements**:
-- crc-MCPServer.md
-- crc-MCPResource.md
-- crc-MCPTool.md
-- seq-mcp-lifecycle.md
-- seq-mcp-create-session.md
-- seq-mcp-create-presenter.md
-- seq-mcp-receive-event.md
-- seq-mcp-run.md
-- seq-mcp-get-state.md
-
 ### Lua Runtime System
 
 **Purpose**: Embedded Lua backend for presentation logic with session-based architecture

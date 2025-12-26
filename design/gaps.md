@@ -1,7 +1,8 @@
 # Gap Analysis
 
-**Date:** 2025-12-25
-**CRC Cards:** 45 | **Sequences:** 44 | **UI Specs:** 2 | **Test Designs:** 8
+**Date:** 2025-12-26
+**CRC Cards:** 42 | **Sequences:** 35 | **UI Specs:** 2 | **Test Designs:** 7
+**Note:** MCP design elements moved to ui-mcp project
 **External Package:** `change-tracker` (`github.com/zot/change-tracker`) provides variable tracking, change detection, object registry
 
 ## Summary
@@ -51,7 +52,6 @@
 - test-Viewdef.md
 - test-Communication.md
 - test-Backend.md
-- test-MCP.md
 
 **Location:** Tests should be in corresponding `*_test.go` files
 
@@ -173,7 +173,6 @@
 | Backend | 2 | 1 | Backend interface unchecked |
 | Communication | 5 | 5 | Complete |
 | Backend Socket | 3 | 3 | Complete |
-| MCP Integration | 3 | 3 | Complete |
 | Lua Runtime | 4 | 4 | Complete |
 | Backend Library | 2 | 2 | change-tracker provides core tracking |
 | Frontend Library | 4 | 4 | Complete |
@@ -183,20 +182,21 @@
 - Provides: Variable management, change detection, object registry, value serialization
 - Not counted in CRC totals (external)
 
-**Sequences Coverage:** 44/46 (96%)
+**Sequences Coverage:** 35/37 (95%)
 - Missing: seq-lua-action-dispatch.md, seq-packet-protocol-message.md
 - Removed: seq-object-registry.md (internal to change-tracker)
+- Moved to ui-mcp: 9 MCP sequences
 
 **UI Specs Coverage:** 2/2 (100%)
 - ui-app-shell.md
 - manifest-ui.md
 
 **Test Implementation Coverage:** ~10%
-- 2 test files exist vs 8 test designs
-- Focus areas needed: Variable Protocol, Backend, Session, Communication, MCP
+- 2 test files exist vs 7 test designs
+- Focus areas needed: Variable Protocol, Backend, Session, Communication
 
 **Traceability:**
-- All 11 spec files have corresponding design elements
+- All 10 spec files have corresponding design elements
 - All CRC cards reference source specs
 - 2 broken sequence references found (see A1)
 

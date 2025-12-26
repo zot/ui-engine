@@ -26,9 +26,6 @@ You can use the playwright browser to connect to it.
 4. Generate a clear commit message with terse bullet points
 5. Create the commit and verify success
 
-## Using the ui mcp
-use the directory `.ui-mcp` for the mcp's directory; create it if it is not there already.
-
 ## CRC Modeling Workflow
 
 **DO NOT generate code directly from `specs/*.md` files!**

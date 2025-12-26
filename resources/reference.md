@@ -1,38 +1,109 @@
 # UI Platform Reference
 
-Welcome to the UI Platform. This reference guide provides the essential knowledge needed to build and manage interactive user interfaces using Lua and View Definitions (viewdefs).
+Build interactive UIs for rich two-way communication with users. The platform uses a **Server-Side UI** architecture: application state lives in Lua on the server, and the browser acts as a thin renderer.
+
+## Quick Start for AI Agents
+
+```
+1. Design    → Plan UI, create .ui-mcp/design/ui-{name}.md spec
+2. Configure → ui_configure(base_dir=".ui-mcp")
+3. Start     → ui_start() → returns URL
+4. Define    → ui_run(lua_code) → create classes
+5. Template  → ui_upload_viewdef(type, ns, html)
+6. Show      → ui_open_browser()
+7. Listen    → mcp.notify() sends events back to you
+8. Iterate   → Update state or viewdefs, user sees changes
+```
+
+## Two-Phase Workflow
+
+**Phase 1: Design** — Before writing code:
+- Read `.ui-mcp/patterns/` for established UI patterns
+- Read `.ui-mcp/conventions/` for layout and terminology rules
+- Create/update `.ui-mcp/design/ui-{name}.md` layout spec
+
+**Phase 2: Build** — Implement the design:
+- Configure, start, run Lua, upload viewdefs, open browser
+
+See [AI Interaction Guide](ui://mcp) for details.
 
 ## Core Concepts
 
-The platform follows a **Server-Side UI** architecture where the application state and logic reside in a Lua session on the server, and the frontend (browser) acts as a thin renderer.
+### Displaying Objects
 
-### 1. The App Object (Logical Root)
-Every session has a logical root object, typically named `app`.
-- All data visible on the screen should be reachable from this object.
-- The AI agent interacts with this object via the `mcp` global and `ui_run` tool.
-- **State Inspection:** Use `ui://state` to see the current JSON representation of the logical root.
+Set `mcp.state` to display an object on screen:
 
-### 2. Presenters and Domain Objects
-- **Domain Objects:** Pure data tables (e.g., a `Contact` or `Task`).
-- **Presenters:** Tables that wrap domain objects and add UI-specific state (e.g., `isEditing`) and behaviors (methods like `save()` or `delete()`).
-- **Pattern:** Keep data clean in domain objects; put interaction logic in presenters.
+```lua
+mcp.state = MyForm:new()
+```
 
-### 3. View Definitions (Viewdefs)
-Viewdefs are HTML templates that define how a Lua object type should be rendered.
-- **Bindings:** Use `ui-value`, `ui-action`, and other attributes to link HTML elements to Lua properties and methods.
-- **Path Resolution:** All paths are resolved on the server relative to the object being rendered.
+**Key points**:
+- `mcp.state` starts as `nil` (blank screen)
+- The object MUST have a `type` field matching a viewdef
+- Inspect current state via `ui://state`
+
+### Presenters and Domain Objects
+
+- **Domain Objects** — Pure data: `Contact`, `Task`, `Order`
+- **Presenters** — UI wrappers that add state and behavior: `ContactPresenter` with `isEditing`, `delete()`, `save()`
+
+Keep data clean in domain objects. Put interaction logic in presenters.
+
+### Viewdefs
+
+HTML templates that define how objects render:
+
+```html
+<template>
+  <div class="contact-card">
+    <h3 ui-text="fullName()"></h3>
+    <sl-input ui-value="email" label="Email"></sl-input>
+    <sl-button ui-action="save()">Save</sl-button>
+  </div>
+</template>
+```
+
+Viewdefs are matched by the object's `type` property and namespace.
+
+### Change Detection
+
+Changes to Lua tables are automatically detected and pushed to the browser. No manual update calls needed:
+
+```lua
+function MyForm:clear()
+    self.name = ""       -- Automatically synced
+    self.email = ""      -- Automatically synced
+end
+```
+
+### Notifications
+
+Send events from Lua back to the AI agent:
+
+```lua
+function Feedback:submit()
+    mcp.notify("feedback_received", {
+        rating = self.rating,
+        comment = self.comment
+    })
+end
+```
 
 ## Detailed Guides
 
-- [Viewdef Syntax](ui://viewdefs) - Complete guide to `ui-*` attributes and path syntax.
-- [Lua API & Patterns](ui://lua) - How to define classes, handle state, and use the `session` and `mcp` globals.
-- [AI Interaction Guide](ui://mcp) - Best practices for agents to build "tiny apps" and handle user collaboration.
+- [Viewdef Syntax](ui://viewdefs) — `ui-*` attributes, path syntax, lists
+- [Lua API & Patterns](ui://lua) — Classes, globals, change detection
+- [AI Interaction Guide](ui://mcp) — Workflow, lifecycle, best practices
 
-## Quick Start for Agents
+## Directory Structure
 
-1. **Configure & Start:** Use `ui_configure` then `ui_start`.
-2. **Define Logic:** Use `ui_run` to define your Lua classes.
-3. **Define UI:** Use `ui_upload_viewdef` to upload your HTML templates.
-4. **Show UI:** Instantiate your app class and assign it to `mcp.state`.
-5. **Open Browser:** Use `ui_open_browser` to show the result to the user.
-6. **Iterate:** Listen for notifications via `mcp.notify` and update state or viewdefs on the fly.
+```
+.ui-mcp/
+├── lua/            # Lua source files
+├── viewdefs/       # HTML templates
+├── log/            # Runtime logs
+├── design/         # UI layout specs (prevents drift)
+├── patterns/       # Reusable UI patterns
+├── conventions/    # Layout, terminology, preferences
+└── library/        # Proven implementations
+```

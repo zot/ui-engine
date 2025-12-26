@@ -22,7 +22,6 @@ type Config struct {
 	Lua     LuaConfig     `toml:"lua"`
 	Session SessionConfig `toml:"session"`
 	Logging LoggingConfig `toml:"logging"`
-	MCP     MCPConfig     `toml:"mcp"`
 }
 
 // ServerConfig holds server-related settings.
@@ -50,10 +49,6 @@ type LoggingConfig struct {
 	Verbosity int    `toml:"verbosity"` // 0=none, 1=connections, 2=messages, 3=variables, 4=values
 }
 
-// MCPConfig holds MCP server settings.
-type MCPConfig struct {
-	Enabled bool `toml:"enabled"`
-}
 
 // verbosityCounter implements flag.Value for counting -v flags.
 type verbosityCounter int
@@ -161,7 +156,7 @@ func Load(args []string) (*Config, error) {
 	args = expandVerbosityFlags(args)
 
 	// Parse CLI flags first to get --dir if specified
-	fs := flag.NewFlagSet("ui", flag.ContinueOnError)
+	fs := flag.NewFlagSet("remote-ui", flag.ContinueOnError)
 	dir := fs.String("dir", "", "Serve from directory instead of embedded site")
 
 	// Server flags
@@ -180,9 +175,6 @@ func Load(args []string) (*Config, error) {
 	logLevel := fs.String("log-level", "", "Log level: debug, info, warn, error")
 	var verbosity verbosityCounter
 	fs.Var(&verbosity, "v", "Verbosity level (use -v, -vv, or -vvv)")
-
-	// MCP flags
-	mcp := fs.Bool("mcp", false, "Enable MCP server on Stdio")
 
 	if err := fs.Parse(args); err != nil {
 		return nil, err
@@ -224,9 +216,6 @@ func Load(args []string) (*Config, error) {
 	}
 	if verbosity > 0 {
 		cfg.Logging.Verbosity = int(verbosity)
-	}
-	if *mcp {
-		cfg.MCP.Enabled = true
 	}
 
 	// Store dir in config (not from TOML, only CLI)

@@ -12,8 +12,8 @@ import (
 	"runtime"
 	"sync"
 
-	"github.com/zot/ui/internal/config"
-	"github.com/zot/ui/internal/protocol"
+	"github.com/zot/ui-engine/internal/config"
+	"github.com/zot/ui-engine/internal/protocol"
 )
 
 // BackendSocket handles the backend API socket.

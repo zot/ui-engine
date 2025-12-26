@@ -2,7 +2,7 @@
 # Spec: deployment.md, demo.md
 
 # Build configuration
-BINARY_NAME := ui
+BINARY_NAME := ui-engine
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
 BUILD_TIME := $(shell date -u '+%Y-%m-%d_%H:%M:%S')
 LDFLAGS := -ldflags "-X main.Version=$(VERSION) -X main.BuildTime=$(BUILD_TIME)"
@@ -28,13 +28,13 @@ all: deps frontend build
 build:
 	@echo "Building $(BINARY_NAME) (unbundled)..."
 	@mkdir -p $(BUILD_DIR)
-	CGO_ENABLED=0 $(GO) build $(GOFLAGS) $(LDFLAGS) -o $(BUILD_DIR)/$(BINARY_NAME) ./cmd/ui
+	CGO_ENABLED=0 $(GO) build $(GOFLAGS) $(LDFLAGS) -o $(BUILD_DIR)/$(BINARY_NAME) ./cmd/ui-engine
 
 # Build with SQLite support (requires CGO)
 build-sqlite:
 	@echo "Building $(BINARY_NAME) with SQLite (CGO enabled)..."
 	@mkdir -p $(BUILD_DIR)
-	CGO_ENABLED=1 $(GO) build $(GOFLAGS) $(LDFLAGS) -o $(BUILD_DIR)/$(BINARY_NAME) ./cmd/ui
+	CGO_ENABLED=1 $(GO) build $(GOFLAGS) $(LDFLAGS) -o $(BUILD_DIR)/$(BINARY_NAME) ./cmd/ui-engine
 
 # Build bundled binary for current platform
 bundle: build frontend
@@ -45,6 +45,8 @@ bundle: build frontend
 	@if [ -d "resources" ]; then cp -r resources/* $(BUILD_DIR)/bundle_root/resources/; fi
 	@mkdir -p $(BUILD_DIR)/bundle_root/viewdefs
 	@if [ -d "web/viewdefs" ]; then cp -r web/viewdefs/* $(BUILD_DIR)/bundle_root/viewdefs/; fi
+	@mkdir -p $(BUILD_DIR)/bundle_root/lua
+	@if [ -d "web/viewdefs" ]; then cp -r web/lua/* $(BUILD_DIR)/bundle_root/lua/; fi
 	$(BUILD_DIR)/$(BINARY_NAME) bundle -o $(BUILD_DIR)/$(BINARY_NAME)-bundled $(BUILD_DIR)/bundle_root
 	@rm -rf $(BUILD_DIR)/bundle_root
 	@echo "Created: $(BUILD_DIR)/$(BINARY_NAME)-bundled"
@@ -97,7 +99,7 @@ vet:
 deps:
 	@echo "Installing dependencies..."
 	$(GO) mod download
-	$(GO) work sync
+	$(GO) mod tidy
 
 # Build unbundled release binaries for all platforms
 release: frontend
@@ -105,19 +107,19 @@ release: frontend
 	@mkdir -p $(RELEASE_DIR)
 	@# Linux AMD64
 	@echo "  Building linux/amd64..."
-	@CGO_ENABLED=0 GOOS=linux GOARCH=amd64 $(GO) build $(GOFLAGS) $(LDFLAGS) -o $(RELEASE_DIR)/$(BINARY_NAME)-linux-amd64 ./cmd/ui
+	@CGO_ENABLED=0 GOOS=linux GOARCH=amd64 $(GO) build $(GOFLAGS) $(LDFLAGS) -o $(RELEASE_DIR)/$(BINARY_NAME)-linux-amd64 ./cmd/ui-engine
 	@# Linux ARM64
 	@echo "  Building linux/arm64..."
-	@CGO_ENABLED=0 GOOS=linux GOARCH=arm64 $(GO) build $(GOFLAGS) $(LDFLAGS) -o $(RELEASE_DIR)/$(BINARY_NAME)-linux-arm64 ./cmd/ui
+	@CGO_ENABLED=0 GOOS=linux GOARCH=arm64 $(GO) build $(GOFLAGS) $(LDFLAGS) -o $(RELEASE_DIR)/$(BINARY_NAME)-linux-arm64 ./cmd/ui-engine
 	@# macOS AMD64
 	@echo "  Building darwin/amd64..."
-	@CGO_ENABLED=0 GOOS=darwin GOARCH=amd64 $(GO) build $(GOFLAGS) $(LDFLAGS) -o $(RELEASE_DIR)/$(BINARY_NAME)-darwin-amd64 ./cmd/ui
+	@CGO_ENABLED=0 GOOS=darwin GOARCH=amd64 $(GO) build $(GOFLAGS) $(LDFLAGS) -o $(RELEASE_DIR)/$(BINARY_NAME)-darwin-amd64 ./cmd/ui-engine
 	@# macOS ARM64 (Apple Silicon)
 	@echo "  Building darwin/arm64..."
-	@CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 $(GO) build $(GOFLAGS) $(LDFLAGS) -o $(RELEASE_DIR)/$(BINARY_NAME)-darwin-arm64 ./cmd/ui
+	@CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 $(GO) build $(GOFLAGS) $(LDFLAGS) -o $(RELEASE_DIR)/$(BINARY_NAME)-darwin-arm64 ./cmd/ui-engine
 	@# Windows AMD64
 	@echo "  Building windows/amd64..."
-	@CGO_ENABLED=0 GOOS=windows GOARCH=amd64 $(GO) build $(GOFLAGS) $(LDFLAGS) -o $(RELEASE_DIR)/$(BINARY_NAME)-windows-amd64.exe ./cmd/ui
+	@CGO_ENABLED=0 GOOS=windows GOARCH=amd64 $(GO) build $(GOFLAGS) $(LDFLAGS) -o $(RELEASE_DIR)/$(BINARY_NAME)-windows-amd64.exe ./cmd/ui-engine
 	@echo "Release binaries (unbundled) in $(RELEASE_DIR)/"
 	@ls -la $(RELEASE_DIR)/
 
@@ -177,7 +179,7 @@ run-demo: demo
 # Install to GOPATH/bin
 install:
 	@echo "Installing $(BINARY_NAME)..."
-	CGO_ENABLED=0 $(GO) install $(GOFLAGS) $(LDFLAGS) ./cmd/ui
+	CGO_ENABLED=0 $(GO) install $(GOFLAGS) $(LDFLAGS) ./cmd/ui-engine
 
 # Check build requirements
 check:

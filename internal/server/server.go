@@ -16,15 +16,14 @@ import (
 
 	gopher "github.com/yuin/gopher-lua"
 	changetracker "github.com/zot/change-tracker"
-	"github.com/zot/ui/internal/backend"
-	"github.com/zot/ui/internal/bundle"
-	"github.com/zot/ui/internal/config"
-	"github.com/zot/ui/internal/lua"
-	"github.com/zot/ui/internal/mcp"
-	"github.com/zot/ui/internal/protocol"
-	"github.com/zot/ui/internal/session"
-	"github.com/zot/ui/internal/variable"
-	"github.com/zot/ui/internal/viewdef"
+	"github.com/zot/ui-engine/internal/backend"
+	"github.com/zot/ui-engine/internal/bundle"
+	"github.com/zot/ui-engine/internal/config"
+	"github.com/zot/ui-engine/internal/lua"
+	"github.com/zot/ui-engine/internal/protocol"
+	"github.com/zot/ui-engine/internal/session"
+	"github.com/zot/ui-engine/internal/variable"
+	"github.com/zot/ui-engine/internal/viewdef"
 )
 
 // Server is the main UI server.
@@ -40,7 +39,6 @@ type Server struct {
 	wsEndpoint      *WebSocketEndpoint
 	backendSocket   *BackendSocket
 	luaRuntime      *lua.Runtime
-	mcpServer       *mcp.Server
 	wrapperRegistry *lua.WrapperRegistry
 	wrapperManager  *lua.WrapperManager
 	storeAdapter    *luaTrackerAdapter
@@ -132,39 +130,12 @@ func New(cfg *config.Config) *Server {
 		s.handler.SetPathVariableHandler(s.luaRuntime)
 	}
 
-	// Initialize MCP server if enabled
-	if cfg.MCP.Enabled && cfg.Lua.Enabled {
-		s.mcpServer = mcp.NewServer(
-			cfg, 
-			s.luaRuntime, 
-			s.viewdefManager, 
-			s.startHTTPAsync, 
-			s.onViewdefUploaded,
-		)
-		s.config.Log(0, "MCP server initialized")
-
-		// Relay Lua notifications to MCP
-		s.luaRuntime.SetNotificationHandler(func(method string, params interface{}) {
-			s.mcpServer.SendNotification(method, params)
-		})
-	}
-
 	return s
 }
 
 // Start starts the server.
 func (s *Server) Start() error {
-	// Start MCP server if enabled
-	if s.mcpServer != nil {
-		s.config.Log(0, "Starting MCP server on stdio...")
-		if err := s.mcpServer.ServeStdio(); err != nil {
-			return fmt.Errorf("MCP server error: %v", err)
-		}
-		// ServeStdio blocks until shutdown/EOF
-		return nil
-	}
-
-	// Normal mode: Start HTTP server immediately and block
+	// Start HTTP server and block
 	srv, ln, url, err := s.configureHTTP(s.config.Server.Port)
 	if err != nil {
 		return err
@@ -177,24 +148,6 @@ func (s *Server) Start() error {
 		return fmt.Errorf("HTTP server error: %v", err)
 	}
 	return nil
-}
-
-// startHTTPAsync starts the HTTP server in a background goroutine.
-// Used by MCP start tool.
-func (s *Server) startHTTPAsync(port int) (string, error) {
-	srv, ln, url, err := s.configureHTTP(port)
-	if err != nil {
-		return "", err
-	}
-
-	go func() {
-		s.config.Log(0, "HTTP server listening on %s", url)
-		if err := srv.Serve(ln); err != nil && err != http.ErrServerClosed {
-			s.config.Log(0, "HTTP server error: %v", err)
-		}
-	}()
-
-	return url, nil
 }
 
 // configureHTTP sets up the backend socket and HTTP server listener.
@@ -233,53 +186,6 @@ func (s *Server) configureHTTP(port int) (*http.Server, net.Listener, string, er
 	
 	url := fmt.Sprintf("http://%s:%d", host, s.config.Server.Port)
 	return s.httpServer, listener, url, nil
-}
-
-// onViewdefUploaded is called by MCP when a viewdef is updated.
-// It triggers updates for all variables of that type.
-func (s *Server) onViewdefUploaded(typeName string) {
-	s.config.Log(0, "MCP Viewdef uploaded: %s. Refreshing variables...", typeName)
-	
-	sessions := s.sessions.GetAllSessions()
-	for _, sess := range sessions {
-		b := sess.GetBackend()
-		if b == nil {
-			continue
-		}
-		
-		// We assume standard LuaBackend which exposes GetTracker()
-		// We need to cast because Backend interface might not have GetTracker
-		// Actually internal/backend/backend.go defines Backend interface.
-		// internal/server/server.go uses *backend.LuaBackend in CreateLuaBackendForSession.
-		// GetBackend returns backend.Backend.
-		
-		lb, ok := b.(*backend.LuaBackend)
-		if !ok {
-			continue
-		}
-		
-		tracker := lb.GetTracker()
-		// Tracker.Variables is a function returning []*Variable
-		for _, v := range tracker.Variables() {
-			if v.Properties["type"] == typeName {
-				// Send update
-				jsonVal, _ := tracker.ToValueJSONBytes(v.Value)
-				updateMsg, err := protocol.NewMessage(protocol.MsgUpdate, protocol.UpdateMessage{
-					VarID:      v.ID,
-					Value:      json.RawMessage(jsonVal),
-					Properties: v.Properties,
-				})
-				if err != nil {
-					continue
-				}
-
-				watchers := lb.GetWatchers(v.ID)
-				for _, connID := range watchers {
-					s.wsEndpoint.Send(connID, updateMsg)
-				}
-			}
-		}
-	}
 }
 
 // Shutdown gracefully shuts down the server.

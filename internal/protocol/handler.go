@@ -8,9 +8,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/zot/ui/internal/backend"
-	"github.com/zot/ui/internal/config"
-	"github.com/zot/ui/internal/variable"
+	"github.com/zot/ui-engine/internal/backend"
+	"github.com/zot/ui-engine/internal/config"
+	"github.com/zot/ui-engine/internal/variable"
 )
 
 // MessageSender is an interface for sending messages to a connection.

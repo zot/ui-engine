@@ -9,7 +9,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/zot/ui/internal/backend"
+	"github.com/zot/ui-engine/internal/backend"
 )
 
 // Session represents a single user session.

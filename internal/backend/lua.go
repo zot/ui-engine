@@ -8,7 +8,7 @@ import (
 	"sync"
 
 	changetracker "github.com/zot/change-tracker"
-	"github.com/zot/ui/internal/config"
+	"github.com/zot/ui-engine/internal/config"
 )
 
 // LuaBackend implements Backend for hosted Lua sessions.

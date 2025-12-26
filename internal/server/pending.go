@@ -6,7 +6,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/zot/ui/internal/protocol"
+	"github.com/zot/ui-engine/internal/protocol"
 )
 
 // PendingResponseQueue accumulates push messages for polling clients.

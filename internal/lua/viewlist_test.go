@@ -3,7 +3,7 @@ package lua
 import (
 	"testing"
 
-	"github.com/zot/ui/internal/config"
+	"github.com/zot/ui-engine/internal/config"
 )
 
 // mockWrapperVariable implements WrapperVariable for testing

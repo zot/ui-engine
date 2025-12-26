@@ -8,7 +8,7 @@ import (
 	"sync"
 	"sync/atomic"
 
-	"github.com/zot/ui/internal/config"
+	"github.com/zot/ui-engine/internal/config"
 )
 
 // propertyWatcher tracks a callback for a specific property.

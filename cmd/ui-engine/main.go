@@ -1,4 +1,4 @@
-// Package main is the entry point for the UI server.
+// Package main is the entry point for the remote-ui server.
 // This is a thin wrapper around the cli package.
 // Spec: deployment.md
 package main

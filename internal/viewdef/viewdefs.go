@@ -9,7 +9,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/zot/ui/internal/bundle"
+	"github.com/zot/ui-engine/internal/bundle"
 )
 
 // ViewdefManager manages viewdef loading and tracking.

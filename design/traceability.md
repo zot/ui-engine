@@ -123,23 +123,6 @@
 
 ---
 
-### specs/mcp.md
-
-**CRC Cards:**
-- crc-MCPServer.md
-- crc-MCPResource.md
-- crc-MCPTool.md
-
-**Sequence Diagrams:**
-- seq-mcp-lifecycle.md
-- seq-mcp-create-session.md
-- seq-mcp-create-presenter.md
-- seq-mcp-receive-event.md
-- seq-mcp-run.md
-- seq-mcp-get-state.md
-
----
-
 ### data-models.md
 
 **CRC Cards:**
@@ -339,32 +322,16 @@
 - [x] `internal/protocol/batcher.go` - Priority-based message batching
 - [x] `web/src/batcher.ts` - Frontend batch processing
 
-### crc-MCPServer.md
-**Source Spec:** specs/mcp.md
-**Implementation:**
-- [x] `internal/mcp/server.go` - MCP server (Lifecycle FSM, configuration, startup, notifications)
-
-### crc-MCPResource.md
-**Source Spec:** specs/mcp.md
-**Implementation:**
-- [x] `internal/mcp/resources.go` - MCP resources (State root redirection via mcp.state, static resources from baseDir/resources)
-
-### crc-MCPTool.md
-**Source Spec:** specs/mcp.md
-**Implementation:**
-- [x] `internal/mcp/tools.go` - MCP tools (configure, start, run, upload_viewdef, open_browser)
-
 ### crc-LuaRuntime.md
-**Source Spec:** interfaces.md, deployment.md, specs/mcp.md
+**Source Spec:** interfaces.md, deployment.md
 **Implementation:**
-- [x] `internal/lua/runtime.go` - Lua runtime with session API, I/O redirection, and mcp global
+- [x] `internal/lua/runtime.go` - Lua runtime with session API, I/O redirection
 
 ### crc-LuaSession.md
-**Source Spec:** libraries.md, interfaces.md, protocol.md, specs/mcp.md
+**Source Spec:** libraries.md, interfaces.md, protocol.md
 **Implementation:**
 - [x] `internal/lua/runtime.go` - Go-side LuaSession implementation (uses vended session IDs)
 - [x] `internal/lua/runtime.go` - Automatic change detection via AfterBatch()
-- [x] `internal/lua/runtime.go` - Support for mcp.state and mcp.notify
 
 ### crc-LuaVariable.md
 **Source Spec:** libraries.md

@@ -6,7 +6,7 @@ import (
 
 	golua "github.com/yuin/gopher-lua"
 	changetracker "github.com/zot/change-tracker"
-	"github.com/zot/ui/internal/config"
+	"github.com/zot/ui-engine/internal/config"
 )
 
 // mockVariableStore implements VariableStore for testing

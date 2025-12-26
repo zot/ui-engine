@@ -15,9 +15,9 @@ import (
 
 	lua "github.com/yuin/gopher-lua"
 	changetracker "github.com/zot/change-tracker"
-	"github.com/zot/ui/internal/bundle"
-	"github.com/zot/ui/internal/config"
-	"github.com/zot/ui/internal/viewdef"
+	"github.com/zot/ui-engine/internal/bundle"
+	"github.com/zot/ui-engine/internal/config"
+	"github.com/zot/ui-engine/internal/viewdef"
 )
 
 // WorkItem represents a unit of work for the executor.
