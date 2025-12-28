@@ -241,14 +241,25 @@ export class BindingEngine {
     let childVarId: number | null = null
     let unbindValue: (() => void) | null = null
     let unbindError: (() => void) | null = null
+    // Custom elements (tagNames with hyphens) may not be upgraded yet when binding runs,
+    // so 'value' in element would return false. Assume custom elements have value property.
+    const isCustomElement = element.tagName.includes('-')
     const editableValue =
       element instanceof HTMLInputElement ||
       element instanceof HTMLTextAreaElement ||
       element instanceof HTMLSelectElement ||
       isSlInput(element) ||
+      isCustomElement ||
       'value' in element
     const update = editableValue
-      ? (value: unknown) => ((element as any).value = value?.toString() ?? '')
+      ? (value: unknown) => {
+          // Preserve number type for components like sl-rating, sl-range
+          if (typeof value === 'number') {
+            (element as any).value = value
+          } else {
+            (element as any).value = value?.toString() ?? ''
+          }
+        }
       : (value: unknown) => (element.textContent = value?.toString() ?? '')
 
     // Handle error state changes - add/remove ui-error class and data-ui-error-* attributes
