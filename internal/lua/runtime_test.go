@@ -123,19 +123,28 @@ func (s *mockVariableStore) CreateVariable(sessionID string, parentID int64, lua
 	return id, nil
 }
 
-// DetectChanges returns changes for a session
-func (s *mockVariableStore) DetectChanges(sessionID string) []changetracker.Change {
+// DetectChanges returns whether there are changes for a session
+func (s *mockVariableStore) DetectChanges(sessionID string) bool {
+	tracker := s.trackers[sessionID]
+	if tracker == nil {
+		return false
+	}
+	return tracker.DetectChanges()
+}
+
+// GetChanges returns the detected changes for a session
+func (s *mockVariableStore) GetChanges(sessionID string) []changetracker.Change {
 	tracker := s.trackers[sessionID]
 	if tracker == nil {
 		return nil
 	}
-	return tracker.DetectChanges()
+	return tracker.GetChanges()
 }
 
 // TestObjectRegistration verifies that Lua tables are registered as objects
 // and their Value JSON is an object reference.
 func TestObjectRegistration(t *testing.T) {
-	rt, err := NewRuntime(config.DefaultConfig(), "/tmp")
+	rt, err := NewRuntime(config.DefaultConfig(), "/tmp", nil)
 	if err != nil {
 		t.Fatalf("Failed to create runtime: %v", err)
 	}
@@ -213,7 +222,7 @@ func TestObjectRegistration(t *testing.T) {
 
 // TestCreateMultipleVariables verifies creating app and child variables
 func TestCreateMultipleVariables(t *testing.T) {
-	rt, err := NewRuntime(config.DefaultConfig(), "/tmp")
+	rt, err := NewRuntime(config.DefaultConfig(), "/tmp", nil)
 	if err != nil {
 		t.Fatalf("Failed to create runtime: %v", err)
 	}
@@ -312,7 +321,10 @@ func TestLuaResolverArrayConversion(t *testing.T) {
 	L := golua.NewState()
 	defer L.Close()
 
-	resolver := &LuaResolver{L: L}
+	// Create a minimal runtime and session for the resolver
+	rt := &Runtime{state: L}
+	sess := &LuaSession{Runtime: rt}
+	resolver := &LuaResolver{Session: sess}
 	tracker := changetracker.NewTracker()
 	tracker.Resolver = resolver
 
@@ -392,7 +404,7 @@ func TestLuaResolverArrayConversion(t *testing.T) {
 
 // TestUILog verifies ui.log works with 1 or 2 arguments
 func TestUILog(t *testing.T) {
-	rt, err := NewRuntime(config.DefaultConfig(), "/tmp")
+	rt, err := NewRuntime(config.DefaultConfig(), "/tmp", nil)
 	if err != nil {
 		t.Fatalf("Failed to create runtime: %v", err)
 	}

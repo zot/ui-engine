@@ -34,6 +34,7 @@ type WebSocketEndpoint struct {
 	connections     map[string]*websocket.Conn // connectionID -> conn
 	sessionBindings map[string]string          // connectionID -> sessionID
 	reconnectTokens map[string]string          // sessionID -> token
+	sessionSvc      map[string]ChanSvc         // sessionID -> executor (serializes session operations)
 	sessions        *session.Manager
 	handler         *protocol.Handler
 	afterBatch      AfterBatchCallback // Called after each message to detect changes
@@ -47,6 +48,7 @@ func NewWebSocketEndpoint(cfg *config.Config, sessions *session.Manager, handler
 		connections:     make(map[string]*websocket.Conn),
 		sessionBindings: make(map[string]string),
 		reconnectTokens: make(map[string]string),
+		sessionSvc:      make(map[string]ChanSvc),
 		sessions:        sessions,
 		handler:         handler,
 	}
@@ -60,6 +62,48 @@ func (ws *WebSocketEndpoint) Log(level int, format string, args ...interface{}) 
 // SetAfterBatch sets the callback for change detection after message processing.
 func (ws *WebSocketEndpoint) SetAfterBatch(callback AfterBatchCallback) {
 	ws.afterBatch = callback
+}
+
+// getOrCreateSvc returns the executor for a session, creating if needed.
+func (ws *WebSocketEndpoint) getOrCreateSvc(sessionID string) ChanSvc {
+	ws.mu.Lock()
+	defer ws.mu.Unlock()
+
+	if svc, ok := ws.sessionSvc[sessionID]; ok {
+		return svc
+	}
+
+	svc := make(ChanSvc)
+	ws.sessionSvc[sessionID] = svc
+	RunSvc(svc)
+	return svc
+}
+
+// cleanupSessionSvc closes and removes a session's executor.
+func (ws *WebSocketEndpoint) cleanupSessionSvc(sessionID string) {
+	ws.mu.Lock()
+	defer ws.mu.Unlock()
+
+	if svc, ok := ws.sessionSvc[sessionID]; ok {
+		close(svc)
+		delete(ws.sessionSvc, sessionID)
+	}
+}
+
+// ExecuteInSession executes a function within a session's executor.
+// This serializes the execution with WebSocket message processing for the session.
+// AfterBatch is called after execution to detect and push any changes.
+// Returns the result and any error from the function.
+func (ws *WebSocketEndpoint) ExecuteInSession(sessionID string, fn func() (interface{}, error)) (interface{}, error) {
+	svc := ws.getOrCreateSvc(sessionID)
+	return SvcSync(svc, func() (interface{}, error) {
+		result, err := fn()
+		// Trigger change detection after execution
+		if ws.afterBatch != nil {
+			ws.afterBatch(sessionID)
+		}
+		return result, err
+	})
 }
 
 // HandleWebSocket handles incoming WebSocket connections.
@@ -105,34 +149,46 @@ func (ws *WebSocketEndpoint) readPump(connectionID string, conn *websocket.Conn)
 			break
 		}
 
-		// Parse and handle message
-		msg, err := protocol.ParseMessage(message)
-		if err != nil {
-			ws.Log(0, "Failed to parse message: %v", err)
+		// Get session for this connection
+		ws.mu.RLock()
+		sessionID := ws.sessionBindings[connectionID]
+		ws.mu.RUnlock()
+
+		if sessionID == "" {
 			continue
 		}
 
-		resp, err := ws.handler.HandleMessage(connectionID, msg)
-		if err != nil {
-			ws.Log(0, "Failed to handle message: %v", err)
-			ws.handler.SendError(connectionID, 0, err.Error())
-			continue
-		}
+		// Queue message processing through session's executor
+		svc := ws.getOrCreateSvc(sessionID)
+		Svc(svc, func() {
+			ws.processMessage(connectionID, sessionID, message)
+		})
+	}
+}
 
-		// Send response if there's a result or error
-		if resp != nil && (resp.Result != nil || resp.Error != "" || len(resp.Pending) > 0) {
-			ws.sendResponse(connectionID, resp)
-		}
+// processMessage handles a single message within the session's executor.
+func (ws *WebSocketEndpoint) processMessage(connectionID, sessionID string, message []byte) {
+	msg, err := protocol.ParseMessage(message)
+	if err != nil {
+		ws.Log(0, "Failed to parse message: %v", err)
+		return
+	}
 
-		// Trigger change detection after processing the message
-		if ws.afterBatch != nil {
-			ws.mu.RLock()
-			sessionID := ws.sessionBindings[connectionID]
-			ws.mu.RUnlock()
-			if sessionID != "" {
-				ws.afterBatch(sessionID)
-			}
-		}
+	resp, err := ws.handler.HandleMessage(connectionID, msg)
+	if err != nil {
+		ws.Log(0, "Failed to handle message: %v", err)
+		ws.handler.SendError(connectionID, 0, err.Error())
+		return
+	}
+
+	// Send response if there's a result or error
+	if resp != nil && (resp.Result != nil || resp.Error != "" || len(resp.Pending) > 0) {
+		ws.sendResponse(connectionID, resp)
+	}
+
+	// Trigger change detection (safe - we're in session's executor)
+	if ws.afterBatch != nil {
+		ws.afterBatch(sessionID)
 	}
 }
 

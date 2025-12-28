@@ -7,4 +7,7 @@ require (
 	github.com/gorilla/websocket v1.5.3
 )
 
-require github.com/yuin/gopher-lua v1.1.1
+require (
+	github.com/yuin/gopher-lua v1.1.1
+	github.com/zot/change-tracker v0.0.0-20251214022352-e50ef78a5af4
+)

@@ -1294,6 +1294,36 @@ func (r *Runtime) LoadCode(name, code string) (interface{}, error) {
 	})
 }
 
+// LoadCodeDirect executes Lua code without executor wrapping.
+// Use this when already inside ExecuteInSession to avoid deadlock.
+// MUST only be called from within an execute() context.
+func (r *Runtime) LoadCodeDirect(name, code string) (interface{}, error) {
+	// Load the string into a function
+	fn, err := r.state.LoadString(code)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load code %s: %w", name, err)
+	}
+
+	// Push function
+	r.state.Push(fn)
+
+	// Call it (0 arguments, 1 result)
+	if err := r.state.PCall(0, 1, nil); err != nil {
+		return nil, fmt.Errorf("failed to execute code %s: %w", name, err)
+	}
+
+	// Get result
+	ret := r.state.Get(-1) // Get top
+	r.state.Pop(1)         // Pop it
+
+	if ret == lua.LNil {
+		return nil, nil
+	}
+
+	// Convert to Go
+	return luaToGo(ret), nil
+}
+
 // GetPresenterType returns a registered presenter type.
 func (r *Runtime) GetPresenterType(name string) (*PresenterType, bool) {
 	r.mu.RLock()

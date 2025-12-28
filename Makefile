@@ -98,8 +98,7 @@ vet:
 # Install dependencies
 deps:
 	@echo "Installing dependencies..."
-	$(GO) mod download
-	$(GO) mod tidy
+	$(GO) work sync
 
 # Build unbundled release binaries for all platforms
 release: frontend

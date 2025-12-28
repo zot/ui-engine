@@ -476,9 +476,48 @@ func (s *Server) AfterBatch(internalSessionID string) {
 	}
 }
 
+
+// ExecuteInSession executes code within a session's context.
+// This queues through the session's executor to serialize with WebSocket operations.
+// AfterBatch is called after execution to detect and push any changes.
+// vendedID is the compact session ID ("1", "2", etc.)
+func (s *Server) ExecuteInSession(vendedID string, fn func() (interface{}, error)) (interface{}, error) {
+	internalID := s.sessions.GetInternalID(vendedID)
+	if internalID == "" {
+		return nil, fmt.Errorf("session %s not found", vendedID)
+	}
+
+	// Delegate to websocket endpoint (queues through session's executor)
+	return s.wsEndpoint.ExecuteInSession(internalID, fn)
+}
+
 // GetLuaRuntime returns the Lua runtime (for testing/advanced use).
 func (s *Server) GetLuaRuntime() *lua.Runtime {
 	return s.luaRuntime
+}
+
+// GetViewdefManager returns the viewdef manager.
+func (s *Server) GetViewdefManager() *viewdef.ViewdefManager {
+	return s.viewdefManager
+}
+
+// StartAsync starts the HTTP server in a goroutine and returns the URL.
+// Use this for MCP mode where the server runs alongside stdio MCP.
+func (s *Server) StartAsync(port int) (string, error) {
+	srv, ln, url, err := s.configureHTTP(port)
+	if err != nil {
+		return "", err
+	}
+
+	s.config.Log(0, "HTTP server listening on %s", url)
+
+	go func() {
+		if err := srv.Serve(ln); err != nil && err != http.ErrServerClosed {
+			s.config.Log(0, "HTTP server error: %v", err)
+		}
+	}()
+
+	return url, nil
 }
 
 // preloadMainLuaFromBundle caches main.lua from bundle if available.
