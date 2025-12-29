@@ -80,9 +80,9 @@ func (r *LuaResolver) Get(obj any, pathElement any) (any, error) {
 		if isMethodCall(pe) {
 			return r.callMethod(tbl, pe)
 		}
-		val = r.Session.state.GetField(tbl, pe)
+		val = r.Session.State.GetField(tbl, pe)
 	case int:
-		val = r.Session.state.RawGetInt(tbl, pe+1) // Lua is 1-indexed
+		val = r.Session.State.RawGetInt(tbl, pe+1) // Lua is 1-indexed
 	default:
 		return nil, fmt.Errorf("LuaResolver.Get: unsupported path element type %T", pathElement)
 	}
@@ -113,7 +113,7 @@ func (r *LuaResolver) callMethod(tbl *lua.LTable, methodCall string) (any, error
 	}
 
 	// Get the method from the table (checks metatable too)
-	method := r.Session.state.GetField(tbl, methodName)
+	method := r.Session.State.GetField(tbl, methodName)
 	if method == lua.LNil {
 		return nil, fmt.Errorf("method %s not found", methodName)
 	}
@@ -124,8 +124,8 @@ func (r *LuaResolver) callMethod(tbl *lua.LTable, methodCall string) (any, error
 	}
 
 	// Call the method with self (the table) as first argument
-	r.Session.state.Push(fn)
-	r.Session.state.Push(tbl) // self
+	r.Session.State.Push(fn)
+	r.Session.State.Push(tbl) // self
 	nargs := 1
 	if hasArg {
 		// TODO: Pass the update value as argument
@@ -133,13 +133,13 @@ func (r *LuaResolver) callMethod(tbl *lua.LTable, methodCall string) (any, error
 		_ = hasArg
 	}
 
-	if err := r.Session.state.PCall(nargs, 1, nil); err != nil {
+	if err := r.Session.State.PCall(nargs, 1, nil); err != nil {
 		return nil, fmt.Errorf("method call failed: %w", err)
 	}
 
 	// Get the result
-	result := r.Session.state.Get(-1)
-	r.Session.state.Pop(1)
+	result := r.Session.State.Get(-1)
+	r.Session.State.Pop(1)
 
 	return r.luaValueToGo(result)
 }
@@ -153,7 +153,7 @@ func (r *LuaResolver) Call(obj any, methodName string) (any, error) {
 	}
 
 	// Get the method from the table (checks metatable too)
-	method := r.Session.state.GetField(tbl, methodName)
+	method := r.Session.State.GetField(tbl, methodName)
 	if method == lua.LNil {
 		return nil, fmt.Errorf("method %s not found", methodName)
 	}
@@ -164,16 +164,16 @@ func (r *LuaResolver) Call(obj any, methodName string) (any, error) {
 	}
 
 	// Call the method with self (the table) as first argument
-	r.Session.state.Push(fn)
-	r.Session.state.Push(tbl) // self
+	r.Session.State.Push(fn)
+	r.Session.State.Push(tbl) // self
 
-	if err := r.Session.state.PCall(1, 1, nil); err != nil {
+	if err := r.Session.State.PCall(1, 1, nil); err != nil {
 		return nil, fmt.Errorf("method call failed: %w", err)
 	}
 
 	// Get the result
-	result := r.Session.state.Get(-1)
-	r.Session.state.Pop(1)
+	result := r.Session.State.Get(-1)
+	r.Session.State.Pop(1)
 
 	return r.luaValueToGo(result)
 }
@@ -187,7 +187,7 @@ func (r *LuaResolver) CallWith(obj any, methodName string, value any) error {
 	}
 
 	// Get the method from the table (checks metatable too)
-	method := r.Session.state.GetField(tbl, methodName)
+	method := r.Session.State.GetField(tbl, methodName)
 	if method == lua.LNil {
 		return fmt.Errorf("method %s not found", methodName)
 	}
@@ -198,11 +198,11 @@ func (r *LuaResolver) CallWith(obj any, methodName string, value any) error {
 	}
 
 	// Call the method with self and value arguments
-	r.Session.state.Push(fn)
-	r.Session.state.Push(tbl)              // self
-	r.Session.state.Push(r.goToLua(value)) // value argument
+	r.Session.State.Push(fn)
+	r.Session.State.Push(tbl)              // self
+	r.Session.State.Push(r.goToLua(value)) // value argument
 
-	if err := r.Session.state.PCall(2, 0, nil); err != nil {
+	if err := r.Session.State.PCall(2, 0, nil); err != nil {
 		return fmt.Errorf("method call failed: %w", err)
 	}
 
@@ -220,9 +220,9 @@ func (r *LuaResolver) Set(obj any, pathElement any, value any) error {
 
 	switch pe := pathElement.(type) {
 	case string:
-		r.Session.state.SetField(tbl, pe, lval)
+		r.Session.State.SetField(tbl, pe, lval)
 	case int:
-		r.Session.state.RawSetInt(tbl, pe+1, lval) // Lua is 1-indexed
+		r.Session.State.RawSetInt(tbl, pe+1, lval) // Lua is 1-indexed
 	default:
 		return fmt.Errorf("LuaResolver.Set: unsupported path element type %T", pathElement)
 	}
@@ -263,7 +263,7 @@ func (r *LuaResolver) tableToSlice(tbl *lua.LTable) ([]any, error) {
 	result := make([]any, length)
 
 	for i := 1; i <= length; i++ {
-		elem := r.Session.state.RawGetInt(tbl, i)
+		elem := r.Session.State.RawGetInt(tbl, i)
 
 		if elemTbl, ok := elem.(*lua.LTable); ok {
 			if r.Session.isArray(elemTbl) {
@@ -291,25 +291,25 @@ func (r *LuaResolver) CreateValue(variable *changetracker.Variable, typ string, 
 		return nil
 	} else if factory, ok := GetGlobalCreateFactory(typ); ok {
 		return factory(r.Session, value)
-	} else if valueClass := r.Session.state.GetGlobal(typ); valueClass == lua.LNil {
+	} else if valueClass := r.Session.State.GetGlobal(typ); valueClass == lua.LNil {
 		return nil // No Lua global by that name
 	} else if valueTable, ok := valueClass.(*lua.LTable); !ok {
 		return nil // Not a table
-	} else if newFn := r.Session.state.GetField(valueTable, "new"); newFn == lua.LNil {
+	} else if newFn := r.Session.State.GetField(valueTable, "new"); newFn == lua.LNil {
 		return nil // No new() method
 	} else if fn, ok := newFn.(*lua.LFunction); !ok {
 		return nil // new is not a function
 	} else {
 		// Call WrapperType:new(variable)
-		r.Session.state.Push(fn)
-		r.Session.state.Push(valueTable)       // self (the class table)
-		r.Session.state.Push(r.goToLua(value)) // the value arg
-		if err := r.Session.state.PCall(2, 1, nil); err != nil {
+		r.Session.State.Push(fn)
+		r.Session.State.Push(valueTable)       // self (the class table)
+		r.Session.State.Push(r.goToLua(value)) // the value arg
+		if err := r.Session.State.PCall(2, 1, nil); err != nil {
 			return nil // Constructor failed
 		}
 		// Get the result
-		result := r.Session.state.Get(-1)
-		r.Session.state.Pop(1)
+		result := r.Session.State.Get(-1)
+		r.Session.State.Pop(1)
 		if result == lua.LNil {
 			return nil // Constructor returned nil
 		}
@@ -334,14 +334,14 @@ func (r *LuaResolver) CreateWrapper(variable *changetracker.Variable) any {
 	if existing := variable.WrapperValue; existing != nil {
 		// Update wrapper's value property (reuse pattern)
 		if luaWrapper, ok := existing.(*lua.LTable); ok {
-			r.Session.state.SetField(luaWrapper, "value", r.goToLua(variable.Value))
+			r.Session.State.SetField(luaWrapper, "value", r.goToLua(variable.Value))
 			// Call sync() if it exists (for ViewList sync)
-			syncFn := r.Session.state.GetField(luaWrapper, "sync")
+			syncFn := r.Session.State.GetField(luaWrapper, "sync")
 			if syncFn != lua.LNil {
 				if fn, ok := syncFn.(*lua.LFunction); ok {
-					r.Session.state.Push(fn)
-					r.Session.state.Push(luaWrapper)
-					r.Session.state.PCall(1, 0, nil) // ignore errors
+					r.Session.State.Push(fn)
+					r.Session.State.Push(luaWrapper)
+					r.Session.State.PCall(1, 0, nil) // ignore errors
 				}
 			}
 		} else if vl, ok := existing.(*ViewList); ok {
@@ -366,7 +366,7 @@ func (r *LuaResolver) CreateWrapper(variable *changetracker.Variable) any {
 	}
 
 	// Look up wrapper type in Lua globals
-	wrapperClass := r.Session.state.GetGlobal(wrapperType)
+	wrapperClass := r.Session.State.GetGlobal(wrapperType)
 	if wrapperClass == lua.LNil {
 		return nil // Wrapper type not found
 	}
@@ -377,7 +377,7 @@ func (r *LuaResolver) CreateWrapper(variable *changetracker.Variable) any {
 	}
 
 	// Check for 'new' method
-	newFn := r.Session.state.GetField(wrapperTable, "new")
+	newFn := r.Session.State.GetField(wrapperTable, "new")
 	if newFn == lua.LNil {
 		return nil // No new() method
 	}
@@ -391,17 +391,17 @@ func (r *LuaResolver) CreateWrapper(variable *changetracker.Variable) any {
 	luaVar := r.createLuaVariableWrapper(variable)
 
 	// Call WrapperType:new(variable)
-	r.Session.state.Push(fn)
-	r.Session.state.Push(wrapperTable) // self (the class table)
-	r.Session.state.Push(luaVar)       // variable argument
+	r.Session.State.Push(fn)
+	r.Session.State.Push(wrapperTable) // self (the class table)
+	r.Session.State.Push(luaVar)       // variable argument
 
-	if err := r.Session.state.PCall(2, 1, nil); err != nil {
+	if err := r.Session.State.PCall(2, 1, nil); err != nil {
 		return nil // Constructor failed
 	}
 
 	// Get the result
-	result := r.Session.state.Get(-1)
-	r.Session.state.Pop(1)
+	result := r.Session.State.Get(-1)
+	r.Session.State.Pop(1)
 
 	if result == lua.LNil {
 		return nil
@@ -421,7 +421,7 @@ func (r *LuaResolver) CreateWrapper(variable *changetracker.Variable) any {
 // CRC: crc-LuaResolver.md
 // Spec: protocol.md (Variable Wrappers section)
 func (r *LuaResolver) GetType(variable *changetracker.Variable, obj any) string {
-	typ := GetType(r.Session.state, obj)
+	typ := GetType(r.Session.State, obj)
 	return typ
 }
 
@@ -460,19 +460,19 @@ func GetType(L *lua.LState, obj any) string {
 // This provides the Lua-accessible interface to the Variable.
 func (r *LuaResolver) createLuaVariableWrapper(v *changetracker.Variable) *lua.LTable {
 	r.Session.Log(4, "CREATE LUA VARIABLE WRAPPER %#v", v)
-	wrapper := r.Session.state.NewTable()
+	wrapper := r.Session.State.NewTable()
 
 	// Store the variable ID for reference
-	r.Session.state.SetField(wrapper, "_id", lua.LNumber(v.ID))
+	r.Session.State.SetField(wrapper, "_id", lua.LNumber(v.ID))
 
 	// getValue() - returns the current value
-	r.Session.state.SetField(wrapper, "getValue", r.Session.state.NewFunction(func(L *lua.LState) int {
+	r.Session.State.SetField(wrapper, "getValue", r.Session.State.NewFunction(func(L *lua.LState) int {
 		L.Push(r.goToLua(v.Value))
 		return 1
 	}))
 
 	// getProperty(name) - returns a property value
-	r.Session.state.SetField(wrapper, "getProperty", r.Session.state.NewFunction(func(L *lua.LState) int {
+	r.Session.State.SetField(wrapper, "getProperty", r.Session.State.NewFunction(func(L *lua.LState) int {
 		name := L.CheckString(1)
 		prop := v.GetProperty(name)
 		if prop == "" {
@@ -484,7 +484,7 @@ func (r *LuaResolver) createLuaVariableWrapper(v *changetracker.Variable) *lua.L
 	}))
 
 	// getWrapper() - returns existing wrapper or nil
-	r.Session.state.SetField(wrapper, "getWrapper", r.Session.state.NewFunction(func(L *lua.LState) int {
+	r.Session.State.SetField(wrapper, "getWrapper", r.Session.State.NewFunction(func(L *lua.LState) int {
 		existing := v.WrapperValue
 		if existing == nil {
 			L.Push(lua.LNil)
@@ -500,5 +500,5 @@ func (r *LuaResolver) createLuaVariableWrapper(v *changetracker.Variable) *lua.L
 }
 
 func (r *LuaResolver) goToLua(value any) lua.LValue {
-	return r.Session.Runtime.goToLua(r.Session.state, value)
+	return r.Session.Runtime.goToLua(r.Session.State, value)
 }

@@ -3,6 +3,7 @@
 package cli
 
 import (
+	changetracker "github.com/zot/change-tracker"
 	"github.com/zot/ui-engine/internal/bundle"
 	"github.com/zot/ui-engine/internal/lua"
 	"github.com/zot/ui-engine/internal/server"
@@ -14,6 +15,11 @@ type (
 	Server         = server.Server
 	LuaRuntime     = lua.Runtime
 	ViewdefManager = viewdef.ViewdefManager
+	// Change-tracker types for variable inspection
+	Variable      = changetracker.Variable
+	Tracker       = changetracker.Tracker
+	// Debug types
+	DebugVariable = server.DebugVariable
 )
 
 // Re-export server constructor
@@ -26,4 +32,9 @@ var (
 	IsBundled        = bundle.IsBundled
 	BundleListFiles  = bundle.ListFilesInDir
 	BundleReadFile   = bundle.ReadFile
+)
+
+// Re-export Lua utilities
+var (
+	LuaToGo = lua.LuaToGo
 )

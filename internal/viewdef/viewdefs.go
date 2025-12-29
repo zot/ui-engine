@@ -8,26 +8,43 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/zot/ui-engine/internal/bundle"
 )
 
+// viewdefEntry tracks a viewdef's content and source file info.
+type viewdefEntry struct {
+	content  string
+	filePath string    // Source file path (empty if from bundle or dynamic)
+	modTime  time.Time // Last modification time when loaded
+}
+
 // ViewdefManager manages viewdef loading and tracking.
 type ViewdefManager struct {
-	// viewdefs maps TYPE.NAMESPACE to HTML content
-	viewdefs map[string]string
-	// sentTypes tracks which types have been sent per session
-	// sessionID -> set of type names
-	sentTypes map[string]map[string]bool
-	mu        sync.RWMutex
+	// viewdefs maps TYPE.NAMESPACE to viewdef entry
+	viewdefs map[string]*viewdefEntry
+	// sentViewdefs tracks which viewdefs have been sent per session with their modTime
+	// sessionID -> viewdef key -> modTime when sent
+	sentViewdefs map[string]map[string]time.Time
+	// viewdefDir is the directory to check for viewdefs on-demand
+	viewdefDir string
+	mu         sync.RWMutex
 }
 
 // NewViewdefManager creates a new viewdef manager.
 func NewViewdefManager() *ViewdefManager {
 	return &ViewdefManager{
-		viewdefs:  make(map[string]string),
-		sentTypes: make(map[string]map[string]bool),
+		viewdefs:     make(map[string]*viewdefEntry),
+		sentViewdefs: make(map[string]map[string]time.Time),
 	}
+}
+
+// SetViewdefDir sets the directory for on-demand viewdef loading.
+func (m *ViewdefManager) SetViewdefDir(dir string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.viewdefDir = dir
 }
 
 // LoadFromDirectory loads viewdefs from a directory.
@@ -35,6 +52,9 @@ func NewViewdefManager() *ViewdefManager {
 func (m *ViewdefManager) LoadFromDirectory(dir string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+
+	// Store directory for on-demand loading
+	m.viewdefDir = dir
 
 	return filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
@@ -57,16 +77,35 @@ func (m *ViewdefManager) LoadFromDirectory(dir string) error {
 			return err
 		}
 
-		m.viewdefs[key] = string(content)
+		m.viewdefs[key] = &viewdefEntry{
+			content:  string(content),
+			filePath: path,
+			modTime:  info.ModTime(),
+		}
 		return nil
 	})
 }
 
 // AddViewdef adds or updates a viewdef dynamically.
+// If viewdefDir is set, writes to file and tracks the file path.
 func (m *ViewdefManager) AddViewdef(key, content string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.viewdefs[key] = content
+
+	entry := &viewdefEntry{content: content}
+
+	// If we have a viewdef directory, write to file and track it
+	if m.viewdefDir != "" {
+		filePath := filepath.Join(m.viewdefDir, key+".html")
+		if err := os.WriteFile(filePath, []byte(content), 0644); err == nil {
+			if info, err := os.Stat(filePath); err == nil {
+				entry.filePath = filePath
+				entry.modTime = info.ModTime()
+			}
+		}
+	}
+
+	m.viewdefs[key] = entry
 }
 
 // LoadFromBundle loads viewdefs from the embedded bundle.
@@ -79,21 +118,22 @@ func (m *ViewdefManager) LoadFromBundle() error {
 		return err
 	}
 
-	for _, filePath := range files {
-		if !strings.HasSuffix(filePath, ".html") {
+	for _, bundlePath := range files {
+		if !strings.HasSuffix(bundlePath, ".html") {
 			continue
 		}
 
-		content, err := bundle.ReadFile(filePath)
+		content, err := bundle.ReadFile(bundlePath)
 		if err != nil {
 			continue
 		}
 
 		// Get filename from path (e.g., "viewdefs/Adder.DEFAULT.html" -> "Adder.DEFAULT")
-		filename := filepath.Base(filePath)
+		filename := filepath.Base(bundlePath)
 		key := strings.TrimSuffix(filename, ".html")
 
-		m.viewdefs[key] = string(content)
+		// Bundle viewdefs have no file path (embedded)
+		m.viewdefs[key] = &viewdefEntry{content: string(content)}
 	}
 
 	return nil
@@ -123,7 +163,8 @@ func (m *ViewdefManager) LoadFromFS(fsys fs.FS, dir string) error {
 		filename := filepath.Base(path)
 		key := strings.TrimSuffix(filename, ".html")
 
-		m.viewdefs[key] = string(content)
+		// FS viewdefs have no trackable file path
+		m.viewdefs[key] = &viewdefEntry{content: string(content)}
 		return nil
 	})
 }
@@ -137,54 +178,147 @@ func (m *ViewdefManager) GetViewdefsForType(typeName string) map[string]string {
 	result := make(map[string]string)
 	prefix := typeName + "."
 
-	for key, content := range m.viewdefs {
+	for key, entry := range m.viewdefs {
 		if strings.HasPrefix(key, prefix) {
-			result[key] = content
+			result[key] = entry.content
 		}
 	}
 
 	return result
 }
 
-func (m *ViewdefManager) GetSent(sessionID string) map[string]bool {
+// reloadIfStale checks if a viewdef's file has been modified and reloads if needed.
+// Must be called with write lock held.
+func (m *ViewdefManager) reloadIfStale(key string, entry *viewdefEntry) {
+	if entry.filePath == "" {
+		return
+	}
+
+	info, err := os.Stat(entry.filePath)
+	if err != nil {
+		return
+	}
+
+	if info.ModTime().After(entry.modTime) {
+		content, err := os.ReadFile(entry.filePath)
+		if err != nil {
+			return
+		}
+		entry.content = string(content)
+		entry.modTime = info.ModTime()
+	}
+}
+
+// LoadViewdefsForType loads viewdefs for a type from filesystem into cache.
+// Does not mark them as sent - use GetChangedViewdefsForSession after to get them.
+func (m *ViewdefManager) LoadViewdefsForType(typeName string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	return m.sentTypes[sessionID]
+	m.tryLoadFromFilesystem(typeName)
 }
 
-// GetNewViewdefsForSession returns viewdefs for a type that haven't been sent to this session yet.
-// Marks the type as sent for this session.
-func (m *ViewdefManager) GetNewViewdefsForSession(sessionID, typeName string) map[string]string {
-	defs := make(map[string]string)
-	m.AddNewViewdefsForSession(sessionID, typeName, defs)
-	return defs
+// tryLoadFromFilesystem attempts to load viewdefs for a type from the filesystem.
+// Must be called with lock held.
+func (m *ViewdefManager) tryLoadFromFilesystem(typeName string) {
+	if m.viewdefDir == "" {
+		return
+	}
+
+	// Look for TYPE.*.html files
+	pattern := filepath.Join(m.viewdefDir, typeName+".*.html")
+	matches, err := filepath.Glob(pattern)
+	if err != nil {
+		return
+	}
+
+	for _, path := range matches {
+		filename := filepath.Base(path)
+		key := strings.TrimSuffix(filename, ".html")
+
+		info, err := os.Stat(path)
+		if err != nil {
+			continue
+		}
+
+		// Skip if already loaded with same or newer mod time
+		if existing, exists := m.viewdefs[key]; exists {
+			if existing.filePath != "" && !info.ModTime().After(existing.modTime) {
+				continue
+			}
+		}
+
+		content, err := os.ReadFile(path)
+		if err != nil {
+			continue
+		}
+
+		m.viewdefs[key] = &viewdefEntry{
+			content:  string(content),
+			filePath: path,
+			modTime:  info.ModTime(),
+		}
+	}
 }
 
-// GetNewViewdefsForSession returns viewdefs for a type that haven't been sent to this session yet.
-// Marks the type as sent for this session.
-func (m *ViewdefManager) AddNewViewdefsForSession(sessionID, typeName string, defs map[string]string) {
+// GetChangedViewdefsForSession returns viewdefs that need to be sent to a session.
+// This includes:
+// - Viewdefs for new types that haven't been sent yet
+// - Viewdefs that have been modified since they were last sent
+// Marks returned viewdefs as sent with their current mod time.
+func (m *ViewdefManager) GetChangedViewdefsForSession(sessionID string) map[string]string {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
 	// Initialize session tracking if needed
-	if m.sentTypes[sessionID] == nil {
-		m.sentTypes[sessionID] = make(map[string]bool)
+	if m.sentViewdefs[sessionID] == nil {
+		m.sentViewdefs[sessionID] = make(map[string]time.Time)
 	}
 
-	// Check if already sent
-	if m.sentTypes[sessionID][typeName] {
-		return
+	defs := make(map[string]string)
+	sentTimes := m.sentViewdefs[sessionID]
+
+	for key, entry := range m.viewdefs {
+		// Check for file changes
+		m.reloadIfStale(key, entry)
+
+		sentTime, wasSent := sentTimes[key]
+		if !wasSent || entry.modTime.After(sentTime) {
+			defs[key] = entry.content
+			sentTimes[key] = entry.modTime
+		}
 	}
 
-	// Mark as sent
-	m.sentTypes[sessionID][typeName] = true
+	return defs
+}
+
+// AddNewViewdefsForType loads and marks viewdefs for a type as sent.
+// This is called when a new type is encountered in the variable changes.
+func (m *ViewdefManager) AddNewViewdefsForType(sessionID, typeName string, defs map[string]string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	// Initialize session tracking if needed
+	if m.sentViewdefs[sessionID] == nil {
+		m.sentViewdefs[sessionID] = make(map[string]time.Time)
+	}
+
+	// Try to load from filesystem if not in cache
+	m.tryLoadFromFilesystem(typeName)
 
 	// Get viewdefs for this type
 	prefix := typeName + "."
+	sentTimes := m.sentViewdefs[sessionID]
 
-	for key, content := range m.viewdefs {
+	for key, entry := range m.viewdefs {
 		if strings.HasPrefix(key, prefix) {
-			defs[key] = content
+			// Check for file changes
+			m.reloadIfStale(key, entry)
+
+			sentTime, wasSent := sentTimes[key]
+			if !wasSent || entry.modTime.After(sentTime) {
+				defs[key] = entry.content
+				sentTimes[key] = entry.modTime
+			}
 		}
 	}
 }
@@ -193,7 +327,7 @@ func (m *ViewdefManager) AddNewViewdefsForSession(sessionID, typeName string, de
 func (m *ViewdefManager) ClearSession(sessionID string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	delete(m.sentTypes, sessionID)
+	delete(m.sentViewdefs, sessionID)
 }
 
 // GetAllViewdefs returns all loaded viewdefs.
@@ -202,8 +336,8 @@ func (m *ViewdefManager) GetAllViewdefs() map[string]string {
 	defer m.mu.RUnlock()
 
 	result := make(map[string]string, len(m.viewdefs))
-	for k, v := range m.viewdefs {
-		result[k] = v
+	for k, entry := range m.viewdefs {
+		result[k] = entry.content
 	}
 	return result
 }

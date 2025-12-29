@@ -101,6 +101,19 @@ func New(cfg *config.Config) *Server {
 		// Create wrapper manager with runtime and registry
 		s.wrapperManager = lua.NewWrapperManager(s.luaRuntime, s.wrapperRegistry)
 
+		// Set up debug data provider for /debug/variables page
+		s.httpEndpoint.SetDebugDataProvider(func(sessionID string) ([]DebugVariable, error) {
+			sess, ok := s.luaRuntime.GetLuaSession(sessionID)
+			if !ok {
+				return nil, fmt.Errorf("session %s not found", sessionID)
+			}
+			tracker := sess.GetTracker()
+			if tracker == nil {
+				return nil, fmt.Errorf("tracker not found")
+			}
+			return s.getDebugVariables(tracker)
+		})
+
 		// Set wrapper manager on store adapter so it can create wrappers during variable creation
 		if s.storeAdapter != nil {
 			s.storeAdapter.SetWrapperManager(s.wrapperManager)
@@ -480,6 +493,7 @@ func (s *Server) AfterBatch(internalSessionID string) {
 // ExecuteInSession executes code within a session's context.
 // This queues through the session's executor to serialize with WebSocket operations.
 // AfterBatch is called after execution to detect and push any changes.
+// Also sets up the Lua session context so session:getApp() etc. work.
 // vendedID is the compact session ID ("1", "2", etc.)
 func (s *Server) ExecuteInSession(vendedID string, fn func() (interface{}, error)) (interface{}, error) {
 	internalID := s.sessions.GetInternalID(vendedID)
@@ -488,12 +502,86 @@ func (s *Server) ExecuteInSession(vendedID string, fn func() (interface{}, error
 	}
 
 	// Delegate to websocket endpoint (queues through session's executor)
-	return s.wsEndpoint.ExecuteInSession(internalID, fn)
+	// Wrap fn to set up Lua session context
+	return s.wsEndpoint.ExecuteInSession(internalID, func() (interface{}, error) {
+		return s.luaRuntime.ExecuteInSession(vendedID, fn)
+	})
 }
 
 // GetLuaRuntime returns the Lua runtime (for testing/advanced use).
 func (s *Server) GetLuaRuntime() *lua.Runtime {
 	return s.luaRuntime
+}
+
+// getDebugVariables returns all variables in topological order from a tracker.
+func (s *Server) getDebugVariables(tracker *changetracker.Tracker) ([]DebugVariable, error) {
+	// Get all variables
+	allVars := tracker.Variables()
+
+	// Build map for quick lookup
+	varMap := make(map[int64]*changetracker.Variable)
+	for _, v := range allVars {
+		varMap[v.ID] = v
+	}
+
+	// Topological sort: BFS from roots
+	var sorted []*changetracker.Variable
+	visited := make(map[int64]bool)
+
+	// Start with root variables (parentID == 0)
+	queue := make([]*changetracker.Variable, 0)
+	for _, v := range allVars {
+		if v.ParentID == 0 {
+			queue = append(queue, v)
+		}
+	}
+
+	for len(queue) > 0 {
+		v := queue[0]
+		queue = queue[1:]
+
+		if visited[v.ID] {
+			continue
+		}
+		visited[v.ID] = true
+		sorted = append(sorted, v)
+
+		// Add children to queue
+		for _, childID := range v.ChildIDs {
+			if child := varMap[childID]; child != nil && !visited[childID] {
+				queue = append(queue, child)
+			}
+		}
+	}
+
+	// Add any orphans (shouldn't happen, but be safe)
+	for _, v := range allVars {
+		if !visited[v.ID] {
+			sorted = append(sorted, v)
+		}
+	}
+
+	// Convert to DebugVariable
+	result := make([]DebugVariable, len(sorted))
+	for i, v := range sorted {
+		info := DebugVariable{
+			ID:         v.ID,
+			ParentID:   v.ParentID,
+			Type:       v.Properties["type"],
+			Path:       v.Properties["path"],
+			Properties: v.Properties,
+			ChildIDs:   v.ChildIDs,
+		}
+
+		// Get value - convert to interface{} for JSON serialization
+		if v.Value != nil {
+			info.Value = tracker.ToValueJSON(v.Value)
+		}
+
+		result[i] = info
+	}
+
+	return result, nil
 }
 
 // GetViewdefManager returns the viewdef manager.

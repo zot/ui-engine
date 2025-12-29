@@ -48,7 +48,7 @@ type LuaSession struct {
 
 // Runtime manages embedded Lua VM execution with multiple sessions.
 type Runtime struct {
-	state          *lua.LState
+	State          *lua.LState
 	loadedModules  map[string]bool
 	presenterTypes map[string]*PresenterType
 	luaDir         string
@@ -62,9 +62,8 @@ type Runtime struct {
 	sessions        map[string]*LuaSession // vendedID -> LuaSession
 	variableStore   VariableStore          // Backend for variable operations
 	mainLuaCode     string                 // Cached main.lua content (for bundle mode)
-	wrapperRegistry *WrapperRegistry       // Shared wrapper registry (set by server)
-	viewdefManager  *viewdef.ViewdefManager
-	onNotification  func(method string, params interface{}) // Callback for MCP notifications
+	wrapperRegistry   *WrapperRegistry       // Shared wrapper registry (set by server)
+	viewdefManager    *viewdef.ViewdefManager
 }
 
 // PresenterType represents a Lua-defined presenter type.
@@ -99,7 +98,7 @@ func NewRuntime(cfg *config.Config, luaDir string, vdm *viewdef.ViewdefManager) 
 
 	r := &Runtime{
 		config:         cfg,
-		state:          L,
+		State:          L,
 		loadedModules:  make(map[string]bool),
 		presenterTypes: make(map[string]*PresenterType),
 		sessions:       make(map[string]*LuaSession),
@@ -134,7 +133,7 @@ func NewRuntime(cfg *config.Config, luaDir string, vdm *viewdef.ViewdefManager) 
 // loadSessionModule tries to load lib/lua/session.lua and stores the module globally.
 // Returns silently if module not found (allows tests to work without it).
 func (r *Runtime) loadSessionModule() {
-	L := r.state
+	L := r.State
 
 	// Try to load the session module via require
 	if err := L.DoString(`_SessionModule = require("session")`); err != nil {
@@ -169,7 +168,7 @@ func (r *Runtime) SetWrapperRegistry(registry *WrapperRegistry) {
 func (r *Runtime) GetGlobalTable(name string) interface{} {
 	var result interface{}
 	r.execute(func() (interface{}, error) {
-		L := r.state
+		L := r.State
 		val := L.GetGlobal(name)
 		if tbl, ok := val.(*lua.LTable); ok {
 			result = tbl
@@ -202,7 +201,7 @@ func (r *Runtime) CreateLuaSession(vendedID string) (*LuaSession, error) {
 
 	var luaSession *LuaSession
 	_, err := r.execute(func() (interface{}, error) {
-		L := r.state
+		L := r.State
 
 		// Create session table for this frontend session
 		sessionTable := r.createSessionTable(L, vendedID)
@@ -223,9 +222,6 @@ func (r *Runtime) CreateLuaSession(vendedID string) (*LuaSession, error) {
 
 		// Set session global (will be replaced for each session's code execution)
 		L.SetGlobal("session", sessionTable)
-
-		// Register MCP global
-		r.registerMCPGlobal(L, luaSession)
 
 		// Load main.lua for this session
 		if err := r.loadMainLua(L); err != nil {
@@ -330,72 +326,6 @@ func (r *Runtime) createSessionTable(L *lua.LState, vendedID string) *lua.LTable
 	return session
 }
 
-// registerMCPGlobal injects the 'mcp' global object for AI agent interaction.
-func (r *Runtime) registerMCPGlobal(L *lua.LState, luaSess *LuaSession) {
-	mcp := L.NewTable()
-	L.SetGlobal("mcp", mcp)
-
-	// mcp.notify(method, params)
-	L.SetField(mcp, "notify", L.NewFunction(func(L *lua.LState) int {
-		method := L.CheckString(1)
-		params := L.OptTable(2, nil)
-
-		var goParams interface{}
-		if params != nil {
-			goParams = luaToGo(params)
-		}
-
-		r.mu.RLock()
-		cb := r.onNotification
-		r.mu.RUnlock()
-
-		if cb != nil {
-			cb(method, goParams)
-		}
-		return 0
-	}))
-
-	// mcp.state (getter/setter via metatable)
-	mt := L.NewTable()
-	L.SetField(mt, "__index", L.NewFunction(func(L *lua.LState) int {
-		key := L.CheckString(2)
-		if key == "state" {
-			if luaSess.McpState != nil {
-				L.Push(luaSess.McpState)
-			} else if luaSess.appObject != nil {
-				L.Push(luaSess.appObject)
-			} else {
-				L.Push(lua.LNil)
-			}
-			return 1
-		}
-		return 0
-	}))
-	L.SetField(mt, "__newindex", L.NewFunction(func(L *lua.LState) int {
-		key := L.CheckString(2)
-		if key == "state" {
-			val := L.CheckTable(3)
-			luaSess.McpState = val
-			luaSess.McpStateID = 0 // Reset, then try to find
-
-			// Try to find variable ID if it's tracked
-			tracker := r.variableStore.GetTracker(luaSess.ID)
-			if tracker != nil {
-				for _, v := range tracker.Variables() {
-					if v.Value == val {
-						luaSess.McpStateID = v.ID
-						break
-					}
-				}
-			}
-			return 0
-		}
-		L.RawSet(mcp, L.Get(2), L.Get(3))
-		return 0
-	}))
-	L.SetMetatable(mcp, mt)
-}
-
 // createFallbackSessionTable creates a minimal session table for testing when module not loaded.
 func (r *Runtime) createFallbackSessionTable(L *lua.LState, vendedID string) *lua.LTable {
 	session := L.NewTable()
@@ -498,7 +428,7 @@ func (r *Runtime) injectSessionFunctions(L *lua.LState, session *lua.LTable, ven
 
 			var jsonValue json.RawMessage
 			if value != lua.LNil {
-				goValue := luaToGo(value)
+				goValue := LuaToGo(value)
 				if goValue != nil {
 					data, _ := json.Marshal(goValue)
 					jsonValue = data
@@ -711,7 +641,7 @@ func (r *Runtime) NotifyPropertyChange(vendedID string, varID int64, property st
 	}
 
 	r.execute(func() (interface{}, error) {
-		L := r.state
+		L := r.State
 		r.notifyPropertyChangeInternal(L, luaSess.sessionTable, varID, property, value)
 		return nil, nil
 	})
@@ -795,7 +725,7 @@ func (r *Runtime) ExecuteInSession(sessionID string, fn func() (interface{}, err
 			return nil, fmt.Errorf("session %s not found", sessionID)
 		}
 
-		L := r.state
+		L := r.State
 
 		// Set the global 'session' variable
 		L.SetGlobal("session", session.sessionTable)
@@ -827,7 +757,7 @@ func (r *Runtime) RedirectOutput(logPath, errPath string) error {
 	// or until reconfigured. In a robust system we might want to manage them better.
 
 	r.execute(func() (interface{}, error) {
-		L := r.state
+		L := r.State
 
 		// Override print
 		L.SetGlobal("print", L.NewFunction(func(L *lua.LState) int {
@@ -856,13 +786,6 @@ func (r *Runtime) RedirectOutput(logPath, errPath string) error {
 	})
 
 	return nil
-}
-
-// SetNotificationHandler sets the callback for MCP notifications.
-func (r *Runtime) SetNotificationHandler(handler func(method string, params interface{})) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	r.onNotification = handler
 }
 
 // VariableUpdate represents a detected change to be sent to the frontend.
@@ -898,46 +821,38 @@ func (r *Runtime) AfterBatch(vendedID string) []VariableUpdate {
 	}
 
 	v1 := tracker.GetVariable(1)
-	types := make(map[string]bool)
 	var sending changetracker.Change
-	sent := r.viewdefManager.GetSent(vendedID)
+
+	// Load viewdefs for any new types encountered
 	for _, change := range changes {
 		if slices.Contains(change.PropertiesChanged, "type") {
 			typ := tracker.GetVariable(change.VariableID).Properties["type"]
-			if !sent[typ] {
-				types[typ] = true
-			}
+			r.viewdefManager.LoadViewdefsForType(typ)
 		}
 		if change.VariableID == 1 && slices.Contains(change.PropertiesChanged, "viewdefs") {
 			sending = change
 		}
 	}
-	if len(types) > 0 {
-		//  gather viewdefs to send out for this batch
-		defs := make(map[string]string)
-		added := false
-		for typ := range types {
-			added = true
-			r.viewdefManager.AddNewViewdefsForSession(vendedID, typ, defs)
-		}
-		if added {
-			if defBytes, err := json.Marshal(defs); err != nil {
-				r.Log(0, "Error serializing viewdefs: %s", err.Error())
-			} else {
-				v1.Properties["viewdefs"] = string(defBytes)
-				r.Log(4, "SENDING VIEWDEFS: %s", v1.Properties["viewdefs"])
-				if sending.VariableID == 0 {
-					// need to insert a change for the viewdefs
-					new := make([]changetracker.Change, len(changes)+1)
-					new[0] = changetracker.Change{
-						VariableID:        1,
-						Priority:          changetracker.PriorityHigh,
-						ValueChanged:      false,
-						PropertiesChanged: []string{"viewdefs"},
-					}
-					copy(new[1:], changes)
-					changes = new
+
+	// Get all viewdefs that need to be sent (new or modified on disk)
+	defs := r.viewdefManager.GetChangedViewdefsForSession(vendedID)
+	if len(defs) > 0 {
+		if defBytes, err := json.Marshal(defs); err != nil {
+			r.Log(0, "Error serializing viewdefs: %s", err.Error())
+		} else {
+			v1.Properties["viewdefs"] = string(defBytes)
+			r.Log(4, "SENDING VIEWDEFS: %s", v1.Properties["viewdefs"])
+			if sending.VariableID == 0 {
+				// need to insert a change for the viewdefs
+				new := make([]changetracker.Change, len(changes)+1)
+				new[0] = changetracker.Change{
+					VariableID:        1,
+					Priority:          changetracker.PriorityHigh,
+					ValueChanged:      false,
+					PropertiesChanged: []string{"viewdefs"},
 				}
+				copy(new[1:], changes)
+				changes = new
 			}
 		}
 	}
@@ -1075,7 +990,7 @@ func (r *Runtime) HandleFrontendUpdate(sessionID string, varID int64, value json
 // registerRequire adds a custom require() function that works with both
 // filesystem (--dir mode) and embedded bundle.
 func (r *Runtime) registerRequire() {
-	L := r.state
+	L := r.State
 
 	// Table to cache loaded modules (like package.loaded)
 	loaded := L.NewTable()
@@ -1141,7 +1056,7 @@ func (r *Runtime) registerRequire() {
 
 // registerUIModule adds the ui.* API to Lua.
 func (r *Runtime) registerUIModule() {
-	L := r.state
+	L := r.State
 
 	// Create ui module
 	uiMod := L.NewTable()
@@ -1185,7 +1100,7 @@ func (r *Runtime) registerUIModule() {
 	// ui.json_encode(value)
 	L.SetField(uiMod, "json_encode", L.NewFunction(func(L *lua.LState) int {
 		val := L.Get(1)
-		goVal := luaToGo(val)
+		goVal := LuaToGo(val)
 		data, err := json.Marshal(goVal)
 		if err != nil {
 			L.Push(lua.LNil)
@@ -1251,7 +1166,7 @@ func (r *Runtime) LoadFileAbsolute(path string) error {
 			return nil, nil // Already loaded
 		}
 
-		if err := r.state.DoFile(path); err != nil {
+		if err := r.State.DoFile(path); err != nil {
 			return nil, fmt.Errorf("failed to load %s: %w", path, err)
 		}
 
@@ -1268,29 +1183,29 @@ func (r *Runtime) LoadFileAbsolute(path string) error {
 func (r *Runtime) LoadCode(name, code string) (interface{}, error) {
 	return r.execute(func() (interface{}, error) {
 		// Load the string into a function
-		fn, err := r.state.LoadString(code)
+		fn, err := r.State.LoadString(code)
 		if err != nil {
 			return nil, fmt.Errorf("failed to load code %s: %w", name, err)
 		}
 
 		// Push function
-		r.state.Push(fn)
+		r.State.Push(fn)
 
 		// Call it (0 arguments, 1 result)
-		if err := r.state.PCall(0, 1, nil); err != nil {
+		if err := r.State.PCall(0, 1, nil); err != nil {
 			return nil, fmt.Errorf("failed to execute code %s: %w", name, err)
 		}
 
 		// Get result
-		ret := r.state.Get(-1) // Get top
-		r.state.Pop(1)         // Pop it
+		ret := r.State.Get(-1) // Get top
+		r.State.Pop(1)         // Pop it
 
 		if ret == lua.LNil {
 			return nil, nil
 		}
 
 		// Convert to Go
-		return luaToGo(ret), nil
+		return LuaToGo(ret), nil
 	})
 }
 
@@ -1299,29 +1214,29 @@ func (r *Runtime) LoadCode(name, code string) (interface{}, error) {
 // MUST only be called from within an execute() context.
 func (r *Runtime) LoadCodeDirect(name, code string) (interface{}, error) {
 	// Load the string into a function
-	fn, err := r.state.LoadString(code)
+	fn, err := r.State.LoadString(code)
 	if err != nil {
 		return nil, fmt.Errorf("failed to load code %s: %w", name, err)
 	}
 
 	// Push function
-	r.state.Push(fn)
+	r.State.Push(fn)
 
 	// Call it (0 arguments, 1 result)
-	if err := r.state.PCall(0, 1, nil); err != nil {
+	if err := r.State.PCall(0, 1, nil); err != nil {
 		return nil, fmt.Errorf("failed to execute code %s: %w", name, err)
 	}
 
 	// Get result
-	ret := r.state.Get(-1) // Get top
-	r.state.Pop(1)         // Pop it
+	ret := r.State.Get(-1) // Get top
+	r.State.Pop(1)         // Pop it
 
 	if ret == lua.LNil {
 		return nil, nil
 	}
 
 	// Convert to Go
-	return luaToGo(ret), nil
+	return LuaToGo(ret), nil
 }
 
 // GetPresenterType returns a registered presenter type.
@@ -1347,7 +1262,7 @@ func (r *Runtime) ListPresenterTypes() []string {
 // CallMethod invokes a method on a Lua presenter instance via executor.
 func (r *Runtime) CallMethod(instance *lua.LTable, method string, args ...interface{}) (interface{}, error) {
 	return r.execute(func() (interface{}, error) {
-		L := r.state
+		L := r.State
 
 		fn := L.GetField(instance, method)
 		if fn == lua.LNil {
@@ -1377,7 +1292,7 @@ func (r *Runtime) CallMethod(instance *lua.LTable, method string, args ...interf
 		result := L.Get(-1)
 		L.Pop(1)
 
-		return luaToGo(result), nil
+		return LuaToGo(result), nil
 	})
 }
 
@@ -1391,7 +1306,7 @@ func (r *Runtime) CallLuaWrapperMethod(instance interface{}, method string, args
 	}
 
 	return r.execute(func() (interface{}, error) {
-		L := r.state
+		L := r.State
 
 		fn := L.GetField(tbl, method)
 		if fn == lua.LNil {
@@ -1432,7 +1347,7 @@ func (r *Runtime) CallLuaWrapperMethod(instance interface{}, method string, args
 		result := L.Get(-1)
 		L.Pop(1)
 
-		return luaToGo(result), nil
+		return LuaToGo(result), nil
 	})
 }
 
@@ -1447,7 +1362,7 @@ func (r *Runtime) CreateInstance(typeName string, props map[string]interface{}) 
 			return nil, fmt.Errorf("presenter type %s not found", typeName)
 		}
 
-		L := r.state
+		L := r.State
 
 		// Create new instance table
 		instance := L.NewTable()
@@ -1503,7 +1418,7 @@ func (r *Runtime) CreateItemWrapper(typeName string, viewItem *ViewListItem) (*I
 
 		if !ok {
 			// Auto-discovery: Check if there's a global table with this name
-			L := r.state
+			L := r.State
 			val := L.GetGlobal(typeName)
 			if tbl, ok := val.(*lua.LTable); ok {
 				pt = &PresenterType{
@@ -1521,7 +1436,7 @@ func (r *Runtime) CreateItemWrapper(typeName string, viewItem *ViewListItem) (*I
 			}
 		}
 
-		L := r.state
+		L := r.State
 
 		// Create new instance table
 		instance := L.NewTable()
@@ -1562,7 +1477,7 @@ func (r *Runtime) CreateItemWrapper(typeName string, viewItem *ViewListItem) (*I
 }
 
 func (s *LuaSession) createLuaViewListItem(viewItem *ViewListItem) *lua.LTable {
-	return s.createViewListItemLuaWrapper(s.state, viewItem)
+	return s.createViewListItemLuaWrapper(s.State, viewItem)
 }
 
 // createViewListItemLuaWrapper creates a Lua wrapper for a ViewListItem.
@@ -1584,8 +1499,8 @@ func (r *Runtime) createViewListItemLuaWrapper(L *lua.LState, viewItem *ViewList
 // GetValue gets a value from a Lua table via executor.
 func (r *Runtime) GetValue(tbl *lua.LTable, key string) interface{} {
 	result, _ := r.execute(func() (interface{}, error) {
-		val := r.state.GetField(tbl, key)
-		return luaToGo(val), nil
+		val := r.State.GetField(tbl, key)
+		return LuaToGo(val), nil
 	})
 	return result
 }
@@ -1593,7 +1508,7 @@ func (r *Runtime) GetValue(tbl *lua.LTable, key string) interface{} {
 // SetValue sets a value on a Lua table via executor.
 func (r *Runtime) SetValue(tbl *lua.LTable, key string, value interface{}) {
 	r.execute(func() (interface{}, error) {
-		r.state.SetField(tbl, key, r.goToLua(r.state, value))
+		r.State.SetField(tbl, key, r.goToLua(r.State, value))
 		return nil, nil
 	})
 }
@@ -1605,7 +1520,7 @@ func (r *Runtime) Shutdown() {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	r.state.Close()
+	r.State.Close()
 }
 
 // goToLua converts a Go value to Lua.
@@ -1657,7 +1572,7 @@ func (s *LuaSession) isArray(tbl *lua.LTable) bool {
 	hasNumericKeys := false
 	hasStringKeys := false
 
-	if GetType(s.state, tbl) != "" {
+	if GetType(s.State, tbl) != "" {
 		return false
 	}
 	tbl.ForEach(func(key, _ lua.LValue) {
@@ -1718,9 +1633,9 @@ func (s *LuaSession) ArrayGetter(array any) (func(int) (any, error), int, error)
 	}, v.Len(), nil
 }
 
-// luaToGo converts a Lua value to Go.
+// LuaToGo converts a Lua value to Go.
 // Fields prefixed with "_" are skipped (internal/private fields).
-func luaToGo(val lua.LValue) interface{} {
+func LuaToGo(val lua.LValue) interface{} {
 	switch v := val.(type) {
 	case lua.LBool:
 		return bool(v)
@@ -1751,7 +1666,7 @@ func luaToGo(val lua.LValue) interface{} {
 		if hasNumericKeys && !hasStringKeys && maxN > 0 {
 			arr := make([]interface{}, maxN)
 			for i := 1; i <= maxN; i++ {
-				arr[i-1] = luaToGo(v.RawGetInt(i))
+				arr[i-1] = LuaToGo(v.RawGetInt(i))
 			}
 			return arr
 		}
@@ -1763,7 +1678,7 @@ func luaToGo(val lua.LValue) interface{} {
 				keyStr := string(ks)
 				// Skip internal fields (prefixed with _)
 				if !strings.HasPrefix(keyStr, "_") {
-					m[keyStr] = luaToGo(value)
+					m[keyStr] = LuaToGo(value)
 				}
 			}
 		})
