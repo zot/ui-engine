@@ -200,7 +200,7 @@
 ### crc-Backend.md
 **Source Spec:** main.md (UI Server Architecture)
 **Implementation:**
-- [ ] `internal/backend/backend.go` - Backend interface
+- [x] `internal/backend/backend.go` - Backend interface
 
 ### crc-LuaBackend.md
 **Source Spec:** main.md (UI Server Architecture), protocol.md (Session-Based Communication)
@@ -417,7 +417,9 @@
 **Implementation:**
 - [x] `internal/lua/wrapper.go` - Wrapper interface and registry
 - [x] `internal/lua/viewlist.go` - ViewList wrapper implementation
-- [ ] `lib/wrapper.lua` - Lua wrapper base (optional - Go implementation complete)
+- [x] `lib/wrapper_example.lua` - Example Lua wrapper (demonstrates custom wrapper pattern)
+
+**Notes:** Wrapper base is implemented in Go. Custom wrappers can be written in Lua following the example pattern.
 
 ---
 

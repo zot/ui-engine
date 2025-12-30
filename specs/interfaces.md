@@ -134,6 +134,16 @@ When `--lua` is enabled (default: true), the UI server provides an embedded Lua 
 - `ui.log([level,] message)` - Log from Lua code (delegates to `Config.Log`)
 - `ui.json_encode(value)` / `ui.json_decode(string)` - JSON conversion
 
+## Reliability
+
+The server is designed to remain stable even when application logic fails:
+
+- **Panic recovery**: Panics during message processing are caught and logged without crashing the server
+- **Isolated failures**: A bad update from the frontend or a bug in backend Lua code affects only that operation, not the entire server
+- **Session continuity**: Other sessions and subsequent operations continue normally after a recovered panic
+
+This ensures that development errors, malformed client messages, or edge cases in application logic don't bring down the server.
+
 ## Known Limitations
 
 ### Single Connection Per Session

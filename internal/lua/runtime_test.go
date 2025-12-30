@@ -160,7 +160,7 @@ func TestObjectRegistration(t *testing.T) {
 
 	// Create app variable
 	rt.execute(func() (interface{}, error) {
-		L := rt.state
+		L := rt.State
 		L.SetGlobal("session", sess.sessionTable)
 
 		code := `
@@ -238,7 +238,7 @@ func TestCreateMultipleVariables(t *testing.T) {
 
 	// Create app and child variable
 	_, err = rt.execute(func() (interface{}, error) {
-		L := rt.state
+		L := rt.State
 		L.SetGlobal("session", sess.sessionTable)
 
 		code := `
@@ -322,7 +322,7 @@ func TestLuaResolverArrayConversion(t *testing.T) {
 	defer L.Close()
 
 	// Create a minimal runtime and session for the resolver
-	rt := &Runtime{state: L}
+	rt := &Runtime{State: L}
 	sess := &LuaSession{Runtime: rt}
 	resolver := &LuaResolver{Session: sess}
 	tracker := changetracker.NewTracker()
@@ -423,7 +423,7 @@ func TestUILog(t *testing.T) {
 	}
 
 	_, err = rt.execute(func() (interface{}, error) {
-		L := rt.state
+		L := rt.State
 		L.SetGlobal("session", sess.sessionTable)
 
 		code := `

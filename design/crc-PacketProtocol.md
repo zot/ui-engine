@@ -24,8 +24,7 @@
 
 ## Sequences
 
-- seq-backend-socket-accept.md: Connection handling
-- seq-packet-protocol-message.md: Message read/write cycle
+- seq-backend-socket-accept.md: Connection handling and message read/write cycle
 
 ## Notes
 

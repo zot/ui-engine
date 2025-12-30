@@ -36,6 +36,14 @@ The frontend parses viewdefs by placing them in a scratch div's innerHTML, then 
 - Before sending updates, pending viewdefs are set on variable `1`'s `viewdefs` property with `:high` priority
 - Previous `viewdefs` property values can be safely replaced since the frontend stores viewdefs separately
 
+**Hot-reloading:**
+
+Viewdefs support hot-reloading for iterative development:
+- The server tracks file modification times for viewdefs loaded from disk
+- When a viewdef file is modified, the updated content is sent to connected sessions on the next update cycle
+- On-demand loading: when a new `type` is encountered, the server automatically loads matching `TYPE.*.html` files from the viewdef directory
+- This enables editing viewdefs without restarting the server
+
 ## Value Bindings (variable → element)
 
 - `ui-value` - Bind a variable to the element's "value" (input field, file name, etc.)

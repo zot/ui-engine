@@ -48,7 +48,7 @@
 - seq-watch-variable.md: Handling watch/unwatch
 - seq-relay-message.md: Message forwarding flow
 - seq-viewdef-delivery.md: Batched viewdef delivery
-- seq-lua-action-dispatch.md: Routing actions to Lua
+- seq-lua-handle-action.md: Routing actions to Lua
 
 ## Notes
 
