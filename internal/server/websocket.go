@@ -7,6 +7,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"strings"
 	"sync"
@@ -168,6 +169,14 @@ func (ws *WebSocketEndpoint) readPump(connectionID string, conn *websocket.Conn)
 
 // processMessage handles a single message within the session's executor.
 func (ws *WebSocketEndpoint) processMessage(connectionID, sessionID string, message []byte) {
+	// Recover from panics to prevent server crashes
+	defer func() {
+		if r := recover(); r != nil {
+			ws.Log(0, "PANIC in processMessage: %v", r)
+			ws.handler.SendError(connectionID, 0, fmt.Sprintf("internal error: %v", r))
+		}
+	}()
+
 	msg, err := protocol.ParseMessage(message)
 	if err != nil {
 		ws.Log(0, "Failed to parse message: %v", err)

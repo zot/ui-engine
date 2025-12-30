@@ -243,14 +243,17 @@ export class BindingEngine {
     let unbindError: (() => void) | null = null
     // Custom elements (tagNames with hyphens) may not be upgraded yet when binding runs,
     // so 'value' in element would return false. Assume custom elements have value property.
+    // Exclude buttons - they have a value property for forms but we want textContent.
     const isCustomElement = element.tagName.includes('-')
+    const isButton = element instanceof HTMLButtonElement
     const editableValue =
-      element instanceof HTMLInputElement ||
-      element instanceof HTMLTextAreaElement ||
-      element instanceof HTMLSelectElement ||
-      isSlInput(element) ||
-      isCustomElement ||
-      'value' in element
+      !isButton &&
+      (element instanceof HTMLInputElement ||
+        element instanceof HTMLTextAreaElement ||
+        element instanceof HTMLSelectElement ||
+        isSlInput(element) ||
+        isCustomElement ||
+        'value' in element)
     const update = editableValue
       ? (value: unknown) => {
           // Preserve number type for components like sl-rating, sl-range
