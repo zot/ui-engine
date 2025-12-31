@@ -89,8 +89,8 @@ FrontendApp (root)
 
 ### Error State Classes
 - `ui-error` - Applied to elements when binding has error condition (e.g., path-failure)
-- `data-ui-error-code` - Attribute containing error code (e.g., "path-failure")
-- `data-ui-error-description` - Attribute containing human-readable error description
+- `ui-error-code` - Attribute containing error code (e.g., "path-failure")
+- `ui-error-description` - Attribute containing human-readable error description
 - Error state clears automatically on successful update to the same variable
 
 ---

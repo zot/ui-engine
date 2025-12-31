@@ -21,7 +21,7 @@
         |                      |---parseAttributes--->|                      |
         |                      |   (ui-*)             |                      |
         |                      |                      |                      |
-        |                      |     [for each ui-value, ui-attr-*, ui-class-*, ui-style-*-*]
+        |                      |     [for each ui-value, ui-attr-*, ui-class-*, ui-style-*]
         |                      |                      |                      |
         |                      |---parsePath--------->|                      |
         |                      |   (extract path &    |                      |
@@ -78,7 +78,7 @@ Variable values are **object references** (`{"obj": 1}`), not actual data. Clien
 2. **Watches** the child variable for value updates from the backend
 3. **Destroys** the child variable on unbind
 
-This applies to: `ui-value`, `ui-attr-*`, `ui-class-*`, `ui-style-*-*`, `ui-event-*`, `ui-action`
+This applies to: `ui-value`, `ui-attr-*`, `ui-class-*`, `ui-style-*`, `ui-event-*`, `ui-action`
 
 ### Path Options
 

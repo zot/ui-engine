@@ -81,7 +81,7 @@
 - [ ] "Parse ui-value binding"
 - [ ] "Parse ui-attr-* binding"
 - [ ] "Parse ui-class-* binding"
-- [ ] "Parse ui-style-*-* binding"
+- [ ] "Parse ui-style-* binding"
 - [ ] "Parse ui-event-* binding"
 - [ ] "Parse ui-action binding"
 - [ ] "Path with URL parameters"

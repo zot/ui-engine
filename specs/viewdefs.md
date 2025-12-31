@@ -49,7 +49,7 @@ Viewdefs support hot-reloading for iterative development:
 - `ui-value` - Bind a variable to the element's "value" (input field, file name, etc.)
 - `ui-attr-*` - Bind a variable value to an HTML attribute (e.g., `ui-attr-disabled`)
 - `ui-class-*` - Bind a variable value to CSS classes (value is a class string)
-- `ui-style-*-*` - Bind a variable value to a CSS style property
+- `ui-style-*` - Bind a variable value to a CSS style property (e.g., `ui-style-background-color`)
 
 Variable values are used directly; variable properties can specify transformations.
 
@@ -65,7 +65,7 @@ Variable values sent to the frontend are **object references** (e.g., `{"obj": 1
 
 **Implementation requirement:**
 
-Every binding that uses a path (`ui-value`, `ui-attr-*`, `ui-class-*`, `ui-style-*-*`) must:
+Every binding that uses a path (`ui-value`, `ui-attr-*`, `ui-class-*`, `ui-style-*`) must:
 
 1. Parse the path from the attribute value
 2. Create a **child variable** under the context variable with `path` property set

@@ -153,7 +153,7 @@ Tests for viewdef loading and validation, View/ViewList rendering, binding creat
 
 ---
 
-### Test: Parse ui-style-*-* binding
+### Test: Parse ui-style-* binding
 
 **Purpose**: Verify style binding extraction
 

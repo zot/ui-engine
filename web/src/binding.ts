@@ -265,16 +265,16 @@ export class BindingEngine {
         }
       : (value: unknown) => (element.textContent = value?.toString() ?? '')
 
-    // Handle error state changes - add/remove ui-error class and data-ui-error-* attributes
+    // Handle error state changes - add/remove ui-error class and ui-error-* attributes
     const updateError = (error: VariableError | null) => {
       if (error) {
         element.classList.add('ui-error')
-        element.setAttribute('data-ui-error-code', error.code)
-        element.setAttribute('data-ui-error-description', error.description)
+        element.setAttribute('ui-error-code', error.code)
+        element.setAttribute('ui-error-description', error.description)
       } else {
         element.classList.remove('ui-error')
-        element.removeAttribute('data-ui-error-code')
-        element.removeAttribute('data-ui-error-description')
+        element.removeAttribute('ui-error-code')
+        element.removeAttribute('ui-error-description')
       }
     }
 
@@ -380,8 +380,8 @@ export class BindingEngine {
         }
         // Clean up error state on unbind
         element.classList.remove('ui-error')
-        element.removeAttribute('data-ui-error-code')
-        element.removeAttribute('data-ui-error-description')
+        element.removeAttribute('ui-error-code')
+        element.removeAttribute('ui-error-description')
       },
     }
   }

@@ -39,7 +39,7 @@ Variable values are object references (`{"obj": 1}`), not actual data. The front
 3. **Watches** the child variable for errors (e.g., `path-failure`)
 4. **Destroys** the child variable when unbound
 
-This applies to ALL binding types: ui-value, ui-attr-*, ui-class-*, ui-style-*-*
+This applies to ALL binding types: ui-value, ui-attr-*, ui-class-*, ui-style-*
 
 ## Nullish Path Handling
 

@@ -15,7 +15,7 @@
 - createValueBinding: Create ui-value binding with child variable
 - createAttrBinding: Create ui-attr-* binding with child variable
 - createClassBinding: Create ui-class-* binding with child variable
-- createStyleBinding: Create ui-style-*-* binding with child variable
+- createStyleBinding: Create ui-style-* binding with child variable
 - createEventBinding: Create ui-event-* binding with action variable
 - createActionBinding: Create ui-action binding with action variable
 - parsePath: Parse path with optional URL-style properties (?create=Type&prop=value); properties without values default to `true`
@@ -31,7 +31,7 @@ Variable values sent to the frontend are **object references** (e.g., `{"obj": 1
 - All paths must be resolved by the backend, which has access to actual object data
 - Every binding creates a **child variable** with a `path` property that the backend resolves
 
-**Implementation pattern for ALL binding types (ui-value, ui-attr-*, ui-class-*, ui-style-*-*):**
+**Implementation pattern for ALL binding types (ui-value, ui-attr-*, ui-class-*, ui-style-*):**
 
 1. Parse the path from the attribute value
 2. Create a **child variable** under the context variable with `path` property set

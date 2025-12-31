@@ -91,7 +91,7 @@ To ensure consistent output and granular control over debug information:
 
 ### [Viewdef Binding](viewdefs.md)
 - View Definitions and delivery
-- Value bindings (`ui-value`, `ui-attr-*`, `ui-class-*`, `ui-style-*-*`)
+- Value bindings (`ui-value`, `ui-attr-*`, `ui-class-*`, `ui-style-*`)
 - Event bindings (`ui-event-*`)
 - Backend paths
 
