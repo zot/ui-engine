@@ -6,7 +6,6 @@ package lua
 
 import (
 	"fmt"
-	"reflect"
 	"sync"
 
 	changetracker "github.com/zot/change-tracker"
@@ -62,26 +61,11 @@ func (vl *ViewList) Value() interface{} {
 }
 
 // Update updates the ViewList with a new raw value from the backend.
+// ArrayGetter in SyncViewItems handles both Go slices and Lua tables.
 func (vl *ViewList) Update(newValue interface{}) {
 	vl.mu.Lock()
 	vl.session.Log(4, "ViewList\n  variable %d\n  value: %v", vl.variable.ID, vl.variable.Value)
-	// Update raw value
-	if newValue != nil {
-		val := reflect.ValueOf(newValue)
-		kind := val.Kind()
-		if kind == reflect.Slice || kind == reflect.Array {
-			vl.value = newValue
-		} else {
-			// Not a slice/array
-			vl.value = nil
-			if vl.session != nil {
-				vl.session.Log(1, "ViewList: expected slice or array, got %T", newValue)
-			}
-		}
-	} else {
-		vl.value = nil
-	}
-
+	vl.value = newValue
 	vl.mu.Unlock()
 
 	// Sync items (acquires its own lock)

@@ -2,6 +2,7 @@ package lua
 
 import (
 	"encoding/json"
+	"fmt"
 	"testing"
 
 	golua "github.com/yuin/gopher-lua"
@@ -339,53 +340,56 @@ func TestLuaResolverArrayConversion(t *testing.T) {
 
 	// Get the person table and register it
 	personTbl := L.GetGlobal("person").(*golua.LTable)
-	tracker.RegisterObject(personTbl, 42) // Register with ID 42
+	personID, _ := tracker.RegisterObject(personTbl)
 
 	// Get the mixed array
 	arrayTbl := L.GetGlobal("mixedArray").(*golua.LTable)
 
-	// Convert array to Go using resolver
+	// luaValueToGo should preserve *lua.LTable for navigation purposes
+	// (arrays are NOT converted to []any here - that happens in ToValueJSON)
 	goArray, err := resolver.luaValueToGo(arrayTbl)
 	if err != nil {
 		t.Fatalf("luaValueToGo error: %v", err)
 	}
 
-	arr, ok := goArray.([]any)
+	// Should still be *lua.LTable (for proper path navigation in Variable.Set)
+	tbl, ok := goArray.(*golua.LTable)
 	if !ok {
-		t.Fatalf("Expected []any, got %T", goArray)
-	}
-	if len(arr) != 3 {
-		t.Fatalf("Expected 3 elements, got %d", len(arr))
+		t.Fatalf("Expected *lua.LTable (preserved for navigation), got %T", goArray)
 	}
 
-	// Element 0: number -> float64
-	if arr[0] != float64(1) {
-		t.Errorf("Element 0: expected float64(1), got %T(%v)", arr[0], arr[0])
+	// Verify the table still has our data
+	if tbl.Len() != 3 {
+		t.Fatalf("Expected 3 elements, got %d", tbl.Len())
 	}
 
-	// Element 1: table -> *lua.LTable (kept as ref)
-	if _, ok := arr[1].(*golua.LTable); !ok {
-		t.Errorf("Element 1: expected *lua.LTable, got %T", arr[1])
-	}
-
-	// Element 2: string -> string
-	if arr[2] != "hello" {
-		t.Errorf("Element 2: expected 'hello', got %T(%v)", arr[2], arr[2])
-	}
-
-	// Now convert to Value JSON - the table should become {"obj": 42}
-	valueJSON := tracker.ToValueJSON(arr)
+	// Now convert to Value JSON - the resolver's ConvertToValueJSON handles this
+	// and converts the array to []any with proper element conversion
+	valueJSON := tracker.ToValueJSON(arrayTbl)
 	jsonArr, ok := valueJSON.([]any)
 	if !ok {
 		t.Fatalf("Expected []any from ToValueJSON, got %T", valueJSON)
 	}
+	if len(jsonArr) != 3 {
+		t.Fatalf("Expected 3 elements in JSON array, got %d", len(jsonArr))
+	}
 
-	// Check element 1 is now an ObjectRef
+	// Element 0: number -> float64
+	if jsonArr[0] != float64(1) {
+		t.Errorf("Element 0: expected float64(1), got %T(%v)", jsonArr[0], jsonArr[0])
+	}
+
+	// Element 2: string -> string
+	if jsonArr[2] != "hello" {
+		t.Errorf("Element 2: expected 'hello', got %T(%v)", jsonArr[2], jsonArr[2])
+	}
+
+	// Check element 1 is now an ObjectRef with the registered ID
 	objRef, ok := jsonArr[1].(changetracker.ObjectRef)
 	if !ok {
 		t.Errorf("Element 1 in ValueJSON: expected ObjectRef, got %T(%v)", jsonArr[1], jsonArr[1])
-	} else if objRef.Obj != 42 {
-		t.Errorf("Expected ObjectRef.Obj=42, got %d", objRef.Obj)
+	} else if objRef.Obj != personID {
+		t.Errorf("Expected ObjectRef.Obj=%d, got %d", personID, objRef.Obj)
 	}
 
 	// Serialize to JSON bytes
@@ -394,7 +398,7 @@ func TestLuaResolverArrayConversion(t *testing.T) {
 		t.Fatalf("JSON marshal error: %v", err)
 	}
 
-	expected := `[1,{"obj":42},"hello"]`
+	expected := fmt.Sprintf(`[1,{"obj":%d},"hello"]`, personID)
 	if string(jsonBytes) != expected {
 		t.Errorf("Expected %s, got %s", expected, string(jsonBytes))
 	}

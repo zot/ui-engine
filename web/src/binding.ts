@@ -289,7 +289,16 @@ export class BindingEngine {
       }
     }
 
-    if (!editableValue && properties['access'] === undefined) {
+    // Method calls (paths ending with ()) require access 'r' or 'action'
+    const isMethodCall = parsed.segments[parsed.segments.length - 1]?.endsWith('()')
+    if (isMethodCall) {
+      if (properties['access'] === undefined) {
+        properties.access = 'r'
+      } else if (properties['access'] !== 'r' && properties['access'] !== 'action') {
+        console.error(`Invalid access '${properties['access']}' for method call path '${path}' - must be 'r' or 'action'`)
+        return null
+      }
+    } else if (!editableValue && properties['access'] === undefined) {
       properties.access = 'r'
     }
 

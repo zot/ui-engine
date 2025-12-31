@@ -62,7 +62,7 @@ func (r *LuaResolver) Get(obj any, pathElement any) (any, error) {
 		case "list":
 			return vli.List, nil
 		case "type":
-			return "ViewListItem", nil
+			return "lua.ViewListItem", nil
 		default:
 			return nil, fmt.Errorf("Unknown ViewListItem property: %s", prop)
 		}
@@ -230,11 +230,10 @@ func (r *LuaResolver) Set(obj any, pathElement any, value any) error {
 	return nil
 }
 
-// luaValueToGo converts a Lua value to a Go value.
+// luaValueToGo converts a Lua value to a Go value for path navigation.
 // - Primitives: bool, number, string -> Go equivalents
-// - Array tables: -> []any (elements can be *lua.LTable refs for objects)
-// - Object tables: -> keep as *lua.LTable (will be registered by tracker)
-// - Nested arrays: ERROR
+// - Tables (both arrays and objects): keep as *lua.LTable for navigation
+// - ToValueJSON handles the conversion to []any for arrays during serialization
 func (r *LuaResolver) luaValueToGo(obj any) (any, error) {
 	if val, ok := obj.(lua.LValue); ok {
 		switch v := val.(type) {
@@ -245,9 +244,9 @@ func (r *LuaResolver) luaValueToGo(obj any) (any, error) {
 		case lua.LString:
 			return string(v), nil
 		case *lua.LTable:
-			if r.Session.isArray(v) {
-				return r.tableToSlice(v)
-			}
+			// Keep tables as *lua.LTable for proper navigation and mutation
+			// ToValueJSON will convert arrays to []any during serialization
+			return v, nil
 		case *lua.LNilType:
 			return nil, nil
 		}
@@ -501,4 +500,55 @@ func (r *LuaResolver) createLuaVariableWrapper(v *changetracker.Variable) *lua.L
 
 func (r *LuaResolver) goToLua(value any) lua.LValue {
 	return r.Session.Runtime.goToLua(r.Session.State, value)
+}
+
+// ConvertToValueJSON implements the Resolver interface for Lua values.
+// Handles *lua.LTable specially: arrays become []any, objects become ObjectRef.
+func (r *LuaResolver) ConvertToValueJSON(tracker *changetracker.Tracker, value any) any {
+	tbl, ok := value.(*lua.LTable)
+	if !ok {
+		// Not a Lua table - return unchanged for tracker to handle
+		return value
+	}
+
+	// If no session, can't determine array vs object - let tracker handle it
+	if r.Session == nil {
+		return value
+	}
+
+	// Check if it's an array table
+	if r.Session.isArray(tbl) {
+		// Convert array to slice, recursively calling tracker.ToValueJSON for elements
+		length := tbl.Len()
+		result := make([]any, length)
+		for i := 1; i <= length; i++ {
+			elem := r.Session.State.RawGetInt(tbl, i)
+			// Recursively convert elements (handles nested tables, etc.)
+			result[i-1] = tracker.ToValueJSON(r.luaElementToGo(elem))
+		}
+		return result
+	}
+
+	// Object table - return as-is for tracker to register
+	return tbl
+}
+
+// luaElementToGo converts a Lua value to Go for ToValueJSON serialization.
+// Unlike luaValueToGo, this does NOT convert array tables to slices (that's handled by ToValueJSON).
+func (r *LuaResolver) luaElementToGo(val lua.LValue) any {
+	switch v := val.(type) {
+	case lua.LBool:
+		return bool(v)
+	case lua.LNumber:
+		return float64(v)
+	case lua.LString:
+		return string(v)
+	case *lua.LTable:
+		// Keep tables as-is; ToValueJSON will handle them
+		return v
+	case *lua.LNilType:
+		return nil
+	default:
+		return val
+	}
 }
