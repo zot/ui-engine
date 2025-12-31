@@ -5,7 +5,6 @@
 package lua
 
 import (
-	"fmt"
 	"sync"
 )
 
@@ -92,44 +91,6 @@ func (r *WrapperRegistry) Get(typeName string) (WrapperFactory, bool) {
 		return factory, true
 	}
 	return GetGlobalWrapperFactory(typeName)
-}
-
-// WrapperManager handles wrapper creation for variables.
-type WrapperManager struct {
-	registry *WrapperRegistry
-	runtime  *Runtime
-	mu       sync.RWMutex
-}
-
-// NewWrapperManager creates a new wrapper manager.
-func NewWrapperManager(runtime *Runtime, registry *WrapperRegistry) *WrapperManager {
-	return &WrapperManager{
-		registry: registry,
-		runtime:  runtime,
-	}
-}
-
-// CreateWrapper creates a new wrapper instance for a variable.
-func (m *WrapperManager) CreateWrapper(sessionId string, variable *TrackerVariableAdapter) (interface{}, error) {
-	wrapperType := variable.GetProperty("wrapper")
-	if wrapperType == "" {
-		return nil, nil // No wrapper
-	}
-
-	factory, ok := m.registry.Get(wrapperType)
-	if ok {
-		wrapper := factory(m.runtime.sessions[sessionId], variable)
-		return wrapper, nil
-	}
-
-	if m.runtime != nil {
-		luaTable := m.runtime.GetGlobalTable(wrapperType)
-		if luaTable != nil {
-			return NewLuaWrapper(m.runtime.sessions[sessionId], luaTable, variable), nil
-		}
-	}
-
-	return nil, fmt.Errorf("unknown wrapper type: %s", wrapperType)
 }
 
 // LuaWrapper wraps a Lua table as a Go Wrapper interface.

@@ -53,9 +53,6 @@ type LuaSession struct {
 	wrapperRegistry *WrapperRegistry
 	viewdefManager  *viewdef.ViewdefManager
 
-	// Session management (temporary - will be moved to server in Phase 2)
-	sessions map[string]*LuaSession // vendedID -> session state
-
 	// Session identity and state
 	ID            string      // Vended session ID (e.g., "1", "2", "3")
 	sessionTable  *lua.LTable // The session object exposed to Lua
@@ -105,7 +102,6 @@ func NewRuntime(cfg *config.Config, luaDir string, vdm *viewdef.ViewdefManager) 
 		State:          L,
 		loadedModules:  make(map[string]bool),
 		presenterTypes: make(map[string]*PresenterType),
-		sessions:       make(map[string]*LuaSession),
 		luaDir:         luaDir,
 		executorChan:   make(chan WorkItem, 100),
 		done:           make(chan struct{}),
@@ -188,71 +184,40 @@ func (r *Runtime) SetMainLuaCode(code string) {
 	r.mainLuaCode = code
 }
 
-// CreateLuaSession creates a new Lua session for a frontend session.
+// CreateLuaSession initializes this LuaSession for a frontend session.
 // vendedID is the compact session ID (e.g., "1", "2") for backend communication.
 // Loads and executes main.lua with a session global.
 // Must be called after SetVariableStore.
-// Note: In Phase 1, child sessions share the parent's Lua state (will be fixed in Phase 2).
+// Returns self after initialization.
 func (s *LuaSession) CreateLuaSession(vendedID string) (*LuaSession, error) {
 	if s.variableStore == nil {
 		return nil, fmt.Errorf("variable store not set")
 	}
 
-	// Create resolver (session will be set later)
-	resolver := &LuaResolver{}
+	// Create resolver linked to this session
+	resolver := &LuaResolver{Session: s}
 
 	// Create session in variable store with LuaResolver
 	s.variableStore.CreateSession(vendedID, resolver)
 
-	var luaSession *LuaSession
 	_, err := s.execute(func() (interface{}, error) {
 		L := s.State
 
 		// Create session table for this frontend session
 		sessionTable := s.createSessionTable(L, vendedID)
 
-		// Create child session that shares parent's state
-		// TODO Phase 2: Each session will have its own Lua state
-		luaSession = &LuaSession{
-			// Shared with parent (will be per-session in Phase 2)
-			State:           s.State,
-			config:          s.config,
-			luaDir:          s.luaDir,
-			executorChan:    s.executorChan,
-			done:            s.done,
-			variableStore:   s.variableStore,
-			mainLuaCode:     s.mainLuaCode,
-			wrapperRegistry: s.wrapperRegistry,
-			viewdefManager:  s.viewdefManager,
-			loadedModules:   s.loadedModules,
-			presenterTypes:  s.presenterTypes,
-			sessions:        s.sessions,
-			// Per-session state
-			ID:           vendedID,
-			sessionTable: sessionTable,
-		}
+		// Initialize session-specific fields on self
+		s.ID = vendedID
+		s.sessionTable = sessionTable
 
-		// Link resolver to session
-		resolver.Session = luaSession
-
-		// Store in sessions map (keyed by vended ID)
-		s.mu.Lock()
-		s.sessions[vendedID] = luaSession
-		s.mu.Unlock()
-
-		// Set session global (will be replaced for each session's code execution)
+		// Set session global
 		L.SetGlobal("session", sessionTable)
 
 		// Load main.lua for this session
 		if err := s.loadMainLua(L); err != nil {
-			// Remove from sessions on failure
-			s.mu.Lock()
-			delete(s.sessions, vendedID)
-			s.mu.Unlock()
 			s.variableStore.DestroySession(vendedID)
 			return nil, err
 		}
-		//s.AfterBatch(vendedID)
 		s.Log(2, "LuaRuntime: created Lua session %s", vendedID)
 
 		return nil, nil
@@ -261,7 +226,7 @@ func (s *LuaSession) CreateLuaSession(vendedID string) (*LuaSession, error) {
 	if err != nil {
 		return nil, err
 	}
-	return luaSession, nil
+	return s, nil
 }
 
 // loadMainLua loads main.lua from filesystem or cached bundle code.
@@ -288,20 +253,19 @@ func (r *Runtime) loadMainLua(L *lua.LState) error {
 	return nil
 }
 
-// DestroyLuaSession removes a Lua session by its vended ID.
+// DestroyLuaSession cleans up a Lua session.
+// Note: The actual Lua state cleanup is handled by Server calling Shutdown().
 func (r *Runtime) DestroyLuaSession(vendedID string) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	delete(r.sessions, vendedID)
 	r.Log(2, "LuaRuntime: destroyed Lua session %s", vendedID)
 }
 
-// GetLuaSession retrieves a Lua session by its vended ID.
+// GetLuaSession returns this session if the vendedID matches.
+// With per-session isolation, each LuaSession IS the session.
 func (r *Runtime) GetLuaSession(vendedID string) (*LuaSession, bool) {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-	session, ok := r.sessions[vendedID]
-	return session, ok
+	if r.ID == vendedID {
+		return r, true
+	}
+	return nil, false
 }
 
 // createSessionTable creates the session object using lib/lua/session.lua module.
@@ -653,16 +617,13 @@ func (r *Runtime) extractTypeProperty(L *lua.LState, obj any, props map[string]s
 // Called by external code when a variable property changes.
 // vendedID is the compact session ID (e.g., "1", "2").
 func (r *Runtime) NotifyPropertyChange(vendedID string, varID int64, property string, value interface{}) {
-	r.mu.RLock()
-	luaSess, ok := r.sessions[vendedID]
-	r.mu.RUnlock()
-	if !ok || luaSess == nil {
+	if r.ID != vendedID || r.sessionTable == nil {
 		return
 	}
 
 	r.execute(func() (interface{}, error) {
 		L := r.State
-		r.notifyPropertyChangeInternal(L, luaSess.sessionTable, varID, property, value)
+		r.notifyPropertyChangeInternal(L, r.sessionTable, varID, property, value)
 		return nil, nil
 	})
 }
@@ -730,25 +691,21 @@ func (r *Runtime) execute(fn func() (interface{}, error)) (interface{}, error) {
 	return res.Value, res.Err
 }
 
-// ExecuteInSession executes a function within the context of a specific session.
-// It sets the global 'session' variable to the target session's table before execution.
+// ExecuteInSession executes a function within the context of this session.
+// It sets the global 'session' variable to this session's table before execution.
 // Spec: mcp.md
 // CRC: crc-LuaRuntime.md
 // Sequence: seq-mcp-run.md
 func (r *Runtime) ExecuteInSession(sessionID string, fn func() (interface{}, error)) (interface{}, error) {
+	if r.ID != sessionID {
+		return nil, fmt.Errorf("session %s not found (this session is %s)", sessionID, r.ID)
+	}
+
 	return r.execute(func() (interface{}, error) {
-		r.mu.RLock()
-		session, ok := r.sessions[sessionID]
-		r.mu.RUnlock()
-
-		if !ok {
-			return nil, fmt.Errorf("session %s not found", sessionID)
-		}
-
 		L := r.State
 
 		// Set the global 'session' variable
-		L.SetGlobal("session", session.sessionTable)
+		L.SetGlobal("session", r.sessionTable)
 
 		// Execute the function
 		return fn()
@@ -931,18 +888,13 @@ func (r *Runtime) HandleFrontendCreate(sessionID string, parentID int64, propert
 		return 0, nil, nil, fmt.Errorf("HandleFrontendCreate: path property required")
 	}
 
-	// Lookup session directly
-	r.mu.RLock()
-	session := r.sessions[sessionID]
-	r.mu.RUnlock()
-
-	if session == nil {
-		return 0, nil, nil, fmt.Errorf("session %s not found", sessionID)
+	if r.ID != sessionID {
+		return 0, nil, nil, fmt.Errorf("session %s not found (this session is %s)", sessionID, r.ID)
 	}
 
-	tracker := r.variableStore.GetTracker(session.ID)
+	tracker := r.variableStore.GetTracker(r.ID)
 	if tracker == nil {
-		return 0, nil, nil, fmt.Errorf("session %s tracker not found", session.ID)
+		return 0, nil, nil, fmt.Errorf("session %s tracker not found", r.ID)
 	}
 
 	// Create the child variable in the tracker with the path.
