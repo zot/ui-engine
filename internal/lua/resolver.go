@@ -499,7 +499,7 @@ func (r *LuaResolver) createLuaVariableWrapper(v *changetracker.Variable) *lua.L
 }
 
 func (r *LuaResolver) goToLua(value any) lua.LValue {
-	return r.Session.Runtime.goToLua(r.Session.State, value)
+	return r.Session.goToLua(r.Session.State, value)
 }
 
 // ConvertToValueJSON implements the Resolver interface for Lua values.

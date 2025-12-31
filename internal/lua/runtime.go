@@ -32,22 +32,11 @@ type WorkResult struct {
 	Err   error
 }
 
-// LuaSession represents a per-frontend-session Lua environment.
-// ID is the vended session ID (compact integer string like "1", "2") for backend communication,
-// not the internal UUID which is used for URL paths.
-// Change detection is handled by the tracker in VariableStore.
+// LuaSession represents a Lua runtime environment for a frontend session.
+// Each session has its own Lua state for complete isolation.
+// ID is the vended session ID (compact integer string like "1", "2") for backend communication.
 type LuaSession struct {
-	*Runtime
-	ID            string      // Vended session ID (e.g., "1", "2", "3")
-	sessionTable  *lua.LTable // The session object exposed to Lua
-	appVariableID int64       // Variable 1 for this session (set by Lua code)
-	appObject     *lua.LTable // Reference to the app Lua object
-	McpState      *lua.LTable // Logical state root for MCP (defaults to appObject)
-	McpStateID    int64       // Variable ID of mcpState (if tracked)
-}
-
-// Runtime manages embedded Lua VM execution with multiple sessions.
-type Runtime struct {
+	// Lua VM state and execution
 	State          *lua.LState
 	loadedModules  map[string]bool
 	presenterTypes map[string]*PresenterType
@@ -58,13 +47,27 @@ type Runtime struct {
 	mu             sync.RWMutex
 	batchTriggered bool
 
-	// Session management
-	sessions        map[string]*LuaSession // vendedID -> LuaSession
-	variableStore   VariableStore          // Backend for variable operations
-	mainLuaCode     string                 // Cached main.lua content (for bundle mode)
-	wrapperRegistry   *WrapperRegistry       // Shared wrapper registry (set by server)
-	viewdefManager    *viewdef.ViewdefManager
+	// Variable management
+	variableStore   VariableStore
+	mainLuaCode     string
+	wrapperRegistry *WrapperRegistry
+	viewdefManager  *viewdef.ViewdefManager
+
+	// Session management (temporary - will be moved to server in Phase 2)
+	sessions map[string]*LuaSession // vendedID -> session state
+
+	// Session identity and state
+	ID            string      // Vended session ID (e.g., "1", "2", "3")
+	sessionTable  *lua.LTable // The session object exposed to Lua
+	appVariableID int64       // Variable 1 for this session (set by Lua code)
+	appObject     *lua.LTable // Reference to the app Lua object
+	McpState      *lua.LTable // Logical state root for MCP (defaults to appObject)
+	McpStateID    int64       // Variable ID of mcpState (if tracked)
 }
+
+// Runtime is an alias for LuaSession during migration.
+// TODO: Remove after Phase 2 migration is complete.
+type Runtime = LuaSession
 
 // PresenterType represents a Lua-defined presenter type.
 type PresenterType struct {
@@ -93,10 +96,11 @@ type VariableStore interface {
 }
 
 // NewRuntime creates a new Lua runtime with executor goroutine.
-func NewRuntime(cfg *config.Config, luaDir string, vdm *viewdef.ViewdefManager) (*Runtime, error) {
+// Note: This creates a LuaSession (Runtime is now an alias).
+func NewRuntime(cfg *config.Config, luaDir string, vdm *viewdef.ViewdefManager) (*LuaSession, error) {
 	L := lua.NewState()
 
-	r := &Runtime{
+	s := &LuaSession{
 		config:         cfg,
 		State:          L,
 		loadedModules:  make(map[string]bool),
@@ -116,18 +120,18 @@ func NewRuntime(cfg *config.Config, luaDir string, vdm *viewdef.ViewdefManager) 
 	lua.OpenOs(L)
 
 	// Register custom require() that works with both filesystem and bundle
-	r.registerRequire()
+	s.registerRequire()
 
 	// Register UI module
-	r.registerUIModule()
+	s.registerUIModule()
 
 	// Try to load session module (lib/lua/session.lua) - optional for testing
-	r.loadSessionModule()
+	s.loadSessionModule()
 
 	// Start executor goroutine
-	r.startExecutor()
+	s.startExecutor()
 
-	return r, nil
+	return s, nil
 }
 
 // loadSessionModule tries to load lib/lua/session.lua and stores the module globally.
@@ -188,8 +192,9 @@ func (r *Runtime) SetMainLuaCode(code string) {
 // vendedID is the compact session ID (e.g., "1", "2") for backend communication.
 // Loads and executes main.lua with a session global.
 // Must be called after SetVariableStore.
-func (r *Runtime) CreateLuaSession(vendedID string) (*LuaSession, error) {
-	if r.variableStore == nil {
+// Note: In Phase 1, child sessions share the parent's Lua state (will be fixed in Phase 2).
+func (s *LuaSession) CreateLuaSession(vendedID string) (*LuaSession, error) {
+	if s.variableStore == nil {
 		return nil, fmt.Errorf("variable store not set")
 	}
 
@@ -197,17 +202,32 @@ func (r *Runtime) CreateLuaSession(vendedID string) (*LuaSession, error) {
 	resolver := &LuaResolver{}
 
 	// Create session in variable store with LuaResolver
-	r.variableStore.CreateSession(vendedID, resolver)
+	s.variableStore.CreateSession(vendedID, resolver)
 
 	var luaSession *LuaSession
-	_, err := r.execute(func() (interface{}, error) {
-		L := r.State
+	_, err := s.execute(func() (interface{}, error) {
+		L := s.State
 
 		// Create session table for this frontend session
-		sessionTable := r.createSessionTable(L, vendedID)
+		sessionTable := s.createSessionTable(L, vendedID)
 
+		// Create child session that shares parent's state
+		// TODO Phase 2: Each session will have its own Lua state
 		luaSession = &LuaSession{
-			Runtime:      r,
+			// Shared with parent (will be per-session in Phase 2)
+			State:           s.State,
+			config:          s.config,
+			luaDir:          s.luaDir,
+			executorChan:    s.executorChan,
+			done:            s.done,
+			variableStore:   s.variableStore,
+			mainLuaCode:     s.mainLuaCode,
+			wrapperRegistry: s.wrapperRegistry,
+			viewdefManager:  s.viewdefManager,
+			loadedModules:   s.loadedModules,
+			presenterTypes:  s.presenterTypes,
+			sessions:        s.sessions,
+			// Per-session state
 			ID:           vendedID,
 			sessionTable: sessionTable,
 		}
@@ -216,24 +236,24 @@ func (r *Runtime) CreateLuaSession(vendedID string) (*LuaSession, error) {
 		resolver.Session = luaSession
 
 		// Store in sessions map (keyed by vended ID)
-		r.mu.Lock()
-		r.sessions[vendedID] = luaSession
-		r.mu.Unlock()
+		s.mu.Lock()
+		s.sessions[vendedID] = luaSession
+		s.mu.Unlock()
 
 		// Set session global (will be replaced for each session's code execution)
 		L.SetGlobal("session", sessionTable)
 
 		// Load main.lua for this session
-		if err := r.loadMainLua(L); err != nil {
+		if err := s.loadMainLua(L); err != nil {
 			// Remove from sessions on failure
-			r.mu.Lock()
-			delete(r.sessions, vendedID)
-			r.mu.Unlock()
-			r.variableStore.DestroySession(vendedID)
+			s.mu.Lock()
+			delete(s.sessions, vendedID)
+			s.mu.Unlock()
+			s.variableStore.DestroySession(vendedID)
 			return nil, err
 		}
-		//r.AfterBatch(vendedID)
-		r.Log(2, "LuaRuntime: created Lua session %s", vendedID)
+		//s.AfterBatch(vendedID)
+		s.Log(2, "LuaRuntime: created Lua session %s", vendedID)
 
 		return nil, nil
 	})

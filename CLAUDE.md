@@ -11,7 +11,7 @@ This document explains the core data flow:
 - Wrappers enable value transformation
 
 ### Running the demo
-From the project directory, this command runs the demo `./build/ui-demo --port 8000 --dir demo -vvvv`
+From the project directory, this command runs the demo `./build/ui-engine-demo --port 8000 --dir demo -vvvv`
 You can use the playwright browser to connect to it.
 
 ## 🎯 Core Principles

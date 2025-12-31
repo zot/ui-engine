@@ -322,9 +322,8 @@ func TestLuaResolverArrayConversion(t *testing.T) {
 	L := golua.NewState()
 	defer L.Close()
 
-	// Create a minimal runtime and session for the resolver
-	rt := &Runtime{State: L}
-	sess := &LuaSession{Runtime: rt}
+	// Create a minimal session for the resolver
+	sess := &LuaSession{State: L}
 	resolver := &LuaResolver{Session: sess}
 	tracker := changetracker.NewTracker()
 	tracker.Resolver = resolver
