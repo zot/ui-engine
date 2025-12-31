@@ -38,11 +38,19 @@ type Server struct {
 	httpEndpoint    *HTTPEndpoint
 	wsEndpoint      *WebSocketEndpoint
 	backendSocket   *BackendSocket
-	luaRuntime      *lua.Runtime
+	luaSessions     map[string]*lua.LuaSession // vendedID -> per-session Lua runtime
+	luaSessionsMu   sync.RWMutex
+	luaConfig       *luaSetupConfig // Shared config for creating new sessions
 	wrapperRegistry *lua.WrapperRegistry
-	wrapperManager  *lua.WrapperManager
 	storeAdapter    *luaTrackerAdapter
 	viewdefManager  *viewdef.ViewdefManager
+}
+
+// luaSetupConfig holds shared configuration for creating Lua sessions.
+type luaSetupConfig struct {
+	config      *config.Config
+	luaDir      string
+	mainLuaCode string // Cached main.lua for bundle mode
 }
 
 // New creates a new server with the given configuration.
@@ -98,26 +106,20 @@ func New(cfg *config.Config) *Server {
 	if cfg.Lua.Enabled {
 		s.setupLua(cfg)
 
-		// Create wrapper manager with runtime and registry
-		s.wrapperManager = lua.NewWrapperManager(s.luaRuntime, s.wrapperRegistry)
-
 		// Set up debug data provider for /debug/variables page
 		s.httpEndpoint.SetDebugDataProvider(func(sessionID string) ([]DebugVariable, error) {
-			sess, ok := s.luaRuntime.GetLuaSession(sessionID)
-			if !ok {
+			s.luaSessionsMu.RLock()
+			luaSession := s.luaSessions[sessionID]
+			s.luaSessionsMu.RUnlock()
+			if luaSession == nil {
 				return nil, fmt.Errorf("session %s not found", sessionID)
 			}
-			tracker := sess.GetTracker()
+			tracker := luaSession.GetTracker()
 			if tracker == nil {
 				return nil, fmt.Errorf("tracker not found")
 			}
 			return s.getDebugVariables(tracker)
 		})
-
-		// Set wrapper manager on store adapter so it can create wrappers during variable creation
-		if s.storeAdapter != nil {
-			s.storeAdapter.SetWrapperManager(s.wrapperManager)
-		}
 
 		// Set viewdef manager on store adapter so it can send viewdefs when new types appear
 		if s.storeAdapter != nil && s.viewdefManager != nil {
@@ -139,8 +141,8 @@ func New(cfg *config.Config) *Server {
 		// Set up afterBatch callback for automatic change detection
 		s.wsEndpoint.SetAfterBatch(s.AfterBatch)
 
-		// Set Lua runtime as path variable handler for frontend creates
-		s.handler.SetPathVariableHandler(s.luaRuntime)
+		// Set server as path variable handler (routes to per-session LuaSession)
+		s.handler.SetPathVariableHandler(s)
 	}
 
 	return s
@@ -203,10 +205,14 @@ func (s *Server) configureHTTP(port int) (*http.Server, net.Listener, string, er
 
 // Shutdown gracefully shuts down the server.
 func (s *Server) Shutdown(ctx context.Context) error {
-	// Shutdown Lua runtime
-	if s.luaRuntime != nil {
-		s.luaRuntime.Shutdown()
+	// Shutdown all Lua sessions
+	s.luaSessionsMu.Lock()
+	for vendedID, luaSession := range s.luaSessions {
+		s.config.Log(0, "Shutting down Lua session %s", vendedID)
+		luaSession.Shutdown()
 	}
+	s.luaSessions = nil
+	s.luaSessionsMu.Unlock()
 
 	// Close backend socket
 	if s.backendSocket != nil {
@@ -351,71 +357,99 @@ func (s *Server) setupLua(cfg *config.Config) {
 		luaDir = filepath.Join(cfg.Server.Dir, "lua")
 	}
 
-	// Create runtime
-	runtime, err := lua.NewRuntime(cfg, luaDir, s.viewdefManager)
-	if err != nil {
-		s.config.Log(0, "Warning: failed to create Lua runtime: %v", err)
-		return
+	// Initialize sessions map and shared config
+	s.luaSessions = make(map[string]*lua.LuaSession)
+	s.luaConfig = &luaSetupConfig{
+		config: cfg,
+		luaDir: luaDir,
 	}
 
-	s.luaRuntime = runtime
-
-	// Create store adapter and set on runtime
-	s.storeAdapter = &luaTrackerAdapter{config: cfg, store: s.store, runtime: runtime}
-	runtime.SetVariableStore(s.storeAdapter)
-
-	// Set wrapper registry on runtime (allows ui.registerWrapper from Lua)
-	runtime.SetWrapperRegistry(s.wrapperRegistry)
+	// Create store adapter (will be shared across sessions)
+	s.storeAdapter = &luaTrackerAdapter{config: cfg, store: s.store}
 
 	// In bundle mode, pre-cache main.lua content for per-session execution
-	// In --dir mode, main.lua is read from filesystem per-session
 	if cfg.Server.Dir == "" {
-		s.preloadMainLuaFromBundle(runtime)
+		s.preloadMainLuaFromBundleToConfig()
 	}
 
-	s.config.Log(0, "Lua runtime initialized (dir: %s)", luaDir)
+	s.config.Log(0, "Lua sessions enabled (dir: %s)", luaDir)
 }
 
-// CreateLuaBackendForSession creates a LuaBackend for a new session.
+// CreateLuaBackendForSession creates a LuaBackend and LuaSession for a new frontend session.
 // vendedID is the compact integer ID (e.g., "1", "2") for backend communication.
-// The backend is attached to the session for per-session watch management.
+// Each frontend session gets its own isolated Lua state.
 // CRC: crc-LuaBackend.md
 // Sequence: seq-session-create-backend.md
 func (s *Server) CreateLuaBackendForSession(vendedID string, sess *session.Session) error {
-	if s.luaRuntime == nil {
+	if s.luaConfig == nil {
 		return nil // Lua not enabled
 	}
 
+	// Create a new LuaSession with its own Lua state
+	luaSession, err := lua.NewRuntime(s.luaConfig.config, s.luaConfig.luaDir, s.viewdefManager)
+	if err != nil {
+		return fmt.Errorf("failed to create Lua session: %w", err)
+	}
+
+	// Set cached main.lua code if available (bundle mode)
+	if s.luaConfig.mainLuaCode != "" {
+		luaSession.SetMainLuaCode(s.luaConfig.mainLuaCode)
+	}
+
+	// Set wrapper registry on session (allows ui.registerWrapper from Lua)
+	luaSession.SetWrapperRegistry(s.wrapperRegistry)
+
 	// Create LuaBackend with resolver
-	lb := backend.NewLuaBackend(s.config, vendedID, &lua.LuaResolver{}) // Resolver will be set by runtime
+	lb := backend.NewLuaBackend(s.config, vendedID, &lua.LuaResolver{})
 
 	// Attach backend to session
 	sess.SetBackend(lb)
 
-	// Also track in store adapter for variable operations
+	// Track in store adapter for variable operations
 	if s.storeAdapter != nil {
 		s.storeAdapter.SetBackend(vendedID, lb)
+		s.storeAdapter.SetLuaSession(vendedID, luaSession)
 	}
 
-	// Create Lua session (executes main.lua)
-	_, err := s.luaRuntime.CreateLuaSession(vendedID)
+	// Set variable store on Lua session
+	luaSession.SetVariableStore(s.storeAdapter)
+
+	// Store in our sessions map
+	s.luaSessionsMu.Lock()
+	s.luaSessions[vendedID] = luaSession
+	s.luaSessionsMu.Unlock()
+
+	// Initialize the session (creates session table, runs main.lua)
+	_, err = luaSession.CreateLuaSession(vendedID)
 	if err != nil {
+		s.luaSessionsMu.Lock()
+		delete(s.luaSessions, vendedID)
+		s.luaSessionsMu.Unlock()
 		sess.SetBackend(nil)
 		return err
 	}
 
+	s.config.Log(0, "Created Lua session %s with isolated state", vendedID)
 	return nil
 }
 
-// DestroyLuaBackendForSession destroys a session's LuaBackend.
+// DestroyLuaBackendForSession destroys a session's LuaBackend and LuaSession.
 // vendedID is the compact integer ID (e.g., "1", "2") for backend communication.
 func (s *Server) DestroyLuaBackendForSession(vendedID string, sess *session.Session) {
-	if s.luaRuntime == nil {
+	if s.luaConfig == nil {
 		return
 	}
 
-	// Clean up Lua runtime state
-	s.luaRuntime.DestroyLuaSession(vendedID)
+	// Get and remove the Lua session
+	s.luaSessionsMu.Lock()
+	luaSession := s.luaSessions[vendedID]
+	delete(s.luaSessions, vendedID)
+	s.luaSessionsMu.Unlock()
+
+	// Shutdown the Lua session (closes Lua state)
+	if luaSession != nil {
+		luaSession.Shutdown()
+	}
 
 	// Shutdown backend
 	if b := sess.GetBackend(); b != nil {
@@ -426,20 +460,19 @@ func (s *Server) DestroyLuaBackendForSession(vendedID string, sess *session.Sess
 	// Remove from store adapter
 	if s.storeAdapter != nil {
 		s.storeAdapter.RemoveBackend(vendedID)
+		s.storeAdapter.RemoveLuaSession(vendedID)
 	}
+
+	s.config.Log(0, "Destroyed Lua session %s", vendedID)
 }
 
 // AfterBatch triggers Lua change detection after processing a message batch.
 // internalSessionID is the full UUID session ID (used in URLs/WebSocket bindings).
-// This method looks up the vended ID and calls the Lua runtime's AfterBatch,
+// This method looks up the vended ID and calls the Lua session's AfterBatch,
 // then sends any detected changes to watching frontends.
 // CRC: crc-Server.md
 // Sequence: seq-relay-message.md, seq-backend-refresh.md
 func (s *Server) AfterBatch(internalSessionID string) {
-	if s.luaRuntime == nil {
-		return
-	}
-
 	// Get session and its backend
 	sess := s.sessions.Get(internalSessionID)
 	if sess == nil {
@@ -456,8 +489,16 @@ func (s *Server) AfterBatch(internalSessionID string) {
 		return
 	}
 
-	// Get detected changes from Lua runtime
-	updates := s.luaRuntime.AfterBatch(vendedID)
+	// Look up the Lua session for this vended ID
+	s.luaSessionsMu.RLock()
+	luaSession := s.luaSessions[vendedID]
+	s.luaSessionsMu.RUnlock()
+	if luaSession == nil {
+		return
+	}
+
+	// Get detected changes from Lua session
+	updates := luaSession.AfterBatch(vendedID)
 	if len(updates) == 0 {
 		return
 	}
@@ -501,16 +542,50 @@ func (s *Server) ExecuteInSession(vendedID string, fn func() (interface{}, error
 		return nil, fmt.Errorf("session %s not found", vendedID)
 	}
 
+	// Look up the Lua session for this vended ID
+	s.luaSessionsMu.RLock()
+	luaSession := s.luaSessions[vendedID]
+	s.luaSessionsMu.RUnlock()
+	if luaSession == nil {
+		return nil, fmt.Errorf("Lua session %s not found", vendedID)
+	}
+
 	// Delegate to websocket endpoint (queues through session's executor)
 	// Wrap fn to set up Lua session context
 	return s.wsEndpoint.ExecuteInSession(internalID, func() (interface{}, error) {
-		return s.luaRuntime.ExecuteInSession(vendedID, fn)
+		return luaSession.ExecuteInSession(vendedID, fn)
 	})
 }
 
-// GetLuaRuntime returns the Lua runtime (for testing/advanced use).
-func (s *Server) GetLuaRuntime() *lua.Runtime {
-	return s.luaRuntime
+// GetLuaSession returns a Lua session by vended ID (for testing/advanced use).
+func (s *Server) GetLuaSession(vendedID string) *lua.LuaSession {
+	s.luaSessionsMu.RLock()
+	defer s.luaSessionsMu.RUnlock()
+	return s.luaSessions[vendedID]
+}
+
+// HandleFrontendCreate implements PathVariableHandler.
+// It delegates to the per-session LuaSession.
+func (s *Server) HandleFrontendCreate(sessionID string, parentID int64, properties map[string]string) (int64, json.RawMessage, map[string]string, error) {
+	s.luaSessionsMu.RLock()
+	luaSession := s.luaSessions[sessionID]
+	s.luaSessionsMu.RUnlock()
+	if luaSession == nil {
+		return 0, nil, nil, fmt.Errorf("Lua session %s not found", sessionID)
+	}
+	return luaSession.HandleFrontendCreate(sessionID, parentID, properties)
+}
+
+// HandleFrontendUpdate implements PathVariableHandler.
+// It delegates to the per-session LuaSession.
+func (s *Server) HandleFrontendUpdate(sessionID string, varID int64, value json.RawMessage) error {
+	s.luaSessionsMu.RLock()
+	luaSession := s.luaSessions[sessionID]
+	s.luaSessionsMu.RUnlock()
+	if luaSession == nil {
+		return fmt.Errorf("Lua session %s not found", sessionID)
+	}
+	return luaSession.HandleFrontendUpdate(sessionID, varID, value)
 }
 
 // getDebugVariables returns all variables in topological order from a tracker.
@@ -608,14 +683,15 @@ func (s *Server) StartAsync(port int) (string, error) {
 	return url, nil
 }
 
-// preloadMainLuaFromBundle caches main.lua from bundle if available.
-func (s *Server) preloadMainLuaFromBundle(runtime *lua.Runtime) {
+// preloadMainLuaFromBundleToConfig caches main.lua from bundle if available.
+// The cached code is stored in luaConfig for per-session use.
+func (s *Server) preloadMainLuaFromBundleToConfig() {
 	content, err := bundle.ReadFile("lua/main.lua")
 	if err != nil {
 		// No main.lua in bundle - OK for hybrid/backend-only modes
 		return
 	}
-	runtime.SetMainLuaCode(string(content))
+	s.luaConfig.mainLuaCode = string(content)
 	s.config.Log(0, "Preloaded main.lua from bundle")
 }
 
@@ -624,17 +700,11 @@ func (s *Server) preloadMainLuaFromBundle(runtime *lua.Runtime) {
 type luaTrackerAdapter struct {
 	config         *config.Config
 	store          *variable.Store
-	runtime        *lua.Runtime
-	wrapperManager *lua.WrapperManager
 	viewdefManager *viewdef.ViewdefManager
 	backends       map[string]*backend.LuaBackend // vendedID -> backend
+	luaSessions    map[string]*lua.LuaSession     // vendedID -> LuaSession
 	varToSession   map[int64]string               // variableID -> sessionID
 	mu             sync.RWMutex
-}
-
-// SetWrapperManager sets the wrapper manager for creating wrappers during variable creation.
-func (a *luaTrackerAdapter) SetWrapperManager(wm *lua.WrapperManager) {
-	a.wrapperManager = wm
 }
 
 // SetViewdefManager sets the viewdef manager for sending viewdefs to frontend.
@@ -664,6 +734,23 @@ func (a *luaTrackerAdapter) RemoveBackend(sessionID string) {
 			delete(a.varToSession, varID)
 		}
 	}
+}
+
+// SetLuaSession sets the LuaSession for a session.
+func (a *luaTrackerAdapter) SetLuaSession(sessionID string, ls *lua.LuaSession) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.luaSessions == nil {
+		a.luaSessions = make(map[string]*lua.LuaSession)
+	}
+	a.luaSessions[sessionID] = ls
+}
+
+// RemoveLuaSession removes the LuaSession for a session.
+func (a *luaTrackerAdapter) RemoveLuaSession(sessionID string) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	delete(a.luaSessions, sessionID)
 }
 
 // CreateSession creates a new tracker for a session.
