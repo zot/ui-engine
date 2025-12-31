@@ -280,6 +280,38 @@ func TestSessionDestroyCleanup(t *testing.T) {
 	}
 }
 
+// TestVendedIDResetAfterAllSessionsDestroyed verifies that vended ID counter resets to 1
+// when all sessions are destroyed, allowing fresh sessions to start at 1 again.
+func TestVendedIDResetAfterAllSessionsDestroyed(t *testing.T) {
+	manager := NewManager(time.Hour)
+
+	// Create two sessions
+	session1, vendedID1, _ := manager.CreateSession()
+	session2, vendedID2, _ := manager.CreateSession()
+
+	if vendedID1 != "1" || vendedID2 != "2" {
+		t.Fatalf("Expected vended IDs '1' and '2', got '%s' and '%s'", vendedID1, vendedID2)
+	}
+
+	// Destroy all sessions
+	manager.DestroySession(session1.ID)
+	manager.DestroySession(session2.ID)
+
+	if manager.Count() != 0 {
+		t.Fatalf("Expected 0 sessions after destroy, got %d", manager.Count())
+	}
+
+	// Create new session - should get vended ID "1" again
+	_, newVendedID, err := manager.CreateSession()
+	if err != nil {
+		t.Fatalf("CreateSession failed: %v", err)
+	}
+
+	if newVendedID != "1" {
+		t.Errorf("Expected vended ID to reset to '1' after all sessions destroyed, got '%s'", newVendedID)
+	}
+}
+
 // TestVendedIDMapping verifies internal <-> vended ID mapping
 func TestVendedIDMapping(t *testing.T) {
 	manager := NewManager(time.Hour)

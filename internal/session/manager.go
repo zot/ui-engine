@@ -141,6 +141,12 @@ func (m *Manager) DestroySession(id string) error {
 	if vendedID != "" {
 		delete(m.vendedToInternal, vendedID)
 	}
+
+	// Reset vended ID counter when all sessions are destroyed
+	// This ensures session 1 is always created fresh after cleanup
+	if len(m.sessions) == 0 {
+		m.nextVendedID = 1
+	}
 	m.mu.Unlock()
 
 	// Call callback to destroy Lua backend (if enabled)
