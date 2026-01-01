@@ -9,7 +9,7 @@
 - MessageRelay: Message coordinator
 - ProtocolHandler: Message processor
 - VariableStore: Variable storage (for unbound)
-- Backend: External backend (LuaRuntime or connected backend)
+- Backend: External backend (LuaSession or connected backend)
 
 ## Sequence
 

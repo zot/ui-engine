@@ -20,7 +20,7 @@
 
 ## Collaborators
 
-- LuaRuntime: Executes Lua code
+- LuaSession: Executes Lua code
 - Presenter: Base presenter interface
 - ProtocolHandler: Receives action triggers
 - WatchManager: Notifies of presenter changes

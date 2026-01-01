@@ -36,8 +36,7 @@
 - MessageBatcher: Builds priority-ordered batches for outgoing messages
 - WebSocketEndpoint: Receives messages from frontend
 - BackendSocket: Forwards messages to connected backend (when connected)
-- LuaRuntime: Routes messages to appropriate LuaSession (when Lua enabled)
-- LuaSession: Processes messages for session
+- LuaSession: Per-session Lua environment (receives routed messages when Lua enabled)
 - HTTPEndpoint: Receives messages via REST/CLI
 - Config: Logging delegate (protocol messages and errors)
 

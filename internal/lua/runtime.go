@@ -1,6 +1,12 @@
-// CRC: crc-LuaRuntime.md, crc-LuaSession.md, crc-LuaVariable.md
-// Spec: interfaces.md, deployment.md, libraries.md
-// Sequence: seq-lua-executor-init.md, seq-lua-execute.md, seq-lua-handle-action.md, seq-lua-session-init.md
+// CRC: crc-LuaSession.md, crc-LuaRuntime.md (alias), crc-LuaVariable.md
+// Spec: interfaces.md, deployment.md, libraries.md, protocol.md
+// Sequence: seq-lua-executor-init.md, seq-lua-execute.md, seq-lua-handle-action.md, seq-lua-session-init.md, seq-session-create-backend.md
+//
+// LuaSession provides per-session Lua isolation. Each frontend session gets its own
+// LuaSession with a separate Lua VM state. Server owns luaSessions map and creates
+// sessions via callbacks from SessionManager.
+//
+// Runtime is a type alias for backward compatibility: type Runtime = LuaSession
 package lua
 
 import (

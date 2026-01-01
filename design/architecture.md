@@ -144,11 +144,10 @@ Each session has an associated Backend that handles variable management. Two imp
 
 ### Lua Runtime System
 
-**Purpose**: Embedded Lua backend for presentation logic with session-based architecture
+**Purpose**: Embedded Lua backend for presentation logic with per-session isolation
 
 **Design Elements**:
-- crc-LuaRuntime.md
-- crc-LuaSession.md
+- crc-LuaSession.md (per-session Lua environment with isolated VM)
 - crc-LuaVariable.md
 - crc-LuaPresenterLogic.md
 - seq-lua-executor-init.md
@@ -158,8 +157,10 @@ Each session has an associated Backend that handles variable management. Two imp
 - seq-lua-handle-action.md
 
 **Notes**:
-- LuaBackend uses LuaRuntime for Lua execution
-- LuaSession is the Lua-side session API exposed to main.lua
+- **Per-Session Isolation**: Server owns `luaSessions map[string]*LuaSession`
+- Each LuaSession has its own Lua VM state (complete isolation between sessions)
+- Server implements PathVariableHandler, routing to per-session LuaSession
+- luaTrackerAdapter coordinates variable operations across per-session backends
 
 ### Backend Library System
 

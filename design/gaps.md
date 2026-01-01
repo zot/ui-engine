@@ -170,7 +170,7 @@
 | `internal/backend/backend.go` | crc-Backend.md | main.md |
 | `internal/backend/lua.go` | crc-LuaBackend.md | main.md, protocol.md |
 | `internal/session/session.go` | crc-Session.md, crc-SessionManager.md | main.md, interfaces.md |
-| `internal/lua/runtime.go` | crc-LuaRuntime.md, crc-LuaSession.md, crc-LuaVariable.md | interfaces.md, deployment.md, libraries.md |
+| `internal/lua/runtime.go` | crc-LuaSession.md, crc-LuaVariable.md | interfaces.md, deployment.md, libraries.md |
 | `web/src/binding.ts` | crc-BindingEngine.md, crc-ValueBinding.md, crc-EventBinding.md | viewdefs.md |
 | `web/src/variable.ts` | crc-Variable.md | protocol.md |
 | `web/src/connection.ts` | crc-WebSocketEndpoint.md, crc-SharedWorker.md | interfaces.md |

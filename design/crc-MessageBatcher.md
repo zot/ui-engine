@@ -43,4 +43,4 @@
 - All batches to backends (Lua or external) include session wrapper
 - Format: `{"session": "abc123", "messages": [...]}`
 - Allows routing to correct session (LuaSession or backend session)
-- Both LuaRuntime and BackendSocket use same session-wrapped format
+- Both LuaSession and BackendSocket use same session-wrapped format

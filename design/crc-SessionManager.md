@@ -8,7 +8,7 @@
 - sessions: Map of session ID to Session
 - urlPaths: Map of registered URL paths to presenter variables
 - sessionTimeout: Duration for session inactivity cleanup
-- luaRuntime: Reference to LuaRuntime for creating Lua sessions
+- luaSessionFactory: Factory for creating LuaSessions
 - nextVendedID: Counter for sequential vended IDs (starts at 1)
 - internalToVended: Map of internal session ID (UUID) to vended ID (string integer)
 - vendedToInternal: Map of vended ID to internal session ID
@@ -28,8 +28,7 @@
 ## Collaborators
 
 - Session: Individual session instances
-- LuaRuntime: Creates Lua sessions when frontend sessions are created
-- LuaSession: Per-session Lua environment (creates variable 1)
+- LuaSession: Per-session Lua environment (created when frontend sessions are created, creates variable 1)
 - Router: URL path registration
 - Config: Provides session timeout setting
 

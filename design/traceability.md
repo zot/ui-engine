@@ -101,7 +101,6 @@
 - crc-Router.md
 - crc-WebSocketEndpoint.md
 - crc-SharedWorker.md
-- crc-LuaRuntime.md
 - crc-LuaSession.md
 - crc-LuaPresenterLogic.md
 
@@ -322,16 +321,16 @@
 - [x] `internal/protocol/batcher.go` - Priority-based message batching
 - [x] `web/src/batcher.ts` - Frontend batch processing
 
-### crc-LuaRuntime.md
-**Source Spec:** interfaces.md, deployment.md
-**Implementation:**
-- [x] `internal/lua/runtime.go` - Lua runtime with session API, I/O redirection
-
 ### crc-LuaSession.md
 **Source Spec:** libraries.md, interfaces.md, protocol.md
 **Implementation:**
-- [x] `internal/lua/runtime.go` - Go-side LuaSession implementation (uses vended session IDs)
-- [x] `internal/lua/runtime.go` - Automatic change detection via AfterBatch()
+- [x] `internal/lua/runtime.go` - LuaSession struct with per-session Lua VM state
+- [x] `internal/lua/runtime.go` - CreateLuaSession, GetLuaSession, ExecuteInSession
+- [x] `internal/lua/runtime.go` - HandleFrontendCreate, HandleFrontendUpdate (PathVariableHandler)
+- [x] `internal/lua/runtime.go` - AfterBatch for automatic change detection
+- [x] `internal/server/server.go` - Server.luaSessions map and CreateLuaBackendForSession
+- [x] `internal/server/server.go` - Server implements PathVariableHandler interface
+- [x] `internal/server/server.go` - luaTrackerAdapter with SetLuaSession/RemoveLuaSession
 
 ### crc-LuaVariable.md
 **Source Spec:** libraries.md

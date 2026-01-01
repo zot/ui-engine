@@ -1,5 +1,10 @@
-// CRC: seq-server-startup.md
-// Spec: deployment.md
+// CRC: crc-LuaSession.md (Server owns luaSessions map)
+// Spec: deployment.md, interfaces.md
+// Sequence: seq-server-startup.md, seq-session-create-backend.md, seq-lua-session-init.md
+//
+// Server implements per-session Lua isolation via luaSessions map[string]*lua.LuaSession.
+// It creates/destroys LuaSessions via SessionManager callbacks and implements
+// PathVariableHandler to route HandleFrontendCreate/Update to per-session LuaSession.
 package server
 
 import (

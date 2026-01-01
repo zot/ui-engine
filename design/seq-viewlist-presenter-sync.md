@@ -10,7 +10,7 @@
 - ViewList: Wrapper stored in variable, manages ViewListItem objects
 - ViewListItem: Holds item, list, index for each array element
 - ObjectRegistry: Registers ViewList and ViewListItems for navigation
-- LuaRuntime: Creates ViewListItem instances
+- LuaSession: Creates ViewListItem instances
 
 ## Sequence
 

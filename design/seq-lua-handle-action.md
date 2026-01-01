@@ -8,7 +8,6 @@
 - Frontend: Browser frontend
 - WebSocketEndpoint: WebSocket handler
 - ProtocolHandler: Message processor
-- LuaRuntime: Lua runtime manager
 - LuaSession: Per-session Lua environment
 - PathNavigator: Path resolution
 - PresenterObject: Lua presenter table
@@ -17,7 +16,7 @@
 ## Sequence
 
 ```
-     Frontend       WebSocketEndpoint    ProtocolHandler       LuaRuntime          LuaSession        PathNavigator      PresenterObject
+     Frontend       WebSocketEndpoint    ProtocolHandler          LuaSession        PathNavigator      PresenterObject
         |                   |                   |                   |                   |                   |                   |
         |---update--------->|                   |                   |                   |                   |                   |
         |   (varId,         |                   |                   |                   |                   |                   |
@@ -26,49 +25,49 @@
         |      "presenter.  |                   |                   |                   |                   |                   |
         |       save()"})   |                   |                   |                   |                   |                   |
         |                   |                   |                   |                   |                   |                   |
-        |                   |---handleMessage-->|                   |                   |                   |                   |
-        |                   |   (sessionId,     |                   |                   |                   |                   |
-        |                   |    update)        |                   |                   |                   |                   |
-        |                   |                   |                   |                   |                   |                   |
-        |                   |                   |---execute-------->|                   |                   |                   |
-        |                   |                   |   (dispatch       |                   |                   |                   |
-        |                   |                   |    action)        |                   |                   |                   |
-        |                   |                   |                   |                   |                   |                   |
-        |                   |                   |                   |---getApp--------->|                   |                   |
-        |                   |                   |                   |                   |                   |                   |
-        |                   |                   |                   |<--appObject-------|                   |                   |
-        |                   |                   |                   |                   |                   |                   |
-        |                   |                   |                   |---resolve-------->|                   |                   |
-        |                   |                   |                   |   (appObject,     |                   |                   |
-        |                   |                   |                   |    "presenter")   |                   |                   |
-        |                   |                   |                   |                   |                   |                   |
-        |                   |                   |                   |<--presenterObj----|-------------------|                   |
-        |                   |                   |                   |                   |                   |                   |
-        |                   |                   |                   |---callMethod------|-------------------|----------------->|
-        |                   |                   |                   |   ("save", args?) |                   |                   |
-        |                   |                   |                   |                   |                   |                   |
-        |                   |                   |                   |                   |                   |  [modifies self  |
-        |                   |                   |                   |                   |                   |   directly]      |
-        |                   |                   |                   |                   |                   |                   |
-        |                   |                   |                   |<--result----------|-------------------|-------------------|
-        |                   |                   |                   |                   |                   |                   |
-        |                   |                   |<--result----------|                   |                   |                   |
-        |                   |                   |                   |                   |                   |                   |
-        |                   |                   |---afterBatch----->|                   |                   |                   |
-        |                   |                   |                   |                   |                   |                   |
-        |                   |                   |                   |---computeChanges->|                   |                   |
-        |                   |                   |                   |                   |                   |                   |
-        |                   |                   |                   |                   |  [for each watched var:]             |
-        |                   |                   |                   |                   |  - serialize object to JSON          |
-        |                   |                   |                   |                   |  - compare to cached value           |
-        |                   |                   |                   |                   |  - if changed, queue update          |
-        |                   |                   |                   |                   |                   |                   |
-        |                   |                   |                   |<--changedVars-----|                   |                   |
-        |                   |                   |                   |                   |                   |                   |
-        |                   |                   |<--updates---------|                   |                   |                   |
-        |                   |                   |                   |                   |                   |                   |
-        |<--update(s)-------|                   |                   |                   |                   |                   |
-        |                   |                   |                   |                   |                   |                   |
+        |                   |---handleMessage-->|                   |                   |                   |
+        |                   |   (sessionId,     |                   |                   |                   |
+        |                   |    update)        |                   |                   |                   |
+        |                   |                   |                   |                   |                   |
+        |                   |                   |---execute-------->|                   |                   |
+        |                   |                   |   (dispatch       |                   |                   |
+        |                   |                   |    action)        |                   |                   |
+        |                   |                   |                   |                   |                   |
+        |                   |                   |                   |---getApp--------->|                   |
+        |                   |                   |                   |                   |                   |
+        |                   |                   |                   |<--appObject-------|                   |
+        |                   |                   |                   |                   |                   |
+        |                   |                   |                   |---resolve-------->|                   |
+        |                   |                   |                   |   (appObject,     |                   |
+        |                   |                   |                   |    "presenter")   |                   |
+        |                   |                   |                   |                   |                   |
+        |                   |                   |                   |<--presenterObj----|-------------------|
+        |                   |                   |                   |                   |                   |
+        |                   |                   |                   |---callMethod------|----------------->|
+        |                   |                   |                   |   ("save", args?) |                   |
+        |                   |                   |                   |                   |                   |
+        |                   |                   |                   |                   |  [modifies self  |
+        |                   |                   |                   |                   |   directly]      |
+        |                   |                   |                   |                   |                   |
+        |                   |                   |                   |<--result----------|-------------------|
+        |                   |                   |                   |                   |                   |
+        |                   |                   |<--result----------|                   |                   |
+        |                   |                   |                   |                   |                   |
+        |                   |                   |---afterBatch----->|                   |                   |
+        |                   |                   |                   |                   |                   |
+        |                   |                   |                   |---computeChanges->|                   |
+        |                   |                   |                   |                   |                   |
+        |                   |                   |                   |  [for each watched var:]             |
+        |                   |                   |                   |  - serialize object to JSON          |
+        |                   |                   |                   |  - compare to cached value           |
+        |                   |                   |                   |  - if changed, queue update          |
+        |                   |                   |                   |                   |                   |
+        |                   |                   |                   |<--changedVars-----|                   |
+        |                   |                   |                   |                   |                   |
+        |                   |                   |<--updates---------|                   |                   |
+        |                   |                   |                   |                   |                   |
+        |<--update(s)-------|                   |                   |                   |                   |
+        |                   |                   |                   |                   |                   |
 ```
 
 ## Notes
@@ -77,7 +76,7 @@
 - Path format: `object.method()` or `object.method(_)`
   - `method()` - call with no arguments
   - `method(_)` - call with the update message's value as the argument
-- **Thread safety**: All Lua access goes through LuaRuntime's executor channel
+- **Thread safety**: All Lua access goes through LuaSession's executor channel
 - PathNavigator resolves the path starting from the app object (session:getApp())
 - Method is called on the resolved presenter object
 - **Direct object modification**: Lua methods modify `self` directly (no var:update calls)

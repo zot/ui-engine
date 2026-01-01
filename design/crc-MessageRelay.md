@@ -23,7 +23,7 @@
 ## Collaborators
 
 - WebSocketEndpoint: Frontend connections
-- LuaRuntime: Embedded Lua backend (when enabled)
+- LuaSession: Per-session Lua environment (when embedded Lua enabled)
 - BackendSocket: External backend connection (when connected)
 - ProtocolHandler: Message processing
 - VariableStore: Unbound variable handling
@@ -40,6 +40,6 @@
 ## Notes
 
 **Backend Modes (see interfaces.md):**
-- **Embedded Lua only**: relayToBackend routes to LuaRuntime
+- **Embedded Lua only**: relayToBackend routes to LuaSession
 - **Connected backend only**: relayToBackend routes to BackendSocket
 - **Hybrid**: relayToBackend routes to both (developer controls variable 1 ownership)

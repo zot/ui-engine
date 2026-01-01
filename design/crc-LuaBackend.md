@@ -50,4 +50,4 @@
 - **Variable ID scope**: Variable IDs in watchCounts/watchers are session-scoped (no conflicts between sessions)
 - **Implements Backend interface**: Session holds Backend interface, LuaBackend is the hosted implementation
 - **Replaces global WatchManager**: The bug was that WatchManager used global maps keyed by varID, but varIDs are only unique within a session
-- **Thread safety**: All Lua operations go through executor channel (inherited from LuaRuntime pattern)
+- **Thread safety**: All Lua operations go through executor channel (same pattern as LuaSession)

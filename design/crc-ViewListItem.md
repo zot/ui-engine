@@ -23,7 +23,7 @@
 
 - ViewList: Creates and manages ViewListItem lifecycle, updates index on sync
 - ObjectRegistry: Registers ViewListItem for path navigation
-- LuaRuntime: Creates ViewListItem instances
+- LuaSession: Creates ViewListItem instances
 
 ## Notes
 

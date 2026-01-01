@@ -2,6 +2,9 @@
 // CRC: crc-Wrapper.md, crc-Variable.md
 // Spec: protocol.md
 // Sequence: seq-wrapper-transform.md
+//
+// WrapperRegistry and factory functions for creating wrapper instances.
+// Note: WrapperManager was removed - wrapper functionality is per-session via LuaSession.
 package lua
 
 import (

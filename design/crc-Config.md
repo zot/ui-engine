@@ -19,7 +19,7 @@
 | Collaborator      | Interaction                                   |
 |-------------------|-----------------------------------------------|
 | EmbeddedSite      | Reads config.toml from embedded archive       |
-| LuaRuntime        | Provides Lua enabled flag and path            |
+| LuaSession        | Provides Lua enabled flag and path            |
 | SessionManager    | Provides session timeout setting              |
 | WebSocketEndpoint | Logging delegate (connection events)          |
 | HTTPEndpoint      | Provides host and port settings               |

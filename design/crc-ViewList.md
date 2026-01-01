@@ -50,7 +50,7 @@
 - Resolver: Calls CreateWrapper(variable) on value changes
 - ViewListItem: Created for each array element, holds item/list/index
 - ObjectRegistry: Registers ViewList and ViewListItems for path navigation
-- LuaRuntime: Creates ViewListItem instances (backend)
+- LuaSession: Creates ViewListItem instances (backend)
 
 ## Notes
 

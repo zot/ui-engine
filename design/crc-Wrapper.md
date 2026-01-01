@@ -19,7 +19,7 @@
 - Variable: Stores wrapper instance internally, provides getValue() and getWrapper()
 - WrapperManager: Calls the appropriate factory to create a wrapper instance.
 - ObjectRegistry: Registers wrapper object for child path navigation
-- LuaRuntime: Hosts wrapper implementation (for embedded Lua)
+- LuaSession: Hosts wrapper implementation (for embedded Lua)
 
 ## Notes
 

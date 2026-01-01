@@ -6,78 +6,81 @@
 ## Participants
 
 - Frontend: Browser frontend connecting
-- WebSocketEndpoint: WebSocket handler
+- HTTPEndpoint: HTTP request handler
 - SessionManager: Session management
 - Session: Frontend session instance
-- LuaRuntime: Lua VM manager
-- LuaSession: Per-session Lua environment
-- VariableStore: Variable storage
-- WatchManager: Property watching
+- Server: Main server (owns luaSessions map)
+- LuaSession: Per-session Lua environment (with isolated VM)
+- LuaBackend: Per-session backend for watch management
+- luaTrackerAdapter: Routes to per-session tracker
 
 ## Sequence
 
 ```
-     Frontend       WebSocketEndpoint    SessionManager        Session           LuaRuntime          LuaSession         VariableStore       WatchManager
+     Frontend       HTTPEndpoint       SessionManager        Session             Server            LuaSession          LuaBackend      luaTrackerAdapter
         |                   |                   |                   |                   |                   |                   |                   |
-        |---connect-------->|                   |                   |                   |                   |                   |                   |
-        |   (new session)   |                   |                   |                   |                   |                   |                   |
+        |---GET /---------->|                   |                   |                   |                   |                   |                   |
         |                   |                   |                   |                   |                   |                   |                   |
-        |                   |---createSession-->|                   |                   |                   |                   |                   |
+        |                   |--createSession()->|                   |                   |                   |                   |                   |
         |                   |                   |                   |                   |                   |                   |                   |
-        |                   |                   |---create()------->|                   |                   |                   |                   |
-        |                   |                   |   (sessionId)     |                   |                   |                   |                   |
+        |                   |                   |--new(id)--------->|                   |                   |                   |                   |
         |                   |                   |                   |                   |                   |                   |                   |
-        |                   |                   |---createLuaSession(sessionId)-------->|                   |                   |                   |
+        |                   |                   |--onSessionCreated(vendedID, sess)--->|                   |                   |                   |
         |                   |                   |                   |                   |                   |                   |                   |
-        |                   |                   |                   |                   |---execute-------->|                   |                   |
-        |                   |                   |                   |                   |   (create)        |                   |                   |
+        |                   |                   |                   |                   |--NewRuntime()---->|                   |                   |
+        |                   |                   |                   |                   |   [creates Lua    |                   |                   |
+        |                   |                   |                   |                   |    VM state]      |                   |                   |
         |                   |                   |                   |                   |                   |                   |                   |
-        |                   |                   |                   |                   |                   |---new()---------->|                   |
-        |                   |                   |                   |                   |                   |   [create Lua     |                   |
-        |                   |                   |                   |                   |                   |    VM state]      |                   |
+        |                   |                   |                   |                   |--NewLuaBackend()->|------------------>|                   |
         |                   |                   |                   |                   |                   |                   |                   |
-        |                   |                   |                   |                   |                   |---setGlobal------>|                   |
-        |                   |                   |                   |                   |                   |   ("session")     |                   |
+        |                   |                   |                   |--SetBackend----->|<------------------|                   |                   |
+        |                   |                   |                   |   (backend)      |                   |                   |                   |
         |                   |                   |                   |                   |                   |                   |                   |
-        |                   |                   |                   |                   |                   |---loadFile------->|                   |
-        |                   |                   |                   |                   |                   |   ("main.lua")    |                   |
+        |                   |                   |                   |                   |--SetBackend(id, lb)----------------->|----------------->|
+        |                   |                   |                   |                   |--SetLuaSession(id, ls)-------------->|                   |
         |                   |                   |                   |                   |                   |                   |                   |
+        |                   |                   |                   |                   |--SetVariableStore(adapter)---------->|                   |
+        |                   |                   |                   |                   |                   |                   |                   |
+        |                   |                   |                   |                   |--luaSessions[id] = ls                |                   |
+        |                   |                   |                   |                   |                   |                   |                   |
+        |                   |                   |                   |                   |--CreateLuaSession(vendedID)--------->|                   |
+        |                   |                   |                   |                   |                   |                   |                   |
+        |                   |                   |                   |                   |                   |--CreateSession(id)----------------->|
+        |                   |                   |                   |                   |                   |   [sets resolver] |                   |
+        |                   |                   |                   |                   |                   |                   |                   |
+        |                   |                   |                   |                   |                   |--createSessionTable()               |
+        |                   |                   |                   |                   |                   |--setGlobal("session")               |
+        |                   |                   |                   |                   |                   |                   |                   |
+        |                   |                   |                   |                   |                   |--loadMainLua()--->|                   |
         |                   |                   |                   |                   |                   |   [main.lua       |                   |
         |                   |                   |                   |                   |                   |    executes]      |                   |
         |                   |                   |                   |                   |                   |                   |                   |
         |                   |                   |                   |                   |                   |   session:createAppVariable(value, props)
         |                   |                   |                   |                   |                   |                   |                   |
-        |                   |                   |                   |                   |                   |---create(1)------>|                   |
-        |                   |                   |                   |                   |                   |   (value, props)  |                   |
+        |                   |                   |                   |                   |                   |--CreateVariable(id, 0, obj, props)->|
         |                   |                   |                   |                   |                   |                   |                   |
-        |                   |                   |                   |                   |                   |<--variable 1------|                   |
-        |                   |                   |                   |                   |                   |                   |                   |
-        |                   |                   |                   |                   |                   |---watchProperty-->|----------------->|
-        |                   |                   |                   |                   |                   |   (1, "lua")      |                   |
-        |                   |                   |                   |                   |                   |                   |                   |
-        |                   |                   |                   |                   |                   |                   |<--subscription---|
+        |                   |                   |                   |                   |                   |<--variable 1------|-------------------|
         |                   |                   |                   |                   |                   |                   |                   |
         |                   |                   |                   |                   |<--luaSession------|                   |                   |
         |                   |                   |                   |                   |                   |                   |                   |
-        |                   |                   |<--luaSession------|                   |                   |                   |                   |
+        |                   |                   |<--session---------|<------------------|                   |                   |                   |
         |                   |                   |                   |                   |                   |                   |                   |
-        |                   |                   |---setLuaSession-->|                   |                   |                   |                   |
-        |                   |                   |   (luaSession)    |                   |                   |                   |                   |
+        |                   |<--sessionId-------|                   |                   |                   |                   |                   |
         |                   |                   |                   |                   |                   |                   |                   |
-        |                   |<--session---------|                   |                   |                   |                   |                   |
-        |                   |                   |                   |                   |                   |                   |                   |
-        |<--connection ack--|                   |                   |                   |                   |                   |                   |
+        |<--302 /sessionId--|                   |                   |                   |                   |                   |                   |
         |                   |                   |                   |                   |                   |                   |                   |
 ```
 
 ## Notes
 
-- Each frontend session gets exactly one corresponding LuaSession
+- **Per-Session Isolation**: Each frontend session gets its own LuaSession with isolated Lua VM
+- **Server Owns Sessions**: Server maintains `luaSessions map[string]*LuaSession`
 - The server does NOT create variable 1 - main.lua creates it via session:createAppVariable()
 - Executing main.lua serves as the notification that a new session has started
 - The `session` global is available when main.lua executes
 - Built-in watcher: `lua` property on variable 1 triggers dynamic code loading
-- All Lua operations go through LuaRuntime's executor channel for thread safety
+- All Lua operations go through LuaSession's executor channel for thread safety
+- **Session Callbacks**: SessionManager calls Server.CreateLuaBackendForSession on new session
 - main.lua is responsible for:
   - Creating variable 1 (the app variable) with initial state
   - Defining presenter objects with methods for ui-action calls

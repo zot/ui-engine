@@ -23,7 +23,7 @@
 **Test Designs**: test-Storage.md, test-Communication.md (HTTP tests)
 
 ### interfaces.md
-**CRC Cards**: crc-Session.md, crc-SessionManager.md, crc-Router.md, crc-WebSocketEndpoint.md, crc-SharedWorker.md, crc-MCPServer.md, crc-MCPResource.md, crc-MCPTool.md, crc-LuaRuntime.md, crc-LuaPresenterLogic.md
+**CRC Cards**: crc-Session.md, crc-SessionManager.md, crc-Router.md, crc-WebSocketEndpoint.md, crc-SharedWorker.md, crc-MCPServer.md, crc-MCPResource.md, crc-MCPTool.md, crc-LuaSession.md, crc-LuaPresenterLogic.md
 **Sequences**: seq-create-session.md, seq-frontend-connect.md, seq-backend-connect.md, seq-activate-tab.md, seq-navigate-url.md, seq-mcp-*.md, seq-lua-*.md
 **Test Designs**: test-Session.md, test-Communication.md, test-MCP.md, test-Lua.md
 

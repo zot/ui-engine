@@ -6,14 +6,14 @@
 ## Participants
 
 - Caller: Any goroutine (ProtocolHandler, MCPTool, etc.)
-- LuaRuntime: Lua VM manager
+- LuaSession: Per-session Lua environment
 - ExecutorGoroutine: Single goroutine for Lua execution
 - LuaVM: Lua virtual machine
 
 ## Sequence
 
 ```
-     Caller              LuaRuntime          ExecutorGoroutine            LuaVM
+     Caller              LuaSession          ExecutorGoroutine            LuaVM
         |                      |                      |                      |
         |---execute(func)----->|                      |                      |
         |                      |                      |                      |

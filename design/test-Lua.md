@@ -1,7 +1,7 @@
 # Test Design: Lua Runtime
 
 **Source Specs**: interfaces.md, deployment.md
-**CRC Cards**: crc-LuaRuntime.md, crc-LuaPresenterLogic.md
+**CRC Cards**: crc-LuaSession.md, crc-LuaPresenterLogic.md
 **Sequences**: seq-load-lua-code.md, seq-lua-handle-action.md
 
 ## Overview
@@ -18,7 +18,7 @@ Tests for embedded Lua backend supporting presentation logic.
 - initialize()
 
 **References**:
-- CRC: crc-LuaRuntime.md - "Does: initialize"
+- CRC: crc-LuaSession.md - "Does: CreateLuaSession"
 
 **Expected Results**:
 - Lua VM state created
@@ -35,7 +35,7 @@ Tests for embedded Lua backend supporting presentation logic.
 - loadFile("presenters.lua")
 
 **References**:
-- CRC: crc-LuaRuntime.md - "Does: loadFile"
+- CRC: crc-LuaSession.md - "Does: ExecuteInSession"
 - Sequence: seq-load-lua-code.md
 
 **Expected Results**:
@@ -53,7 +53,7 @@ Tests for embedded Lua backend supporting presentation logic.
 - loadCode("function Test:hello() return 'hi' end")
 
 **References**:
-- CRC: crc-LuaRuntime.md - "Does: loadCode"
+- CRC: crc-LuaSession.md - "Does: ExecuteInSession"
 - Sequence: seq-load-lua-code.md
 
 **Expected Results**:
@@ -72,7 +72,7 @@ Tests for embedded Lua backend supporting presentation logic.
 - registerPresenterType("StockTicker")
 
 **References**:
-- CRC: crc-LuaRuntime.md - "Does: registerPresenterType"
+- CRC: crc-LuaSession.md - "Knows: presenterTypes"
 
 **Expected Results**:
 - Type available for create property
@@ -90,7 +90,7 @@ Tests for embedded Lua backend supporting presentation logic.
 - callMethod(presenter, "update", ["ACME", 142.50])
 
 **References**:
-- CRC: crc-LuaRuntime.md - "Does: callMethod"
+- CRC: crc-LuaSession.md - "Does: ExecuteInSession"
 - Sequence: seq-lua-handle-action.md
 
 **Expected Results**:
@@ -109,7 +109,7 @@ Tests for embedded Lua backend supporting presentation logic.
 - getPresenterValue(presenter, "symbol")
 
 **References**:
-- CRC: crc-LuaRuntime.md - "Does: getPresenterValue"
+- CRC: crc-LuaSession.md - "Does: getApp"
 
 **Expected Results**:
 - Returns "ACME"
@@ -126,7 +126,7 @@ Tests for embedded Lua backend supporting presentation logic.
 - setPresenterValue(presenter, "price", 150.00)
 
 **References**:
-- CRC: crc-LuaRuntime.md - "Does: setPresenterValue"
+- CRC: crc-LuaSession.md - "Does: HandleFrontendUpdate"
 
 **Expected Results**:
 - Property updated
@@ -248,7 +248,7 @@ Tests for embedded Lua backend supporting presentation logic.
 - shutdown()
 
 **References**:
-- CRC: crc-LuaRuntime.md - "Does: shutdown"
+- CRC: crc-LuaSession.md - "Does: Shutdown"
 
 **Expected Results**:
 - Lua VM destroyed
@@ -265,7 +265,7 @@ Tests for embedded Lua backend supporting presentation logic.
 - Lua code with runtime error
 
 **References**:
-- CRC: crc-LuaRuntime.md
+- CRC: crc-LuaSession.md - "Does: ExecuteInSession"
 
 **Expected Results**:
 - Error caught
@@ -283,7 +283,7 @@ Tests for embedded Lua backend supporting presentation logic.
 - loadFile from /custom/lua/
 
 **References**:
-- CRC: crc-LuaRuntime.md - "Knows: luaDir"
+- CRC: crc-LuaSession.md - "Does: CreateLuaSession"
 
 **Expected Results**:
 - Files loaded from custom path
@@ -295,7 +295,7 @@ Tests for embedded Lua backend supporting presentation logic.
 ## Coverage Summary
 
 **Responsibilities Covered:**
-- LuaRuntime: initialize, loadFile, loadCode, registerPresenterType, callMethod, getPresenterValue, setPresenterValue, shutdown
+- LuaSession: CreateLuaSession, ExecuteInSession, getApp, HandleFrontendUpdate, AfterBatch, Shutdown
 - LuaPresenterLogic: defineType, defineMethod, defineProperty, instantiate, handleAction, updateProperty, notifyChange
 
 **Scenarios Covered:**
