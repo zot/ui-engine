@@ -13,6 +13,7 @@
 - new(variable): Constructor receives Variable object, returns new or existing wrapper
 - sync: Update internal state when value changes (on wrapper reuse)
 - destroy (optional): Clean up all managed objects when variable destroyed
+- setVariableProperties (optional): Set properties like `fallbackNamespace` on the variable during creation
 
 ## Collaborators
 
@@ -66,6 +67,19 @@ func NewMyWrapper(runtime *Runtime, variable WrapperVariable) interface{} {
 4. Wrapper object is stored in the variable's `wrapperInstance` field.
 5. On value changes: The wrapper's sync logic is triggered (e.g., in the constructor).
 6. On variable destroy: If the wrapper has a `Destroy()` method, it is called.
+
+### Setting Variable Properties
+
+Wrappers can set properties on their variable during creation. For example, ViewList sets `fallbackNamespace: "list-item"` to enable 3-tier namespace resolution:
+
+```lua
+function ViewList:new(variable)
+    variable:setProperty("fallbackNamespace", "list-item")
+    -- ...rest of constructor
+end
+```
+
+This is done once during initial wrapper creation, not on reuse.
 
 ### Factory Registries
 

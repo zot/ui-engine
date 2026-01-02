@@ -34,14 +34,16 @@ The `get` command automatically resolves object references, returning the actual
 
 Variable metadata properties with special meaning:
 
-| Property   | Values                                   | Description                                                           |
-|------------|------------------------------------------|-----------------------------------------------------------------------|
-| `create`   | Type name (e.g., `MyModule.MyClass`)     | Instantiates an object of this type as the variable's value           |
-| `path`     | Dot-separated path (e.g., `father.name`) | Path to bound data (see syntax below)                                 |
-| `access`   | `r`, `w`, `rw`, `action`                 | Read/write permissions. `action` = write-only trigger (like a button) |
-| `type`     | Type name string                         | Auto-set by backend to the runtime type name of the variable's value  |
-| `inactive` | any or unset                             | if set, variable updates will not be relayed for this or its children |
-| `wrapper`  | Type name (e.g., `ViewList`)             | Instantiates a wrapper object that becomes the variable's value. |
+| Property            | Values                                   | Description                                                           |
+|---------------------|------------------------------------------|-----------------------------------------------------------------------|
+| `create`            | Type name (e.g., `MyModule.MyClass`)     | Instantiates an object of this type as the variable's value           |
+| `path`              | Dot-separated path (e.g., `father.name`) | Path to bound data (see syntax below)                                 |
+| `access`            | `r`, `w`, `rw`, `action`                 | Read/write permissions. `action` = write-only trigger (like a button) |
+| `type`              | Type name string                         | Auto-set by backend to the runtime type name of the variable's value  |
+| `inactive`          | any or unset                             | if set, variable updates will not be relayed for this or its children |
+| `wrapper`           | Type name (e.g., `ViewList`)             | Instantiates a wrapper object that becomes the variable's value.      |
+| `namespace`         | Namespace string (e.g., `COMPACT`)       | Namespace for viewdef lookup, set from `ui-namespace` attribute or inherited from parent |
+| `fallbackNamespace` | Namespace string (e.g., `list-item`)     | Fallback namespace for viewdef lookup when `namespace` is missing or viewdef not found |
 
 **Access modes:**
 - `r` = readable only
@@ -129,11 +131,15 @@ The UI server relays protocol messages bidirectionally between frontend and back
 **Push-only model:** Protocol messages are push-only, not request-response. Senders do not wait for acknowledgment; they assume success unless an `error` message is received.
 
 **Relayed messages** (frontend ↔ UI server ↔ backend):
-- `create(parentId, value, properties, nowatch?, unbound?)` - Create a new variable
+- `create(parentId, value, properties, nowatch?, unbound?, requestId?)` - Create a new variable
   - if properties contains a value for `create`, the `value` is ignored because the backend / UI server will create the object
   - `nowatch` indicates that the variable should not be watched
   - `unbound` indicates that the variable is not managed by an external app
+  - `requestId` is an optional client-generated integer for correlating the response
   - Property names can have priority suffixes (`:high`, `:med`, `:low`, omitting a suffix leaves the priority unchanged)
+- `createResponse(id, requestId?)` - Response to a create message
+  - `id` is the variable ID that was created
+  - `requestId` echoes the request ID from the original create message (if provided)
 - `destroy(varId)` - Destroy a variable and all its children
 - `update(varId, value?, properties?)` - Update the variable's value and/or properties
   - Property names can have priority suffixes (`:high`, `:med`, `:low`), omitting a suffix leaves the priority unchanged
@@ -181,6 +187,14 @@ Messages can be sent individually as JSON objects or batched as JSON arrays:
   {"type": "update", "id": 5, "value": {"name": "Alice"}}
 ]
 ```
+
+**Frontend outgoing batching:**
+
+The frontend throttles outgoing messages at 200ms intervals. When the batch is sent:
+1. Messages are sorted by priority (high → medium → low)
+2. Within the same priority, order is preserved (FIFO)
+
+**Exception:** `create` messages are sent immediately (not batched) to minimize latency for new variable creation.
 
 ## Session-Based Communication
 
@@ -231,3 +245,24 @@ When a variable is created or its value changes, the backend sets the `type` pro
 ```
 
 Viewdefs use `:high` priority to ensure they're processed before the variables that need them.
+
+## Debugging
+
+**Debug endpoint:**
+```
+/{session-id}/variables
+```
+Returns an HTML page showing all variables, their values, and properties for a session in a tree view. The `{session-id}` is the same UUID shown in the browser URL.
+
+Example using curl:
+```bash
+# If browser is at http://localhost:8000/abc123def456...
+curl http://localhost:8000/abc123def456.../variables
+```
+
+**Logging:**
+At verbosity level 1 (`-v`), the server logs session ID mappings when connections are established:
+```
+Session connected: internal=df785bf8982879c0a582560990dbeae3 vended=1
+```
+This allows correlating browser sessions with internal vended IDs used by the backend.

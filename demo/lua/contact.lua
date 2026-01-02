@@ -62,8 +62,8 @@ function ContactApp:new(tbl)
     tbl = tbl or {}
     setmetatable(tbl, self)
     tbl.title = tbl.title or "Contact Manager"
-    tbl.contacts = tbl.contacts or {}
-    tbl.hasContacts = #tbl.contacts > 0
+    tbl._allContacts = tbl._allContacts or {}  -- Master list
+    tbl.searchQuery = ""
     -- View state
     tbl.isEditView = false
     tbl.isListView = true
@@ -138,8 +138,7 @@ function ContactApp:saveContact()
             phone = self.editPhone,
             notes = self.editNotes
         })
-        table.insert(self.contacts, contact)
-        self.hasContacts = true
+        table.insert(self._allContacts, contact)
     end
 
     self.isEditView = false
@@ -150,14 +149,13 @@ end
 -- Delete a contact
 function ContactApp:deleteContact(contact)
     if contact then
-        -- Find and remove by reference
-        for i, c in ipairs(self.contacts) do
+        -- Find and remove from master list
+        for i, c in ipairs(self._allContacts) do
             if c == contact then
-                table.remove(self.contacts, i)
+                table.remove(self._allContacts, i)
                 break
             end
         end
-        self.hasContacts = #self.contacts > 0
     end
 end
 
@@ -168,15 +166,35 @@ function ContactApp:cancelEdit()
     self.error = nil
 end
 
--- Search contacts (placeholder - would filter in real app)
-function ContactApp:search(query)
-    -- For now just store the query
-    self.searchQuery = query or ""
+-- Filter contacts based on search query (returns filtered array)
+function ContactApp:contacts()
+    local query = (self.searchQuery or ""):lower()
+    local result = {}
+
+    for _, contact in ipairs(self._allContacts) do
+        if query == "" then
+            table.insert(result, contact)
+        else
+            -- Search in name and email
+            local fullName = contact:fullName():lower()
+            local email = (contact.email or ""):lower()
+            if fullName:find(query, 1, true) or email:find(query, 1, true) then
+                table.insert(result, contact)
+            end
+        end
+    end
+
+    return result
 end
 
 -- Get contact count
 function ContactApp:contactCount()
-    return #self.contacts
+    return #self:contacts()
+end
+
+-- Check if has contacts
+function ContactApp:hasContacts()
+    return #self:contacts() > 0
 end
 
 print("LUA: initialized. Contact", Contact, "ContactPresenter", ContactPresenter, "ContactApp", ContactApp)
@@ -189,21 +207,20 @@ app = ContactApp:new({
 -- Register as app variable (the ONLY variable backend creates)
 session:createAppVariable(app)
 
--- Add sample contacts
-table.insert(app.contacts, Contact:new({
+-- Add sample contacts to master list
+table.insert(app._allContacts, Contact:new({
     firstName = "Alice", lastName = "Smith",
     email = "alice@example.com", phone = "555-0101",
     notes = "Met at conference"
 }))
-table.insert(app.contacts, Contact:new({
+table.insert(app._allContacts, Contact:new({
     firstName = "Bob", lastName = "Johnson",
     email = "bob@example.com", phone = "555-0102"
 }))
-table.insert(app.contacts, Contact:new({
+table.insert(app._allContacts, Contact:new({
     firstName = "Carol", lastName = "Williams",
     email = "carol@example.com", phone = "555-0103",
     notes = "Project lead"
 }))
-app.hasContacts = true
 
 ui.log("Contact Manager initialized for session")

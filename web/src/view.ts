@@ -18,7 +18,6 @@ function vendHtmlId(): string {
 export class View {
   readonly element: HTMLElement;
   readonly htmlId: string;
-  readonly namespace: string;
 
   private valueType: string = '';
   private variableId: number | null = null;
@@ -42,9 +41,6 @@ export class View {
       element.id = this.htmlId;
     }
 
-    // Get namespace from ui-namespace attribute
-    this.namespace = element.getAttribute('ui-namespace') || 'DEFAULT';
-
     this.viewdefStore = viewdefStore;
     this.variableStore = variableStore;
     this.bindCallback = bindCallback;
@@ -55,6 +51,46 @@ export class View {
       // Path creates a variable reference - not implemented yet
       // For now, we expect variable to be set directly
     }
+  }
+
+  // Get namespace from variable properties (set from ui-namespace or inherited)
+  private getNamespace(): string | undefined {
+    if (this.variableId === null) return undefined;
+    const data = this.variableStore.get(this.variableId);
+    return data?.properties['namespace'];
+  }
+
+  // Get fallbackNamespace from variable properties (inherited from parent)
+  private getFallbackNamespace(): string | undefined {
+    if (this.variableId === null) return undefined;
+    const data = this.variableStore.get(this.variableId);
+    return data?.properties['fallbackNamespace'];
+  }
+
+  // Resolve namespace for a child element
+  // Spec: viewdefs.md - Namespace variable properties
+  // Uses closest('[ui-namespace]') and checks if parent variable's element contains it
+  private resolveNamespace(element: HTMLElement, parentVarId: number): string | undefined {
+    // Find closest element with ui-namespace attribute
+    const closestNsElement = element.closest('[ui-namespace]');
+    if (!closestNsElement) {
+      // No ui-namespace found, inherit from parent variable
+      const parentData = this.variableStore.get(parentVarId);
+      return parentData?.properties['namespace'];
+    }
+
+    // Get the parent variable's element
+    const parentData = this.variableStore.get(parentVarId);
+    const parentElementId = parentData?.properties['elementId'];
+    const parentElement = parentElementId ? document.getElementById(parentElementId) : null;
+
+    // If no parent variable or parent element contains the found namespace element, use it
+    if (!parentElement || parentElement.contains(closestNsElement)) {
+      return closestNsElement.getAttribute('ui-namespace') || undefined;
+    }
+
+    // Otherwise, inherit namespace from parent variable
+    return parentData?.properties['namespace'];
   }
 
   // Set the bound variable (object reference)
@@ -108,7 +144,10 @@ export class View {
       this.markPending();
       return false;
     }
-    const viewdef = this.viewdefStore.get(type, this.namespace);
+    // 3-tier namespace resolution: namespace -> fallbackNamespace -> DEFAULT
+    const namespace = this.getNamespace();
+    const fallbackNamespace = this.getFallbackNamespace();
+    const viewdef = this.viewdefStore.get(type, namespace, fallbackNamespace);
     if (!viewdef) {
       // Viewdef not loaded yet, wait for it
       this.markPending();
@@ -128,24 +167,25 @@ export class View {
     // Clone template content
     const fragment = cloneViewdefContent(viewdef);
 
+    this.element.appendChild(fragment);
+
     // Process ui-viewlist elements before binding
     // Spec: viewdefs.md - Path Resolution: Server-Side Only
-    this.processViewLists(fragment, this.variableId!);
+    // Note: fragment is now empty after appendChild, query this.element
+    this.processViewLists(this.element, this.variableId!);
 
     // Process ui-view elements before binding
-    this.processChildViews(fragment, this.variableId!);
+    this.processChildViews(this.element, this.variableId!);
 
-    // Apply bindings to cloned content - only bind top-level children,
-    // bindElement will handle recursion internally
+    // Apply bindings to cloned content
     if (this.bindCallback) {
-      for (const child of fragment.children) {
+      for (const child of this.element.children) {
         if (child instanceof HTMLElement) {
           this.bindCallback(child, this.variableId!);
         }
       }
     }
 
-    this.element.appendChild(fragment);
     this.rendered = true;
     this.valueType = type;
 
@@ -155,10 +195,10 @@ export class View {
     return true;
   }
 
-  // Process ui-viewlist elements in a fragment
+  // Process ui-viewlist elements in an element
   // Spec: viewdefs.md - Path Resolution: Server-Side Only
-  private processViewLists(fragment: DocumentFragment, contextVarId: number): void {
-    const viewListElements = fragment.querySelectorAll('[ui-viewlist]');
+  private processViewLists(container: Element, contextVarId: number): void {
+    const viewListElements = container.querySelectorAll('[ui-viewlist]');
     for (const el of viewListElements) {
       if (el instanceof HTMLElement) {
         this.setupViewList(el, contextVarId);
@@ -183,11 +223,31 @@ export class View {
       const basePath = viewList.getBasePath();
       const props = viewList.getVariableProperties();
 
+      // Ensure element has an ID for tracking
+      // Spec: viewdefs.md - Variable Element Tracking
+      if (!element.id) {
+        element.id = vendHtmlId();
+      }
+
       // Create child variable with path and ViewList properties (wrapper, item, etc.)
       const properties: Record<string, string> = {
         path: basePath,
+        elementId: element.id,
         ...props,
       };
+
+      // Resolve namespace using closest ui-namespace element
+      // Spec: viewdefs.md - Namespace variable properties
+      const namespace = this.resolveNamespace(element, contextVarId);
+      if (namespace) {
+        properties['namespace'] = namespace;
+      }
+
+      // Always inherit fallbackNamespace from parent variable
+      const parentData = this.variableStore.get(contextVarId);
+      if (parentData?.properties['fallbackNamespace']) {
+        properties['fallbackNamespace'] = parentData.properties['fallbackNamespace'];
+      }
 
       this.variableStore.create({
         parentId: contextVarId,
@@ -202,9 +262,9 @@ export class View {
     this.viewLists.push(viewList);
   }
 
-  // Process ui-view elements in a fragment
-  private processChildViews(fragment: DocumentFragment, contextVarId: number): void {
-    const viewElements = fragment.querySelectorAll('[ui-view]');
+  // Process ui-view elements in an element
+  private processChildViews(container: Element, contextVarId: number): void {
+    const viewElements = container.querySelectorAll('[ui-view]');
     for (const el of viewElements) {
       if (el instanceof HTMLElement) {
         this.setupChildView(el, contextVarId);
@@ -236,10 +296,38 @@ export class View {
       } else {
         extra = {}
       }
+
+      // Ensure element has an ID for tracking
+      // Spec: viewdefs.md - Variable Element Tracking
+      if (!element.id) {
+        element.id = vendHtmlId();
+      }
+
+      // Build properties with namespace inheritance
+      const properties: Record<string, string> = {
+        path: basePath,
+        elementId: element.id,
+        ...(props.options as any),
+        ...extra,
+      };
+
+      // Resolve namespace using closest ui-namespace element
+      // Spec: viewdefs.md - Namespace variable properties
+      const namespace = this.resolveNamespace(element, contextVarId);
+      if (namespace) {
+        properties['namespace'] = namespace;
+      }
+
+      // Always inherit fallbackNamespace from parent variable
+      const parentData = this.variableStore.get(contextVarId);
+      if (parentData?.properties['fallbackNamespace']) {
+        properties['fallbackNamespace'] = parentData.properties['fallbackNamespace'];
+      }
+
       // Create child variable with path property
       this.variableStore.create({
         parentId: contextVarId,
-        properties: { path: basePath, ...(props.options as any), ...extra },
+        properties,
       }).then((childVarId) => {
         console.log("GET VIEW VARIABLE ", childVarId, " props: ", JSON.stringify(this.variableStore.get(childVarId)?.properties))
         view.setVariable(childVarId);

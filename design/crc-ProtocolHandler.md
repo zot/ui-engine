@@ -10,7 +10,8 @@
 - backendConnected: Whether external backend is connected
 
 ### Does
-- handleCreate: Process create(parentId, value, properties, nowatch?, unbound?) message
+- handleCreate: Process create(parentId, value, properties, nowatch?, unbound?, requestId?) message
+- sendCreateResponse: Send createResponse(id, requestId?) back to client after create
 - handleDestroy: Process destroy(varId) message
 - handleUpdate: Process update(varId, value?, properties?) message
 - handleWatch: Process watch(varId) message

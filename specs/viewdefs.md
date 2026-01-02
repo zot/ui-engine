@@ -44,6 +44,15 @@ Viewdefs support hot-reloading for iterative development:
 - On-demand loading: when a new `type` is encountered, the server automatically loads matching `TYPE.*.html` files from the viewdef directory
 - This enables editing viewdefs without restarting the server
 
+## Variable Element Tracking
+
+Each variable tracks the **element ID** of the element that created it. If the element doesn't have an ID, one is vended and assigned.
+
+**Element ID tracking is used for:**
+- Namespace inheritance (see Views section)
+- Debugging and inspection
+- Understanding the variable-element relationship
+
 ## Value Bindings (variable → element)
 
 - `ui-value` - Bind a variable to the element's "value" (input field, file name, etc.)
@@ -156,7 +165,34 @@ A **View** is an element that renders a variable using a viewdef. Views are crea
 
 **View attributes:**
 - `ui-view` - Path to an object reference variable to render
-- `ui-namespace` - (optional) Namespace for viewdef lookup (default: `DEFAULT`)
+- `ui-namespace` - (optional) Namespace for viewdef lookup
+
+**Namespace variable properties:**
+
+When creating a view's variable:
+- Find the closest element with `ui-namespace` using `element.closest('[ui-namespace]')`:
+  - If found and either there's no parent variable or the parent variable's element contains it, use that namespace
+  - Otherwise, inherit `namespace` property from the parent variable (if set)
+- Inherit `fallbackNamespace` property from the parent variable (if set)
+
+**Example:**
+
+```html
+<!-- Parent variable's element -->
+<div ui-view="contact">
+  <!-- Viewdef content -->
+  <div ui-namespace="COMPACT">
+    <div ui-view="address"></div>  <!-- inherits COMPACT from intermediate element -->
+  </div>
+</div>
+```
+
+The `address` view inherits `COMPACT` from the intermediate `<div>`, not from the parent variable's namespace property.
+
+**Namespace resolution for rendering:**
+1. If variable has `namespace` property and `TYPE.{namespace}` viewdef exists, use it
+2. Otherwise, if variable has `fallbackNamespace` property and `TYPE.{fallbackNamespace}` viewdef exists, use it
+3. Otherwise, use `TYPE.DEFAULT`
 
 **View properties:**
 - Unique HTML `id` (vended by the frontend)
@@ -183,11 +219,13 @@ The frontend maintains a `render(element, variable, namespace)` function:
 **Requirements for rendering:**
 1. Variable must have a `value`
 2. Variable must have a `type` property
-3. Viewdef for `TYPE.NAMESPACE` must exist (falls back to `TYPE.DEFAULT` if not found)
+3. A matching viewdef must exist (see namespace resolution below)
 
 **Render process:**
-1. Look up viewdef for `TYPE.NAMESPACE`
-2. If not found, try `TYPE.DEFAULT`
+1. Look up viewdef using namespace resolution:
+   - If variable has `namespace` property and `TYPE.{namespace}` exists, use it
+   - Else if variable has `fallbackNamespace` property and `TYPE.{fallbackNamespace}` exists, use it
+   - Else use `TYPE.DEFAULT`
 3. Clear the element's children
 4. Deep clone the template's contents into the element
 5. Bind the cloned elements to the variable
@@ -202,31 +240,44 @@ If a view cannot render (missing `type` or viewdef), it's added to a pending vie
 
 ## ViewLists
 
-A **ViewList** renders an array of object references as a list of views. Created via the `ui-viewlist` attribute.
+A **ViewList** renders an array of object references as a list of views.
 
-**ViewList attributes:**
-- `ui-viewlist` - Path to an array of object references (supports path properties)
-- `ui-namespace` - (optional) Namespace for child views (default: `list-item`)
+**Standard list usage (recommended):**
 
-**Path properties for ViewList:**
+Use `ui-view` with the `wrapper=lua.ViewList` path property:
+
 ```html
-<!-- Basic ViewList -->
-<div ui-viewlist="contacts">
+<!-- Basic list -->
+<div ui-view="contacts?wrapper=lua.ViewList"></div>
 
 <!-- With item presenter wrapper -->
-<div ui-viewlist="contacts?item=ContactPresenter">
+<div ui-view="contacts?wrapper=lua.ViewList&itemWrapper=ContactPresenter"></div>
 ```
 
-The `?item=PresenterType` property tells ViewList which presenter type to wrap each domain object with.
+**Path properties:**
+- `wrapper=lua.ViewList` - Creates a ViewList wrapper for the array
+- `itemWrapper=PresenterType` - (optional) Wraps each domain object with a presenter type
+
+**Alternative: ui-viewlist attribute:**
+
+The `ui-viewlist` attribute is a shorthand that implicitly uses `lua.ViewList`:
+
+```html
+<div ui-viewlist="contacts"></div>
+<!-- Equivalent to: <div ui-view="contacts?wrapper=lua.ViewList"></div> -->
+```
+
+With `ui-viewlist`, use `ui-namespace` to specify the item viewdef namespace. Namespace inheritance follows the same rules as Views (see above).
 
 **ViewList as wrapper object:**
 
 ViewList is a wrapper type (see protocol.md). When `ui-viewlist="path"` is used:
-1. Frontend creates a variable with `wrapper=ViewList` in path properties.
-2. The backend's `WrapperFactory` for `ViewList` is called: `NewViewList(runtime, variable)`.
+1. Frontend creates a variable with `wrapper=lua.ViewList` in path properties.
+2. The backend's `WrapperFactory` for `lua.ViewList` is called: `NewViewList(runtime, variable)`.
 3. The `ViewList` wrapper stores the variable (the array is accessed via `variable:getValue()`).
-4. The wrapper is registered in the object registry and stands in for child path navigation.
-5. `ViewList` maintains:
+4. The wrapper sets `fallbackNamespace:high` property to `list-item` on the variable (high priority ensures it's available before rendering).
+5. The wrapper is registered in the object registry and stands in for child path navigation.
+6. `ViewList` maintains:
    - `items` - array of `ViewListItem` objects, one per array element.
    - `selectionIndex` - current selection index for frontend use (default: 0 or -1 for no selection).
 
@@ -283,6 +334,30 @@ The frontend ViewList widget:
 - Has an **exemplar element** that gets cloned for each ViewListItem (default: `<div>`)
 - Maintains a parallel array of View elements for the ViewListItems
 - When ViewListItems are added/removed, updates the DOM accordingly
+
+**Exemplar namespace inheritance:**
+
+ViewList exemplars follow the standard namespace inheritance rules for views:
+- The exemplar's variable inherits `namespace` from the ViewList's variable (unless the exemplar specifies `ui-namespace`)
+- The exemplar's variable inherits `fallbackNamespace` from the ViewList's variable
+
+This allows a ViewList with `ui-namespace="COMPACT"` to render all its items using `TYPE.COMPACT` viewdefs without requiring each exemplar to specify the namespace.
+
+**Example: Custom namespace for domain objects:**
+
+```html
+<div ui-view="customers?wrapper=lua.ViewList" ui-namespace="customer-item"></div>
+```
+
+With this setup and standard `lua.ViewList.list-item.html` viewdef:
+1. ViewList variable gets `namespace: "customer-item"` and `fallbackNamespace: "list-item"` (from backend wrapper)
+2. When rendering ViewList: tries `lua.ViewList.customer-item` → falls back to `lua.ViewList.list-item`
+3. ViewListItem variable inherits both properties
+4. When rendering ViewListItem: tries `lua.ViewListItem.customer-item` → falls back to `lua.ViewListItem.list-item`
+5. The inner `ui-view="item"` for Customer inherits both properties
+6. When rendering Customer: tries `Customer.customer-item` (exists) → uses it
+
+This allows custom domain object viewdefs (e.g., `Customer.customer-item.html`) without needing to define `lua.ViewList.customer-item.html` or `lua.ViewListItem.customer-item.html` - those fall back to their `list-item` viewdefs.
 
 ## Select Views
 

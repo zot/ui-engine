@@ -17,8 +17,7 @@
      ViewRenderer               View              ViewdefStore          BindingEngine            ViewList
         |                      |                      |                      |                      |
         |---render(element,    |                      |                      |                      |
-        |    variable,         |                      |                      |                      |
-        |    namespace)------->|                      |                      |                      |
+        |    variable)-------->|                      |                      |                      |
         |                      |                      |                      |                      |
         |                      |---checkRequirements->|                      |                      |
         |                      |   (value? type?)     |                      |                      |
@@ -29,12 +28,22 @@
         |                      |<--false (not ready)--|                      |                      |
         |                      |                      |                      |                      |
         |                      |          [if has value and type]            |                      |
-        |                      |---get(TYPE.NS)------>|                      |                      |
+        |                      |---resolveNamespace-->|                      |                      |
+        |                      |   (3-tier lookup)    |                      |                      |
         |                      |                      |                      |                      |
-        |                      |          [fallback to TYPE.DEFAULT if not found]                   |
+        |                      |          [1. try TYPE.{namespace}]          |                      |
+        |                      |---get(TYPE.NS)------>|                      |                      |
         |                      |<--viewdef or null----|                      |                      |
         |                      |                      |                      |                      |
-        |                      |          [if viewdef not found]             |                      |
+        |                      |          [2. if null, try TYPE.{fallbackNamespace}]                |
+        |                      |---get(TYPE.fallbackNS)->                    |                      |
+        |                      |<--viewdef or null----|                      |                      |
+        |                      |                      |                      |                      |
+        |                      |          [3. if null, try TYPE.DEFAULT]     |                      |
+        |                      |---get(TYPE.DEFAULT)->|                      |                      |
+        |                      |<--viewdef or null----|                      |                      |
+        |                      |                      |                      |                      |
+        |                      |          [if all null, add to pending]      |                      |
         |                      |---addPendingView---->|                      |                      |
         |                      |<--false (not ready)--|                      |                      |
         |                      |                      |                      |                      |
@@ -48,13 +57,14 @@
         |                      |                      |                      |                      |
         |                      |     [for ui-view elements]                  |                      |
         |                      |---createView-------->|                      |                      |
-        |                      |   (vendHtmlId)       |                      |                      |
+        |                      |   (vendHtmlId,       |                      |                      |
+        |                      |    inheritNamespace) |                      |                      |
         |                      |                      |                      |                      |
         |                      |     [for ui-viewlist elements]              |                      |
         |                      |---createViewList-----|-----------------------------------create--->|
         |                      |                      |                      |                      |
-        |                      |                      |                      |     [set exemplar]   |
-        |                      |                      |                      |<--setExemplar--------|
+        |                      |                      |                      |     [set exemplar,   |
+        |                      |                      |                      |<--inheritNamespace]--|
         |                      |                      |                      |                      |
         |                      |<--true (rendered)----|                      |                      |
         |                      |                      |                      |                      |
@@ -72,11 +82,18 @@
 
 ## Notes
 
-- render(element, variable, namespace) returns boolean: true if rendered, false if pending
+- render(element, variable) returns boolean: true if rendered, false if pending
 - Requirements: variable has value, variable has type property, viewdef exists
-- Fallback: If TYPE.NAMESPACE not found, tries TYPE.DEFAULT
+- **3-tier namespace resolution:**
+  1. Try `TYPE.{namespace}` (from variable's namespace property)
+  2. If not found, try `TYPE.{fallbackNamespace}` (from variable's fallbackNamespace property)
+  3. If not found, use `TYPE.DEFAULT`
 - Pending views: Views that can't render added to pending list
 - When viewdefs arrive, pending views re-attempt render
 - ui-view creates View with unique frontend-vended HTML id
 - ui-viewlist creates ViewList with exemplar element (default: div, or sl-option for selects)
-- ui-namespace attribute specifies namespace for nested views
+- **Namespace inheritance:**
+  - `ui-namespace` attribute sets variable's `namespace` property
+  - If no attribute, `namespace` is inherited from parent variable
+  - `fallbackNamespace` is always inherited from parent variable
+  - ViewList wrapper sets `fallbackNamespace: "list-item"` on its variable

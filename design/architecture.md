@@ -123,9 +123,11 @@ Each session has an associated Backend that handles variable management. Two imp
 - crc-SharedWorker.md
 - crc-MessageRelay.md
 - crc-MessageBatcher.md
+- crc-FrontendOutgoingBatcher.md
 - seq-frontend-connect.md
 - seq-backend-connect.md
 - seq-relay-message.md
+- seq-frontend-outgoing-batch.md
 
 ### Backend Socket System
 

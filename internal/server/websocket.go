@@ -29,6 +29,10 @@ var upgrader = websocket.Upgrader{
 // AfterBatchCallback is called after processing a message batch to trigger change detection.
 type AfterBatchCallback func(sessionID string)
 
+// DisconnectCallback is called when a connection disconnects.
+// Used to clear sent-tracking so reconnections resync state.
+type DisconnectCallback func(sessionID string)
+
 // WebSocketEndpoint handles WebSocket connections.
 type WebSocketEndpoint struct {
 	config          *config.Config
@@ -39,6 +43,7 @@ type WebSocketEndpoint struct {
 	sessions        *session.Manager
 	handler         *protocol.Handler
 	afterBatch      AfterBatchCallback // Called after each message to detect changes
+	onDisconnectCb  DisconnectCallback // Called when a connection disconnects
 	mu              sync.RWMutex
 }
 
@@ -63,6 +68,12 @@ func (ws *WebSocketEndpoint) Log(level int, format string, args ...interface{}) 
 // SetAfterBatch sets the callback for change detection after message processing.
 func (ws *WebSocketEndpoint) SetAfterBatch(callback AfterBatchCallback) {
 	ws.afterBatch = callback
+}
+
+// SetOnDisconnect sets the callback for when a connection disconnects.
+// This is used to clear sent-tracking so page refreshes resync all state.
+func (ws *WebSocketEndpoint) SetOnDisconnect(callback DisconnectCallback) {
+	ws.onDisconnectCb = callback
 }
 
 // getOrCreateSvc returns the executor for a session, creating if needed.
@@ -167,7 +178,8 @@ func (ws *WebSocketEndpoint) readPump(connectionID string, conn *websocket.Conn)
 	}
 }
 
-// processMessage handles a single message within the session's executor.
+// processMessage handles one or more messages within the session's executor.
+// Supports both single messages and batched arrays per protocol.md spec.
 func (ws *WebSocketEndpoint) processMessage(connectionID, sessionID string, message []byte) {
 	// Recover from panics to prevent server crashes
 	defer func() {
@@ -177,25 +189,29 @@ func (ws *WebSocketEndpoint) processMessage(connectionID, sessionID string, mess
 		}
 	}()
 
-	msg, err := protocol.ParseMessage(message)
+	// Parse single message or batched array
+	msgs, err := protocol.ParseMessages(message)
 	if err != nil {
 		ws.Log(0, "Failed to parse message: %v", err)
 		return
 	}
 
-	resp, err := ws.handler.HandleMessage(connectionID, msg)
-	if err != nil {
-		ws.Log(0, "Failed to handle message: %v", err)
-		ws.handler.SendError(connectionID, 0, err.Error())
-		return
+	// Process each message in the batch
+	for _, msg := range msgs {
+		resp, err := ws.handler.HandleMessage(connectionID, msg)
+		if err != nil {
+			ws.Log(0, "Failed to handle message: %v", err)
+			ws.handler.SendError(connectionID, 0, err.Error())
+			continue
+		}
+
+		// Send response if there's a result or error
+		if resp != nil && (resp.Result != nil || resp.Error != "" || len(resp.Pending) > 0) {
+			ws.sendResponse(connectionID, resp)
+		}
 	}
 
-	// Send response if there's a result or error
-	if resp != nil && (resp.Result != nil || resp.Error != "" || len(resp.Pending) > 0) {
-		ws.sendResponse(connectionID, resp)
-	}
-
-	// Trigger change detection (safe - we're in session's executor)
+	// Trigger change detection once after processing all messages
 	if ws.afterBatch != nil {
 		ws.afterBatch(sessionID)
 	}
@@ -237,6 +253,11 @@ func (ws *WebSocketEndpoint) onDisconnect(connectionID string) {
 	// Notify session
 	if sess, ok := ws.sessions.GetSession(sessionID); ok {
 		sess.RemoveConnection(connectionID)
+	}
+
+	// Notify disconnect callback (used to clear sent-tracking for page refresh)
+	if ws.onDisconnectCb != nil && sessionID != "" {
+		ws.onDisconnectCb(sessionID)
 	}
 }
 

@@ -44,6 +44,8 @@ func NewViewList(sess *LuaSession, variable *TrackerVariableAdapter) interface{}
 			SelectionIndex: -1, // Default to no selection
 			nextObjID:      -1, // Start negative IDs for UI server managed objects
 		}
+		// Set fallbackNamespace for namespace resolution cascade (high priority)
+		variable.SetProperty("fallbackNamespace:high", "list-item")
 	}
 	vl.Update(variable.NavigationValue())
 	return vl

@@ -12,11 +12,12 @@ type MessageType string
 
 const (
 	// Relayed messages (frontend <-> UI server <-> backend)
-	MsgCreate  MessageType = "create"
-	MsgDestroy MessageType = "destroy"
-	MsgUpdate  MessageType = "update"
-	MsgWatch   MessageType = "watch"
-	MsgUnwatch MessageType = "unwatch"
+	MsgCreate         MessageType = "create"
+	MsgCreateResponse MessageType = "createResponse"
+	MsgDestroy        MessageType = "destroy"
+	MsgUpdate         MessageType = "update"
+	MsgWatch          MessageType = "watch"
+	MsgUnwatch        MessageType = "unwatch"
 
 	// Server-response messages
 	MsgError MessageType = "error"
@@ -34,17 +35,21 @@ type Message struct {
 }
 
 // CreateMessage represents a create variable request.
+// Spec: protocol.md - create(parentId, value, properties, nowatch?, unbound?, requestId?)
 type CreateMessage struct {
 	ParentID   int64             `json:"parentId,omitempty"`
 	Value      json.RawMessage   `json:"value,omitempty"`
 	Properties map[string]string `json:"properties,omitempty"`
 	NoWatch    bool              `json:"nowatch,omitempty"`
 	Unbound    bool              `json:"unbound,omitempty"`
+	RequestID  int               `json:"requestId,omitempty"`
 }
 
 // CreateResponse is sent back after creating a variable.
+// Spec: protocol.md - createResponse(id, requestId?)
 type CreateResponse struct {
-	ID int64 `json:"id"`
+	ID        int64 `json:"id"`
+	RequestID int   `json:"requestId,omitempty"`
 }
 
 // DestroyMessage represents a destroy variable request.
@@ -124,6 +129,29 @@ func ParseMessage(data []byte) (*Message, error) {
 		return nil, err
 	}
 	return &msg, nil
+}
+
+// ParseMessages parses raw JSON that may be a single message or a batched array.
+// Spec: protocol.md - Messages can be sent individually or batched as JSON arrays
+func ParseMessages(data []byte) ([]*Message, error) {
+	// Check if it's an array (batched) or object (single)
+	if len(data) > 0 && data[0] == '[' {
+		var msgs []Message
+		if err := json.Unmarshal(data, &msgs); err != nil {
+			return nil, err
+		}
+		result := make([]*Message, len(msgs))
+		for i := range msgs {
+			result[i] = &msgs[i]
+		}
+		return result, nil
+	}
+	// Single message
+	msg, err := ParseMessage(data)
+	if err != nil {
+		return nil, err
+	}
+	return []*Message{msg}, nil
 }
 
 // NewMessage creates a new message with the given type and data.

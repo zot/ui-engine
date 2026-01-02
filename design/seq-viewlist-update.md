@@ -71,7 +71,9 @@
 - ViewList maintains parallel array of View elements
 - Exemplar element cloned for each new item (default: div)
 - Select Views use sl-option as exemplar
-- Child views use ViewList's namespace (default: DEFAULT)
+- **Namespace inheritance for exemplars:**
+  - Exemplar variables inherit `namespace` from ViewList variable (unless element has `ui-namespace`)
+  - Exemplar variables inherit `fallbackNamespace` from ViewList variable
 - Variables created for each item enable binding within item view
 - Delegate notified of add/remove for custom handling
 - Reordering moves existing DOM elements without recreating

@@ -186,9 +186,9 @@ func (h *Handler) handleCreate(connectionID string, data json.RawMessage) (*Resp
 		}
 	}
 
-	// Build response
+	// Build response with echoed requestId (for correlating out-of-order responses)
 	resp := &Response{
-		Result: CreateResponse{ID: id},
+		Result: CreateResponse{ID: id, RequestID: msg.RequestID},
 	}
 
 	// Include initial value as pending update if we have one

@@ -124,23 +124,25 @@ func TestHTTPServeStaticFromCustomDir(t *testing.T) {
 	// since it requires real filesystem access
 }
 
-// TestHTTPDebugEndpoint verifies /debug/variables endpoint
+// TestHTTPDebugEndpoint verifies /{sessionID}/variables endpoint
 func TestHTTPDebugEndpoint(t *testing.T) {
 	sessions := session.NewManager(time.Hour)
 	endpoint := NewHTTPEndpoint(sessions, nil, nil)
 
-	// Set up debug data provider
-	endpoint.SetDebugDataProvider(func(sessionID string) ([]DebugVariable, error) {
+	// Set up debug data provider - receives vended ID (numeric)
+	var receivedVendedID string
+	endpoint.SetDebugDataProvider(func(vendedID string) ([]DebugVariable, error) {
+		receivedVendedID = vendedID
 		return []DebugVariable{
 			{ID: 1, Type: "App", Value: map[string]string{"name": "Test"}},
 		}, nil
 	})
 
 	// Create a session
-	sess, _, _ := sessions.CreateSession()
+	sess, vendedID, _ := sessions.CreateSession()
 
-	// Request debug page
-	req := httptest.NewRequest("GET", "/debug/variables?session="+sess.ID, nil)
+	// Request debug page using internal session ID (UUID) in URL
+	req := httptest.NewRequest("GET", "/"+sess.ID+"/variables", nil)
 	w := httptest.NewRecorder()
 
 	endpoint.ServeHTTP(w, req)
@@ -148,6 +150,11 @@ func TestHTTPDebugEndpoint(t *testing.T) {
 	resp := w.Result()
 	if resp.StatusCode != http.StatusOK {
 		t.Errorf("Expected 200, got %d", resp.StatusCode)
+	}
+
+	// Verify provider received vended ID
+	if receivedVendedID != vendedID {
+		t.Errorf("Expected vended ID '%s', got '%s'", vendedID, receivedVendedID)
 	}
 
 	body, _ := io.ReadAll(resp.Body)
@@ -159,32 +166,26 @@ func TestHTTPDebugEndpoint(t *testing.T) {
 	}
 }
 
-// TestHTTPDebugEndpointDefaultSession verifies default session "1" is used
-func TestHTTPDebugEndpointDefaultSession(t *testing.T) {
+// TestHTTPDebugEndpointInvalidSession verifies invalid session returns 404
+func TestHTTPDebugEndpointInvalidSession(t *testing.T) {
 	sessions := session.NewManager(time.Hour)
 	endpoint := NewHTTPEndpoint(sessions, nil, nil)
 
-	// Set up debug data provider that verifies session ID
-	var receivedSessionID string
-	endpoint.SetDebugDataProvider(func(sessionID string) ([]DebugVariable, error) {
-		receivedSessionID = sessionID
+	// Set up debug data provider
+	endpoint.SetDebugDataProvider(func(vendedID string) ([]DebugVariable, error) {
 		return nil, nil
 	})
 
-	// Request without session parameter
-	req := httptest.NewRequest("GET", "/debug/variables", nil)
+	// Request with non-existent session ID
+	req := httptest.NewRequest("GET", "/nonexistent-session/variables", nil)
 	w := httptest.NewRecorder()
 
 	endpoint.ServeHTTP(w, req)
 
 	resp := w.Result()
-	if resp.StatusCode != http.StatusOK {
-		t.Errorf("Expected 200, got %d", resp.StatusCode)
-	}
-
-	// Should default to session "1"
-	if receivedSessionID != "1" {
-		t.Errorf("Expected default session '1', got '%s'", receivedSessionID)
+	// Should return 404 since session doesn't exist (handleRoot won't match)
+	if resp.StatusCode != http.StatusNotFound {
+		t.Errorf("Expected 404, got %d", resp.StatusCode)
 	}
 }
 

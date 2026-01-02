@@ -1,4 +1,105 @@
 <template>
+  <style>
+    /* App Layout */
+    .app-header {
+      display: flex;
+      align-items: center;
+      gap: var(--sl-spacing-medium);
+      margin-bottom: var(--sl-spacing-large);
+    }
+    .app-header h1 {
+      margin: 0;
+      flex: 1;
+    }
+
+    /* Toolbar */
+    .toolbar {
+      display: flex;
+      gap: var(--sl-spacing-medium);
+      margin-bottom: var(--sl-spacing-large);
+    }
+    .toolbar sl-input {
+      flex: 1;
+    }
+
+    /* Contact List */
+    .contact-list {
+      display: flex;
+      flex-direction: column;
+      gap: var(--sl-spacing-small);
+    }
+
+    /* Contact Card (in ContactPresenter) */
+    .contact-card {
+      display: flex;
+      align-items: center;
+      padding: var(--sl-spacing-medium);
+      background: var(--sl-color-neutral-0);
+      border: 1px solid var(--sl-color-neutral-200);
+      border-radius: var(--sl-border-radius-medium);
+    }
+    .contact-info {
+      flex: 1;
+    }
+    .contact-name {
+      font-weight: var(--sl-font-weight-semibold);
+      color: var(--sl-color-neutral-900);
+    }
+    .contact-email {
+      color: var(--sl-color-primary-600);
+      font-size: var(--sl-font-size-small);
+    }
+    .contact-phone {
+      color: var(--sl-color-neutral-500);
+      font-size: var(--sl-font-size-small);
+    }
+    .contact-actions {
+      display: flex;
+      gap: var(--sl-spacing-x-small);
+    }
+
+    /* Edit Form */
+    .edit-form {
+      background: var(--sl-color-neutral-0);
+      padding: var(--sl-spacing-large);
+      border-radius: var(--sl-border-radius-medium);
+      border: 1px solid var(--sl-color-neutral-200);
+    }
+    .edit-form h2 {
+      margin: 0 0 var(--sl-spacing-large) 0;
+    }
+    .form-row {
+      display: flex;
+      gap: var(--sl-spacing-medium);
+      margin-bottom: var(--sl-spacing-medium);
+    }
+    .form-row > * {
+      flex: 1;
+      min-width: 0;
+    }
+    .form-row.full-width {
+      display: block;
+    }
+    .form-actions {
+      display: flex;
+      justify-content: flex-end;
+      gap: var(--sl-spacing-medium);
+      margin-top: var(--sl-spacing-large);
+    }
+
+    /* Empty State */
+    .empty-state {
+      text-align: center;
+      padding: var(--sl-spacing-2x-large);
+      color: var(--sl-color-neutral-500);
+    }
+
+    /* Utilities */
+    .hidden, [hidden] {
+      display: none !important;
+    }
+  </style>
+
   <div>
     <!-- Header -->
     <header class="app-header">
@@ -29,10 +130,10 @@
       </div>
 
       <!-- Contact List (each contact wrapped with ContactPresenter) -->
-      <div class="contact-list" ui-view="contacts?wrapper=lua.ViewList&itemWrapper=ContactPresenter"></div>
+      <div class="contact-list" ui-view="contacts()?access=r&wrapper=lua.ViewList&itemWrapper=ContactPresenter"></div>
 
       <!-- Empty state -->
-      <div class="empty-state" ui-attr-hidden="hasContacts">
+      <div class="empty-state" ui-attr-hidden="hasContacts()?access=r">
         <sl-icon name="person-rolodex" style="font-size: 3rem; margin-bottom: 1rem;"></sl-icon>
         <p>No contacts yet. Click "Add Contact" to get started.</p>
       </div>

@@ -14,6 +14,15 @@ This document explains the core data flow:
 From the project directory, this command runs the demo `./build/ui-engine-demo --port 8000 --dir demo -vvvv`
 You can use the playwright browser to connect to it.
 
+### Debugging variables
+Use the debug endpoint to inspect variable state. The URL uses the session ID from your browser URL:
+```bash
+# If your browser is at http://localhost:8000/abc123def456...
+curl http://localhost:8000/abc123def456.../variables
+```
+
+The endpoint returns an HTML page with a tree view of all variables and their values. You can also view it directly in a browser by navigating to `/{session-id}/variables`.
+
 ## 🎯 Core Principles
 - Use **SOLID principles** in all implementations
 - Create comprehensive **unit tests** for all components

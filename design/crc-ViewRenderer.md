@@ -20,7 +20,7 @@
 - createViewList: Create ViewList for ui-viewlist element
 - updateDynamicContent: Handle ui-content HTML updates
 - vendHtmlId: Generate unique HTML id for views
-- lookupViewdef: Get TYPE.NAMESPACE viewdef, fallback to TYPE.DEFAULT
+- lookupViewdef: Get viewdef using 3-tier resolution (namespace -> fallbackNamespace -> DEFAULT)
 
 ## Collaborators
 

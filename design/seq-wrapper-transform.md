@@ -100,8 +100,31 @@ end
 
 ### ViewList Example
 
-For ViewList, reuse preserves:
-- `selectionIndex` - current selection state
-- `items` array - ViewListItems are synced, not recreated
+For ViewList:
+- Sets `fallbackNamespace: "list-item"` on the variable during creation
+- On reuse, preserves:
+  - `selectionIndex` - current selection state
+  - `items` array - ViewListItems are synced, not recreated
 
 See seq-viewlist-presenter-sync.md for ViewList-specific sync behavior.
+
+### Wrapper Namespace Properties
+
+Wrappers can set namespace-related properties on their variable:
+
+```lua
+function ViewList:new(variable)
+    local existing = variable:getWrapper()
+    if existing then
+        -- Reuse existing wrapper...
+        return existing
+    end
+
+    -- Set fallbackNamespace for 3-tier resolution
+    variable:setProperty("fallbackNamespace", "list-item")
+
+    -- Create new wrapper...
+end
+```
+
+This enables the 3-tier namespace resolution: namespace -> fallbackNamespace -> DEFAULT.

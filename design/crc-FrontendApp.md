@@ -15,7 +15,7 @@
 - initialize: Parse URL, connect to SharedWorker, create AppView for ui-app element
 - handleBootstrap: Process initial viewdefs from variable 1
 - handleVariableUpdate: Process incoming variable updates
-- sendMessage: Send protocol message via SharedWorker
+- sendMessage: Queue protocol message via FrontendOutgoingBatcher
 - navigateTo: Trigger SPA navigation
 - handleTabActivation: Process tab activation request
 - showNotification: Display desktop notification
@@ -23,6 +23,7 @@
 ## Collaborators
 
 - SharedWorker: Backend communication
+- FrontendOutgoingBatcher: Throttled outgoing message batching
 - SPANavigator: History management
 - AppView: Renders root app via ui-app element
 - ViewRenderer: View display (via AppView)
@@ -33,3 +34,4 @@
 - seq-bootstrap.md: App initialization
 - seq-frontend-connect.md: Connection establishment
 - seq-activate-tab.md: Tab activation handling
+- seq-frontend-outgoing-batch.md: Outgoing message batching

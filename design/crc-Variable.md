@@ -1,6 +1,6 @@
 # Variable
 
-**Source Spec:** protocol.md
+**Source Spec:** protocol.md, viewdefs.md
 
 ## Responsibilities
 
@@ -13,6 +13,9 @@
 - monitoredValue: Value used for change detection (`interface{}`)
 - storedValue: The value sent to the frontend; this is the `wrapperInstance` if it exists, otherwise it is the raw `value`.
 - wrapperInstance: Internal wrapper object (`interface{}`), nil if no wrapper
+- elementId: HTML ID of the element that created this variable (frontend only, vended if element has no ID)
+- namespace: Viewdef namespace (from closest `ui-namespace` element, or inherited from parent)
+- fallbackNamespace: Fallback namespace for viewdef lookup (inherited from parent, set by wrappers like ViewList)
 
 ### Does
 - getValue: Return the raw value
@@ -24,6 +27,8 @@
 - getMonitoredValue: Return shallow copy used for change detection
 - detectChanges: Compare raw value to monitored value
 - initWrapper: Create wrapper instance from wrapper property type name using the `WrapperFactory`.
+- resolveNamespace: Determine namespace from closest ui-namespace element or parent variable
+- inheritFallbackNamespace: Copy `fallbackNamespace` from parent variable if not explicitly set
 
 ## Collaborators
 
@@ -56,6 +61,38 @@ When a variable is created with `wrapper=TypeName` in path properties:
 The wrapper can access path properties (like `item=ContactPresenter`) from the variable's properties.
 
 Set via path property syntax: `contacts?wrapper=ViewList&item=ContactPresenter`
+
+### Element ID Tracking
+
+Each variable tracks the **element ID** of the element that created it (frontend only):
+- If the element has an ID, use it
+- If the element doesn't have an ID, vend one and assign it to the element
+
+Element ID tracking is used for:
+- Namespace inheritance (finding closest `ui-namespace` element)
+- Debugging and inspection
+- Understanding the variable-element relationship
+
+### Namespace Resolution
+
+When creating a view's variable, namespace is determined by:
+
+1. Find the closest element with `ui-namespace` using `element.closest('[ui-namespace]')`
+2. If found and either:
+   - There's no parent variable, OR
+   - The parent variable's element contains the found element
+
+   Then use that namespace value.
+3. Otherwise, inherit `namespace` property from the parent variable (if set)
+
+This allows intermediate elements with `ui-namespace` to override the parent variable's namespace within a viewdef.
+
+### Fallback Namespace Properties
+
+Variables have `fallbackNamespace` for secondary viewdef lookup:
+- Always inherited from parent variable
+- Set by backend wrappers (e.g., ViewList sets `fallbackNamespace: "list-item"`)
+- Used when `namespace` viewdef doesn't exist
 
 ## Sequences
 

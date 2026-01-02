@@ -29,27 +29,31 @@ export class ViewRenderer {
     this.bindingEngine = new BindingEngine(variableStore);
   }
 
-  // Render a variable with namespace (main entry point)
+  // Render a variable (main entry point)
+  // Uses 3-tier namespace resolution from variable properties
   // Returns true if rendered successfully
-  render(variableId: number, namespace = 'DEFAULT'): boolean {
+  render(variableId: number): boolean {
     const data = this.variableStore.get(variableId);
     if (!data) {
       // Variable not in cache, wait for update
-      this.addPendingRender(variableId, namespace);
+      this.addPendingRender(variableId);
       return false;
     }
 
     const type = data.properties['type'];
     if (!type) {
       // No type property, wait for it
-      this.addPendingRender(variableId, namespace);
+      this.addPendingRender(variableId);
       return false;
     }
 
-    const viewdef = this.viewdefStore.get(type, namespace);
+    // 3-tier namespace resolution from variable properties
+    const namespace = data.properties['namespace'];
+    const fallbackNamespace = data.properties['fallbackNamespace'];
+    const viewdef = this.viewdefStore.get(type, namespace, fallbackNamespace);
     if (!viewdef) {
       // Viewdef not loaded, wait for it
-      this.addPendingRender(variableId, namespace);
+      this.addPendingRender(variableId);
       return false;
     }
 
@@ -114,10 +118,29 @@ export class ViewRenderer {
       // Parse path to extract base path (without query params)
       const [basePath] = path.split('?');
 
+      // Build properties with namespace inheritance
+      const properties: Record<string, string> = { path: basePath };
+
+      // Inherit namespace properties from parent variable
+      const parentData = this.variableStore.get(contextVarId);
+      if (parentData) {
+        // Set namespace from ui-namespace attribute, or inherit from parent
+        const uiNamespace = element.getAttribute('ui-namespace');
+        if (uiNamespace) {
+          properties['namespace'] = uiNamespace;
+        } else if (parentData.properties['namespace']) {
+          properties['namespace'] = parentData.properties['namespace'];
+        }
+        // Always inherit fallbackNamespace
+        if (parentData.properties['fallbackNamespace']) {
+          properties['fallbackNamespace'] = parentData.properties['fallbackNamespace'];
+        }
+      }
+
       // Create child variable with path property
       this.variableStore.create({
         parentId: contextVarId,
-        properties: { path: basePath },
+        properties,
       }).then((childVarId) => {
         view.setVariable(childVarId);
         // Store cleanup info
@@ -155,6 +178,22 @@ export class ViewRenderer {
         path: basePath,
         ...props,
       };
+
+      // Inherit namespace properties from parent variable
+      const parentData = this.variableStore.get(contextVarId);
+      if (parentData) {
+        // Set namespace from ui-namespace attribute, or inherit from parent
+        const uiNamespace = element.getAttribute('ui-namespace');
+        if (uiNamespace) {
+          properties['namespace'] = uiNamespace;
+        } else if (parentData.properties['namespace']) {
+          properties['namespace'] = parentData.properties['namespace'];
+        }
+        // Always inherit fallbackNamespace
+        if (parentData.properties['fallbackNamespace']) {
+          properties['fallbackNamespace'] = parentData.properties['fallbackNamespace'];
+        }
+      }
 
       console.log('[DEBUG] Creating viewlist variable with properties:', properties);
       this.variableStore.create({
@@ -213,11 +252,11 @@ export class ViewRenderer {
   }
 
   // Add a pending render request
-  private addPendingRender(variableId: number, namespace: string): void {
-    const id = `render-${variableId}-${namespace}`;
+  private addPendingRender(variableId: number): void {
+    const id = `render-${variableId}`;
     this.viewdefStore.addPendingView({
       id,
-      render: () => this.render(variableId, namespace),
+      render: () => this.render(variableId),
     });
   }
 

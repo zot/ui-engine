@@ -146,6 +146,15 @@ func New(cfg *config.Config) *Server {
 		// Set up afterBatch callback for automatic change detection
 		s.wsEndpoint.SetAfterBatch(s.AfterBatch)
 
+		// Set up disconnect callback to clear sent-tracking for page refresh
+		s.wsEndpoint.SetOnDisconnect(func(internalSessionID string) {
+			// Translate internal UUID to vended ID for viewdef manager
+			vendedID := s.sessions.GetVendedID(internalSessionID)
+			if vendedID != "" && s.viewdefManager != nil {
+				s.viewdefManager.ClearSession(vendedID)
+			}
+		})
+
 		// Set server as path variable handler (routes to per-session LuaSession)
 		s.handler.SetPathVariableHandler(s)
 	}

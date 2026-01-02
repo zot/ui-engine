@@ -25,6 +25,7 @@
 
 - WebSocketEndpoint: Backend communication
 - FrontendApp: Tab instances
+- FrontendOutgoingBatcher: Receives batched outgoing messages
 - Session: Session coordination
 
 ## Sequences
@@ -32,3 +33,4 @@
 - seq-frontend-connect.md: Tab registration
 - seq-activate-tab.md: Tab activation flow
 - seq-relay-message.md: Message routing through worker
+- seq-frontend-outgoing-batch.md: Receives throttled batches from tabs

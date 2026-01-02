@@ -13,13 +13,14 @@
 - bind: Apply all ui-* bindings to an element
 - unbind: Remove all bindings from an element and destroy child variables
 - createValueBinding: Create ui-value binding with child variable
+- createKeypressBinding: Create ui-keypress binding (shorthand for ui-value with keypress option)
 - createAttrBinding: Create ui-attr-* binding with child variable
 - createClassBinding: Create ui-class-* binding with child variable
 - createStyleBinding: Create ui-style-* binding with child variable
 - createEventBinding: Create ui-event-* binding with action variable
 - createActionBinding: Create ui-action binding with action variable
 - parsePath: Parse path with optional URL-style properties (?create=Type&prop=value); properties without values default to `true`
-- selectInputEvent: Choose event type for input elements (`blur` by default, `input` if `keypress` property is set)
+- selectInputEvent: Choose event type for input elements (`blur` by default, `input` if `keypress` property is set or `ui-keypress` attribute used)
 - integrateWidgetBinding: Coordinate with WidgetBinder for widget-specific value handling
 
 ## Child Variable Architecture (Server-Side Path Resolution)

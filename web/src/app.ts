@@ -123,6 +123,10 @@ export function initUIApp(): Promise<UIApp> {
 document.addEventListener('DOMContentLoaded', () => {
   const appElement = findAppElement();
   if (appElement) {
-    initUIApp().catch(console.error);
+    initUIApp().then((app) => {
+      // Expose for console debugging
+      (window as any).uiApp = app;
+      (window as any).uiStore = app.getStore();
+    }).catch(console.error);
   }
 });

@@ -33,6 +33,7 @@
 - crc-ObjectReference.md
 - crc-PathSyntax.md
 - crc-MessageBatcher.md
+- crc-FrontendOutgoingBatcher.md (Frontend outgoing batching)
 - crc-LuaBackend.md (Session-Based Communication)
 
 **Sequence Diagrams:**
@@ -46,6 +47,7 @@
 - seq-viewdef-delivery.md
 - seq-backend-watch.md
 - seq-backend-detect-changes.md
+- seq-frontend-outgoing-batch.md (Frontend throttled batching with priority)
 
 **Notes:**
 - WatchManager removed - watch functionality merged into LuaBackend (per-session)
@@ -57,8 +59,8 @@
 **CRC Cards:**
 - crc-Viewdef.md
 - crc-ViewdefStore.md
-- crc-View.md
-- crc-ViewList.md
+- crc-View.md (includes 3-tier namespace resolution, namespace property inheritance)
+- crc-ViewList.md (includes fallbackNamespace setting, exemplar namespace inheritance)
 - crc-ViewListItem.md
 - crc-AppView.md
 - crc-BindingEngine.md
@@ -68,11 +70,15 @@
 **Sequence Diagrams:**
 - seq-load-viewdefs.md
 - seq-viewdef-delivery.md
-- seq-render-view.md
-- seq-viewlist-update.md
+- seq-render-view.md (includes 3-tier namespace resolution)
+- seq-viewlist-update.md (includes exemplar namespace inheritance)
 - seq-viewlist-presenter-sync.md
 - seq-bind-element.md
 - seq-handle-event.md
+
+**Notes:**
+- Namespace resolution: namespace -> fallbackNamespace -> DEFAULT
+- ViewList wrapper sets `fallbackNamespace: "list-item"` on its variable
 
 ---
 
@@ -182,7 +188,9 @@
 **Implementation:**
 - [x] `internal/variable/variable.go` - Variable struct and methods
 - [x] `internal/variable/variable.go` - Add wrapper property, dual value architecture
+- [ ] `internal/variable/variable.go` - Add namespace/fallbackNamespace property handling
 - [x] `web/src/variable.ts` - Frontend variable representation
+- [ ] `web/src/variable.ts` - Add namespace/fallbackNamespace property inheritance
 
 ### crc-VariableStore.md
 **Source Spec:** protocol.md, data-models.md
@@ -245,12 +253,16 @@
 **Source Spec:** viewdefs.md
 **Implementation:**
 - [x] `web/src/view.ts` - View class for ui-view elements
+- [ ] `web/src/view.ts` - Add 3-tier namespace resolution (namespace -> fallbackNamespace -> DEFAULT)
+- [ ] `web/src/view.ts` - Add namespace property inheritance from parent variable
 
 ### crc-ViewList.md
 **Source Spec:** viewdefs.md, protocol.md
 **Implementation:**
 - [x] `web/src/viewlist.ts` - ViewList class for ui-viewlist elements (frontend)
+- [ ] `web/src/viewlist.ts` - Add exemplar namespace inheritance
 - [x] `internal/lua/viewlist.go` - ViewList wrapper (backend)
+- [ ] `internal/lua/viewlist.go` - Set fallbackNamespace: "list-item" on variable
 
 ### crc-ViewListItem.md
 **Source Spec:** viewdefs.md
@@ -321,6 +333,11 @@
 - [x] `internal/protocol/batcher.go` - Priority-based message batching
 - [x] `web/src/batcher.ts` - Frontend batch processing
 
+### crc-FrontendOutgoingBatcher.md
+**Source Spec:** protocol.md
+**Implementation:**
+- [x] `web/src/outgoing_batcher.ts` - Frontend outgoing message batching with 200ms throttle
+
 ### crc-LuaSession.md
 **Source Spec:** libraries.md, interfaces.md, protocol.md
 **Implementation:**
@@ -377,6 +394,7 @@
 **Source Spec:** libraries.md
 **Implementation:**
 - [x] `web/src/renderer.ts` - View renderer
+- [ ] `web/src/renderer.ts` - Update lookupViewdef for 3-tier namespace resolution
 
 ### crc-WidgetBinder.md
 **Source Spec:** libraries.md, components.md

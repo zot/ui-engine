@@ -7,7 +7,7 @@
 ### Knows
 - element: Target DOM element
 - childVarId: ID of the child variable created for this binding (NOT the parent context variable)
-- bindingType: One of value, attr, class, style
+- bindingType: One of value, keypress, attr, class, style
 - attributeName: For attr/class/style, the specific attribute
 - path: Path property value sent to backend for resolution
 - pathOptions: Parsed path options including `keypress`, `create`, `wrapper`, etc.
@@ -62,6 +62,17 @@ For two-way bound input elements, the update event is selected based on:
 | `<sl-textarea>` | `sl-change` | `sl-input` |
 
 The `keypress` property is parsed from the path (e.g., `name?keypress`) and defaults to `true` when specified without a value.
+
+## ui-keypress Attribute
+
+The `ui-keypress` attribute is a shorthand for `ui-value` with the `keypress` option:
+
+```html
+<input ui-keypress="name">
+<!-- Equivalent to: <input ui-value="name?keypress"> -->
+```
+
+When `ui-keypress` is used, `pathOptions.keypress` is implicitly set to `true`, causing the binding to use keystroke events instead of blur events. All other behavior (child variable creation, path resolution, nullish handling) is identical to `ui-value`.
 
 ## Collaborators
 

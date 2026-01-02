@@ -7,6 +7,13 @@ import { View } from './view';
 import { ViewdefStore } from './viewdef_store';
 import { VariableStore } from './connection';
 
+// Counter for unique HTML ids
+let nextViewListItemId = 1;
+
+function vendViewListItemId(): string {
+  return `ui-vl-item-${nextViewListItemId++}`;
+}
+
 // Parsed path with optional URL parameters
 export interface ParsedViewListPath {
   path: string;
@@ -36,7 +43,6 @@ export function parseViewListPath(fullPath: string): ParsedViewListPath {
 
 export class ViewList {
   readonly element: HTMLElement;
-  readonly namespace: string;
 
   private itemWrapper?: string;
   private variableId: number | null = null;
@@ -58,9 +64,6 @@ export class ViewList {
     bindCallback?: (element: HTMLElement, variableId: number) => void
   ) {
     this.element = element;
-    // ViewList uses list-item namespace by default (not DEFAULT)
-    // per specs/viewdefs.md
-    this.namespace = element.getAttribute('ui-namespace') || 'list-item';
     this.itemWrapper = element.getAttribute('ui-item-wrapper') || undefined;
     this.viewdefStore = viewdefStore;
     this.variableStore = variableStore;
@@ -115,6 +118,27 @@ export class ViewList {
     return this.pathConfig?.path || '';
   }
 
+  // Resolve namespace for an item element
+  // Spec: viewdefs.md - Namespace variable properties
+  // Uses closest('[ui-namespace]') and checks if ViewList's element contains it
+  private resolveNamespace(element: HTMLElement, parentVar: { properties: Record<string, string> } | undefined): string | undefined {
+    // Find closest element with ui-namespace attribute
+    const closestNsElement = element.closest('[ui-namespace]');
+    if (!closestNsElement) {
+      // No ui-namespace found, inherit from ViewList's variable
+      return parentVar?.properties['namespace'];
+    }
+
+    // Get the ViewList's element (which is also the parent variable's element)
+    // If the ViewList element contains the found namespace element, use it
+    if (this.element.contains(closestNsElement)) {
+      return closestNsElement.getAttribute('ui-namespace') || undefined;
+    }
+
+    // Otherwise, inherit namespace from ViewList's variable
+    return parentVar?.properties['namespace'];
+  }
+
   // Set the bound variable (should contain array of object refs)
   setVariable(variableId: number): void {
     // Cleanup old watcher
@@ -159,21 +183,42 @@ export class ViewList {
 
     while (newViews.length < itemCount) {
       // Create new view with child variable for this index
+      // createItemView appends element to DOM first so closest() works
       const view = this.createItemView();
       const index = newViews.length
       newViews.push(view);
-      this.element.appendChild(view.element);
       // Create child variable with path = index (0-based)
       const indexPath = this.itemWrapper ? `${index}?wrapper=${this.itemWrapper}`
         : String(index);
       const variable = this.variableStore.get(this.variableId!)
       const parent = variable?.parentId ? this.variableStore.get(variable.parentId) : undefined
       console.log('CREATE LIST ITEM VIEW WITH PARENT', JSON.stringify(parent))
-      const itemProps = { path: indexPath } as any
+
+      // Ensure element has an ID for tracking
+      // Spec: viewdefs.md - Variable Element Tracking
+      if (!view.element.id) {
+        view.element.id = vendViewListItemId();
+      }
+
+      const itemProps: Record<string, string> = { path: indexPath, elementId: view.element.id }
       const itemWrapper = parent?.properties.itemWrapper
       if (itemWrapper) {
         itemProps.wrapper = itemWrapper
       }
+
+      // Resolve namespace using closest ui-namespace element
+      // Spec: viewdefs.md - Namespace variable properties
+      // The view.element is already appended to this.element (ViewList element)
+      const namespace = this.resolveNamespace(view.element, variable);
+      if (namespace) {
+        itemProps['namespace'] = namespace;
+      }
+
+      // Always inherit fallbackNamespace from ViewList's variable
+      if (variable?.properties['fallbackNamespace']) {
+        itemProps['fallbackNamespace'] = variable.properties['fallbackNamespace'];
+      }
+
       this.variableStore.create({
         parentId: this.variableId!,
         properties: itemProps,
@@ -200,9 +245,11 @@ export class ViewList {
   }
 
   // Create a view element for an item
+  // Appends element to DOM first so closest() works for namespace resolution
   private createItemView(): View {
     const element = this.exemplar.cloneNode(true) as HTMLElement;
-    //this.getItemNamespace()
+    // Append to DOM before creating View so closest() works
+    this.element.appendChild(element);
     // Don't set ui-view attribute - ViewList manages the variable directly
     const view = new View(
       element,

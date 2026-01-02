@@ -39,8 +39,13 @@
 
 ## Notes
 
-**Session-based batching:**
+**Server-side batching (this class):**
+- Used for server-to-backend communication
 - All batches to backends (Lua or external) include session wrapper
 - Format: `{"session": "abc123", "messages": [...]}`
 - Allows routing to correct session (LuaSession or backend session)
 - Both LuaSession and BackendSocket use same session-wrapped format
+
+**Frontend outgoing batching:**
+- See crc-FrontendOutgoingBatcher.md for frontend-to-server message batching
+- Frontend throttles at 200ms intervals with priority sorting

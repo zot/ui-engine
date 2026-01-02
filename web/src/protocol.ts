@@ -4,6 +4,7 @@
 
 export type MessageType =
   | 'create'
+  | 'createResponse'
   | 'destroy'
   | 'update'
   | 'watch'
@@ -18,12 +19,14 @@ export interface Message {
   data?: unknown;
 }
 
+// Spec: protocol.md - create(parentId, value, properties, nowatch?, unbound?, requestId?)
 export interface CreateMessage {
   parentId?: number;
   value?: unknown;
   properties?: Record<string, string>;
   nowatch?: boolean;
   unbound?: boolean;
+  requestId?: number;
 }
 
 export interface DestroyMessage {
@@ -65,8 +68,10 @@ export interface Response<T = unknown> {
   error?: string;
 }
 
+// Spec: protocol.md - createResponse(id, requestId?)
 export interface CreateResponse {
   id: number;
+  requestId?: number;
 }
 
 export interface VariableData {

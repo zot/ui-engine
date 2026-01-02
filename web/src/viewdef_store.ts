@@ -46,21 +46,32 @@ export class ViewdefStore {
     this.processPendingViews();
   }
 
-  // Get viewdef by TYPE.NAMESPACE, with fallback to TYPE.DEFAULT
-  get(type: string, namespace: string): Viewdef | undefined {
-    const key = buildKey(type, namespace);
-    const viewdef = this.viewdefs.get(key);
-    if (viewdef) {
-      return viewdef;
+  // Get viewdef by TYPE.NAMESPACE with 3-tier resolution:
+  // 1. Try TYPE.namespace (if provided)
+  // 2. Try TYPE.fallbackNamespace (if provided)
+  // 3. Try TYPE.DEFAULT
+  get(type: string, namespace?: string, fallbackNamespace?: string): Viewdef | undefined {
+    // 1. Try explicit namespace
+    if (namespace) {
+      const key = buildKey(type, namespace);
+      const viewdef = this.viewdefs.get(key);
+      if (viewdef) {
+        return viewdef;
+      }
     }
 
-    // Fallback to DEFAULT namespace
-    if (namespace !== 'DEFAULT') {
-      const defaultKey = buildKey(type, 'DEFAULT');
-      return this.viewdefs.get(defaultKey);
+    // 2. Try fallbackNamespace
+    if (fallbackNamespace) {
+      const fallbackKey = buildKey(type, fallbackNamespace);
+      const viewdef = this.viewdefs.get(fallbackKey);
+      if (viewdef) {
+        return viewdef;
+      }
     }
 
-    return undefined;
+    // 3. Fallback to DEFAULT namespace
+    const defaultKey = buildKey(type, 'DEFAULT');
+    return this.viewdefs.get(defaultKey);
   }
 
   // Get viewdef by key

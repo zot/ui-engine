@@ -4,6 +4,7 @@
 
 import { Message, Response, CreateResponse, encodeMessage, UpdateMessage, ErrorMessage } from './protocol';
 import { Variable } from './variable';
+import { FrontendOutgoingBatcher, Priority } from './outgoing_batcher';
 
 export type MessageHandler = (msg: Message) => void;
 export type ErrorHandler = (error: string) => void;
@@ -19,14 +20,17 @@ export class Connection {
   private errorHandlers: ErrorHandler[] = [];
   private connectHandlers: ConnectionHandler[] = [];
   private disconnectHandlers: ConnectionHandler[] = [];
-  private pendingRequests: Map<number, (response: Response) => void> = new Map();
-  private requestId = 0;
+  private requestId = 1;
   // Callback for response handling (create responses)
-  // Queue of pending create callbacks - responses arrive in order, so we use a FIFO queue
-  private createCallbackQueue: Array<(resp: Response<CreateResponse>) => void> = [];
+  // Map of requestId -> callback for correlating out-of-order responses
+  private createCallbacks: Map<number, (resp: Response<CreateResponse>) => void> = new Map();
+  // Outgoing message batcher (200ms throttle, priority sorting)
+  // Spec: protocol.md - Frontend outgoing batching
+  private batcher: FrontendOutgoingBatcher;
 
   constructor(sessionId: string) {
     this.sessionId = sessionId;
+    this.batcher = new FrontendOutgoingBatcher((data) => this.sendRaw(data));
   }
 
   connect(): Promise<void> {
@@ -98,41 +102,58 @@ export class Connection {
     //  resp.pending.forEach((msg) => this.handleMessage(msg));
     //}
     // Only call the callback for create responses (those with id in result)
-    // Watch responses have {forward: true} and should not consume the callback
-    const isCreateResponse = resp.result && typeof resp.result === 'object' && 'id' in resp.result;
-    if (isCreateResponse && this.createCallbackQueue.length > 0) {
-      const callback = this.createCallbackQueue.shift()!;
-      callback(resp);
+    // Use requestId to correlate responses (supports out-of-order delivery)
+    const result = resp.result;
+    if (result && typeof result === 'object' && 'id' in result && result.requestId) {
+      const callback = this.createCallbacks.get(result.requestId);
+      if (callback) {
+        this.createCallbacks.delete(result.requestId);
+        callback(resp);
+      }
     }
   }
 
-  send(msg: Message): void {
+  // Send raw data directly to WebSocket (used by batcher)
+  private sendRaw(data: string): void {
     if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-      this.ws.send(encodeMessage(msg));
+      this.ws.send(data);
     } else {
       console.error('WebSocket not connected');
     }
   }
 
+  // Send a message, routing through batcher for throttling
+  // Create messages bypass batching and are sent immediately
+  // Spec: protocol.md - Frontend outgoing batching
+  send(msg: Message, priority: Priority = 'medium'): void {
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
+      console.error('WebSocket not connected');
+      return;
+    }
+
+    if (this.batcher.shouldBypassBatch(msg)) {
+      this.batcher.sendImmediate(msg);
+    } else {
+      this.batcher.enqueue(msg, priority);
+    }
+  }
+
   // Send a message and wait for a response (for create operations)
-  // Uses a queue to handle concurrent creates - responses arrive in send order
+  // Uses requestId to correlate responses (supports out-of-order delivery)
   sendAndAwaitResponse(msg: Message): Promise<Response<CreateResponse>> {
     return new Promise((resolve, reject) => {
       if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
         reject(new Error('WebSocket not connected'));
         return;
       }
-      // Add callback to queue before sending (maintains FIFO order)
-      this.createCallbackQueue.push(resolve);
+      // Generate unique requestId and add to message data
+      const requestId = this.requestId++;
+      const data = (msg.data || {}) as Record<string, unknown>;
+      data.requestId = requestId;
+      msg.data = data;
+      // Register callback by requestId
+      this.createCallbacks.set(requestId, resolve);
       this.ws.send(encodeMessage(msg));
-    });
-  }
-
-  async sendRequest<T>(msg: Message): Promise<Response<T>> {
-    return new Promise((resolve) => {
-      const id = this.requestId++;
-      this.pendingRequests.set(id, resolve as (response: Response) => void);
-      this.send(msg);
     });
   }
 
@@ -169,6 +190,8 @@ export class Connection {
   }
 
   disconnect(): void {
+    // Flush pending messages before closing
+    this.batcher.flushNow();
     if (this.ws) {
       this.ws.close();
       this.ws = null;

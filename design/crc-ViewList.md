@@ -8,7 +8,6 @@
 
 **Frontend (DOM management):**
 - element: Container DOM element for the list
-- namespace: Viewdef namespace for child views (default: `list-item`)
 - exemplar: Element to clone for each item (default: div)
 - views: Parallel array of View elements
 - delegate: Optional delegate for add/remove notifications
@@ -26,7 +25,7 @@
 - create: Initialize from element with ui-viewlist attribute
 - setExemplar: Set element to clone for list items (e.g., sl-option)
 - update: Sync views array with bound variable array
-- addItem: Clone exemplar, create variable, render and append
+- addItem: Clone exemplar, create variable with inherited namespace properties, render and append
 - removeItem: Destroy variable, remove element from DOM
 - reorder: Reorder view elements to match array order
 - clear: Remove all items
@@ -34,12 +33,14 @@
 - notifyAdd: Notify delegate of item addition
 - notifyRemove: Notify delegate of item removal
 - parsePathProperties: Extract wrapper and item properties from path
+- inheritNamespaceProperties: Copy namespace and fallbackNamespace from ViewList variable to exemplar variable
 
 **Backend (Wrapper behavior):**
-- new(variable): Constructor receives Variable, returns new or existing wrapper
+- new(variable): Constructor receives Variable, sets fallbackNamespace property, returns new or existing wrapper
 - sync: Sync ViewListItems with array on wrapper reuse
 - removeAt: Remove item at index (called by ViewListItem.remove())
 - destroy: Clean up all ViewListItems when variable destroyed
+- setFallbackNamespace: Set `fallbackNamespace: "list-item"` on the variable
 
 ## Collaborators
 
@@ -65,10 +66,11 @@ When `ui-viewlist="contacts?item=ContactPresenter"` is used:
 1. Frontend creates variable with `wrapper=ViewList` and `item=ContactPresenter` properties
 2. `Resolver.CreateWrapper(variable)` calls `ViewList:new(variable)`
 3. ViewList stores `variable` property (accesses array via `variable:getValue()`)
-4. ViewList reads `item` property from variable for custom ViewListItem type
-5. ViewList is registered in object registry (stands in for child path navigation)
-6. ViewList maintains `items` array of ViewListItem objects
-7. ViewList maintains `selectionIndex` for frontend selection state
+4. **ViewList sets `fallbackNamespace: "list-item"` on the variable**
+5. ViewList reads `item` property from variable for custom ViewListItem type
+6. ViewList is registered in object registry (stands in for child path navigation)
+7. ViewList maintains `items` array of ViewListItem objects
+8. ViewList maintains `selectionIndex` for frontend selection state
 
 ### Wrapper Reuse and Sync
 
@@ -122,6 +124,14 @@ function ViewList:sync()
     end
 end
 ```
+
+### Exemplar Namespace Inheritance
+
+ViewList exemplars follow standard namespace inheritance rules for views:
+- The exemplar's variable inherits `namespace` from the ViewList's variable (unless the exemplar specifies `ui-namespace`)
+- The exemplar's variable inherits `fallbackNamespace` from the ViewList's variable
+
+This allows a ViewList with `ui-namespace="COMPACT"` to render all its items using `TYPE.COMPACT` viewdefs without requiring each exemplar to specify the namespace.
 
 ### Path Property Syntax
 

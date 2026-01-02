@@ -70,7 +70,7 @@ func (h *HTTPEndpoint) setupRoutes() {
 	h.mux.HandleFunc("/", h.handleRoot)
 	h.mux.HandleFunc("/api/", h.handleAPI)
 	h.mux.HandleFunc("/ws/", h.handleWebSocket)
-	h.mux.HandleFunc("/debug/variables", h.handleDebugVariables)
+	// Note: /SESSION-ID/variables is handled in handleRoot
 }
 
 // ServeHTTP implements http.Handler.
@@ -100,6 +100,11 @@ func (h *HTTPEndpoint) handleRoot(w http.ResponseWriter, r *http.Request) {
 
 	// Check if this is a valid session
 	if h.sessions.SessionExists(sessionID) {
+		// Check for /SESSION-ID/variables debug endpoint
+		if len(parts) > 1 && parts[1] == "variables" {
+			h.handleDebugVariables(w, r, sessionID)
+			return
+		}
 		// Serve the SPA - it will handle the routing client-side
 		h.serveStatic(w, r, "index.html")
 		return
@@ -206,18 +211,20 @@ func (h *HTTPEndpoint) HandleProtocolCommand(msg *protocol.Message) (*protocol.R
 }
 
 // handleDebugVariables renders a debug page with a variable tree.
-func (h *HTTPEndpoint) handleDebugVariables(w http.ResponseWriter, r *http.Request) {
-	// Get session ID from query parameter, default to "1"
-	sessionID := r.URL.Query().Get("session")
-	if sessionID == "" {
-		sessionID = "1"
+// sessionID is the internal UUID from the URL path.
+func (h *HTTPEndpoint) handleDebugVariables(w http.ResponseWriter, r *http.Request, sessionID string) {
+	// Translate internal session ID (UUID) to vended ID (numeric)
+	vendedID := h.sessions.GetVendedID(sessionID)
+	if vendedID == "" {
+		http.Error(w, "Session not found", http.StatusNotFound)
+		return
 	}
 
-	// Get variable data
+	// Get variable data using vended ID
 	var variables []DebugVariable
 	var dataErr error
 	if h.debugDataProvider != nil {
-		variables, dataErr = h.debugDataProvider(sessionID)
+		variables, dataErr = h.debugDataProvider(vendedID)
 	}
 
 	// Generate HTML
