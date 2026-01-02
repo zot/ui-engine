@@ -197,6 +197,13 @@ export class BindingEngine {
       if (binding) elementBindings.push(binding)
     }
 
+    // ui-code binding (execute JS when variable updates)
+    const uiCode = element.getAttribute('ui-code')
+    if (uiCode) {
+      const binding = this.createCodeBinding(element, contextVarId, uiCode)
+      if (binding) elementBindings.push(binding)
+    }
+
     if (elementBindings.length > 0) {
       this.bindings.set(element, elementBindings)
     }
@@ -407,6 +414,12 @@ export class BindingEngine {
     const properties = pathOptionsToProperties(parsed.options)
     properties['path'] = parsed.segments.join('.')
 
+    // Default to access=r for attribute bindings (read-only)
+    // Spec: viewdefs.md - Value Bindings
+    if (!properties['access']) {
+      properties['access'] = 'r'
+    }
+
     let childVarId: number | null = null
     let unbindValue: (() => void) | null = null
 
@@ -458,6 +471,12 @@ export class BindingEngine {
     const parsed = parsePath(path)
     const properties = pathOptionsToProperties(parsed.options)
     properties['path'] = parsed.segments.join('.')
+
+    // Default to access=r for class bindings (read-only)
+    // Spec: viewdefs.md - Value Bindings
+    if (!properties['access']) {
+      properties['access'] = 'r'
+    }
 
     let childVarId: number | null = null
     let unbindValue: (() => void) | null = null
@@ -512,6 +531,12 @@ export class BindingEngine {
     properties['path'] = parsed.segments.join('.')
     const htmlElement = element as HTMLElement
 
+    // Default to access=r for style bindings (read-only)
+    // Spec: viewdefs.md - Value Bindings
+    if (!properties['access']) {
+      properties['access'] = 'r'
+    }
+
     let childVarId: number | null = null
     let unbindValue: (() => void) | null = null
 
@@ -539,6 +564,69 @@ export class BindingEngine {
       })
       .catch((err) => {
         console.error('Failed to create style binding variable:', err)
+      })
+
+    return {
+      element,
+      unbind: () => {
+        if (unbindValue) unbindValue()
+        if (childVarId !== null) {
+          this.store.destroy(childVarId)
+        }
+      },
+    }
+  }
+
+  // Create a code binding (execute JS when variable updates)
+  // Spec: viewdefs.md - Value Bindings (ui-code)
+  private createCodeBinding(
+    element: Element,
+    varId: number,
+    path: string
+  ): Binding | null {
+    const parsed = parsePath(path)
+    const properties = pathOptionsToProperties(parsed.options)
+    properties['path'] = parsed.segments.join('.')
+
+    // Default to access=r for code bindings (read-only)
+    // Spec: viewdefs.md - Value Bindings
+    if (!properties['access']) {
+      properties['access'] = 'r'
+    }
+
+    let childVarId: number | null = null
+    let unbindValue: (() => void) | null = null
+
+    // Execute code with element and value in scope
+    const executeCode = (code: unknown) => {
+      if (typeof code !== 'string' || !code) return
+      try {
+        // Create function with element and value parameters
+        const fn = new Function('element', 'value', code)
+        // Get current value from store for the 'value' parameter
+        const current = childVarId !== null ? this.store.get(childVarId) : null
+        fn(element, current?.value)
+      } catch (err) {
+        console.error('Error executing ui-code:', err)
+      }
+    }
+
+    // Create a child variable for this path
+    this.store
+      .create({
+        parentId: varId,
+        properties,
+      })
+      .then((id) => {
+        childVarId = id
+        unbindValue = this.store.watch(id, (_v, value) => executeCode(value))
+
+        // Initial execution from cached value
+        const current = this.store.get(id)
+        if (current?.value) executeCode(current.value)
+      })
+      .catch((err) => {
+        console.error('Failed to create code binding variable:', err)
       })
 
     return {

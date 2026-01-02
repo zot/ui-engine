@@ -7,10 +7,10 @@
 ### Knows
 - element: Target DOM element
 - childVarId: ID of the child variable created for this binding (NOT the parent context variable)
-- bindingType: One of value, keypress, attr, class, style
+- bindingType: One of value, keypress, attr, class, style, code
 - attributeName: For attr/class/style, the specific attribute
 - path: Path property value sent to backend for resolution
-- pathOptions: Parsed path options including `keypress`, `create`, `wrapper`, etc.
+- pathOptions: Parsed path options including `keypress`, `create`, `wrapper`, `access`, etc.
 - defaultValue: Empty/default value for nullish paths (empty string, false, etc.)
 - updateEvent: Event to listen for updates (`blur`/`input` for native, `sl-change`/`sl-input` for Shoelace)
 - unbindValue: Callback to stop watching the child variable
@@ -27,6 +27,7 @@
 - handleNullishRead: Display defaultValue when path resolves to null/undefined
 - handleNullishWrite: Send error message with code 'path-failure' when write path is nullish (causes UI error indicator)
 - selectUpdateEvent: Choose update event based on element type and `keypress` option
+- executeCode: For code bindings, execute JavaScript with element and value in scope
 
 ## Child Variable Architecture
 
@@ -49,6 +50,37 @@ ValueBinding implements nullish-safe read/write behavior:
 
 This enables bindings like `ui-value="selectedContact.firstName"` to work gracefully when `selectedContact` is null.
 When user attempts to edit a field with a nullish path, the field shows an error indicator until the path becomes valid.
+
+## Default Access Property
+
+ValueBinding determines the default `access` property based on binding type and element:
+
+| Binding Type | Element Type | Default Access |
+|--------------|--------------|----------------|
+| `value` | Interactive (input, textarea, select, sl-*) | `rw` |
+| `value` | Non-interactive (div, span, etc.) | `r` |
+| `attr` | Any | `r` |
+| `class` | Any | `r` |
+| `style` | Any | `r` |
+| `code` | Any | `r` |
+
+When creating the child variable, if no explicit `access` property is in pathOptions, the default is applied.
+
+## Code Binding Execution
+
+For `ui-code` bindings, the `executeCode` method:
+
+1. Receives the code string from the child variable value
+2. Creates a function with controlled scope: `new Function('element', 'value', code)`
+3. Calls the function with the bound element and current value
+4. Catches and logs any execution errors (does not throw)
+
+**Example execution:**
+```javascript
+// ui-code="formatCode" where variable value is "element.innerHTML = marked(value)"
+const fn = new Function('element', 'value', code);
+fn(this.element, currentValue);
+```
 
 ## Input Update Event Selection
 

@@ -51,9 +51,18 @@
         |                      |---clear()----------->|                      |                      |
         |                      |                      |                      |                      |
         |                      |---cloneTemplate----->|                      |                      |
-        |                      |   (deep clone)       |                      |                      |
+        |                      |   (returns nodes)    |                      |                      |
+        |                      |                      |                      |                      |
+        |                      |---collectScripts---->|                      |                      |
+        |                      |   (store for later)  |                      |                      |
+        |                      |                      |                      |                      |
+        |                      |---appendToElement--->|                      |                      |
+        |                      |   (nodes now in DOM) |                      |                      |
         |                      |                      |                      |                      |
         |                      |---bind(elements)-----|--------------------->|                      |
+        |                      |                      |                      |                      |
+        |                      |---activateScripts--->|                      |                      |
+        |                      |   (DOM-connected)    |                      |                      |
         |                      |                      |                      |                      |
         |                      |     [for ui-view elements]                  |                      |
         |                      |---createView-------->|                      |                      |
@@ -97,3 +106,16 @@
   - If no attribute, `namespace` is inherited from parent variable
   - `fallbackNamespace` is always inherited from parent variable
   - ViewList wrapper sets `fallbackNamespace: "list-item"` on its variable
+- **DOM insertion:**
+  - cloneTemplate: Deep clones template content, returns DocumentFragment
+  - appendToElement: Appends cloned nodes to container element (now in DOM)
+  - Scripts must be activated after appendToElement (nodes must be DOM-connected)
+- **Script activation:**
+  - Scripts in cloned template content don't execute automatically (browser security)
+  - collectScripts: Query all `<script>` elements from cloned content, store references
+  - activateScripts: After appendToElement and binding (scripts are DOM-connected):
+    1. For each collected script element:
+    2. Create new `<script>` via `document.createElement('script')`
+    3. Set `type` to `text/javascript`
+    4. Copy `textContent` from original to new element
+    5. Replace original script element with new one (triggers execution)

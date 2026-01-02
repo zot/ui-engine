@@ -14,7 +14,10 @@
 - render: Render variable with namespace, returns boolean success
 - clear: Remove current view content
 - createElements: Parse viewdef HTML and create DOM elements
+- collectScripts: Collect script elements from cloned content before binding
+- appendToElement: Append cloned nodes to container element (nodes now in DOM)
 - bindElements: Apply ui-* bindings to created elements
+- activateScripts: Activate collected scripts after binding (scripts are DOM-connected)
 - handleViewChange: Re-render when presenter type changes
 - createView: Create View for ui-view element
 - createViewList: Create ViewList for ui-viewlist element

@@ -287,6 +287,82 @@ Tests for browser-side SPA navigation, view rendering, and widget bindings.
 
 ---
 
+### Test: View renderer collects scripts during cloning
+
+**Purpose**: Verify script elements are collected from cloned content before DOM insertion
+
+**Input**:
+- Viewdef: `<template><div><script>window.testVar = 'collected';</script></div></template>`
+- render(element, variable) called
+
+**References**:
+- CRC: crc-ViewRenderer.md - "Does: collectScripts"
+- Sequence: seq-render-view.md
+
+**Expected Results**:
+- Script element collected during clone phase
+- Script not yet executed (window.testVar undefined)
+- Scripts stored for later activation
+
+---
+
+### Test: View renderer activates scripts after DOM insertion
+
+**Purpose**: Verify scripts execute after binding (DOM-connected)
+
+**Input**:
+- Viewdef: `<template><div><script>window.scriptActivated = true;</script></div></template>`
+- render(element, variable) called
+
+**References**:
+- CRC: crc-ViewRenderer.md - "Does: activateScripts"
+- Sequence: seq-render-view.md
+
+**Expected Results**:
+- Script executes after appendToElement and binding
+- window.scriptActivated is true
+- Original script element replaced with new script element
+
+---
+
+### Test: View renderer script content executes
+
+**Purpose**: Verify script content executes and can modify DOM/globals
+
+**Input**:
+- Viewdef: `<template><div id="target"><script>document.getElementById('target').textContent = 'modified';</script></div></template>`
+- render(element, variable) called
+
+**References**:
+- CRC: crc-ViewRenderer.md - "Does: activateScripts"
+- Sequence: seq-render-view.md
+
+**Expected Results**:
+- Script executes successfully
+- DOM modified by script (target div contains 'modified')
+- Script has access to document and window
+
+---
+
+### Test: View renderer multiple scripts execute in order
+
+**Purpose**: Verify multiple scripts in viewdef execute sequentially in document order
+
+**Input**:
+- Viewdef: `<template><div><script>window.scriptOrder = [];</script><script>window.scriptOrder.push(1);</script><script>window.scriptOrder.push(2);</script></div></template>`
+- render(element, variable) called
+
+**References**:
+- CRC: crc-ViewRenderer.md - "Does: collectScripts, activateScripts"
+- Sequence: seq-render-view.md
+
+**Expected Results**:
+- All three scripts execute
+- Scripts execute in document order
+- window.scriptOrder equals [1, 2]
+
+---
+
 ### Test: Widget binder Shoelace input
 
 **Purpose**: Verify sl-input binding
@@ -355,17 +431,209 @@ Tests for browser-side SPA navigation, view rendering, and widget bindings.
 
 ---
 
+### Test: ui-code binding executes JavaScript
+
+**Purpose**: Verify ui-code binding executes code when variable updates
+
+**Input**:
+- `<div ui-code="codeVar"></div>`
+- Variable `codeVar` updates to `"element.classList.add('highlighted')"`
+
+**References**:
+- CRC: crc-BindingEngine.md - "Does: createCodeBinding"
+- CRC: crc-ValueBinding.md - "Does: executeCode"
+- Sequence: seq-bind-element.md
+
+**Expected Results**:
+- Child variable created with path "codeVar"
+- Code executed when variable value changes
+- `element` parameter is the bound div
+- `value` parameter is the current variable value
+- Element has 'highlighted' class added
+
+---
+
+### Test: ui-code binding defaults to access=r
+
+**Purpose**: Verify ui-code bindings are read-only by default
+
+**Input**:
+- `<div ui-code="codeVar"></div>`
+
+**References**:
+- CRC: crc-BindingEngine.md - "Default Access Property"
+- CRC: crc-ValueBinding.md - "Default Access Property"
+
+**Expected Results**:
+- Child variable created with `access=r` property
+- Binding is read-only (no write to backend)
+
+---
+
+### Test: ui-code binding handles execution errors
+
+**Purpose**: Verify ui-code binding catches and logs errors without throwing
+
+**Input**:
+- `<div ui-code="codeVar"></div>`
+- Variable `codeVar` updates to `"throw new Error('test')"`
+
+**References**:
+- CRC: crc-ValueBinding.md - "Does: executeCode"
+
+**Expected Results**:
+- Error is caught and logged
+- No exception thrown to caller
+- Element remains bound
+
+---
+
+### Test: ui-value on non-interactive element defaults to access=r
+
+**Purpose**: Verify ui-value on div/span defaults to read-only
+
+**Input**:
+- `<span ui-value="name"></span>`
+
+**References**:
+- CRC: crc-BindingEngine.md - "Default Access Property"
+- CRC: crc-ValueBinding.md - "Default Access Property"
+
+**Expected Results**:
+- Child variable created with `access=r` property
+- Binding is read-only
+
+---
+
+### Test: ui-value on interactive element defaults to access=rw
+
+**Purpose**: Verify ui-value on input/textarea defaults to read-write
+
+**Input**:
+- `<input ui-value="name">`
+
+**References**:
+- CRC: crc-BindingEngine.md - "Default Access Property"
+- CRC: crc-ValueBinding.md - "Default Access Property"
+
+**Expected Results**:
+- Child variable created without explicit `access` property (defaults to rw)
+- Binding supports two-way data flow
+
+---
+
+### Test: ui-attr binding defaults to access=r
+
+**Purpose**: Verify ui-attr-* bindings default to read-only
+
+**Input**:
+- `<div ui-attr-disabled="isLocked"></div>`
+
+**References**:
+- CRC: crc-BindingEngine.md - "Default Access Property"
+
+**Expected Results**:
+- Child variable created with `access=r` property
+- Attribute updated from backend only
+
+---
+
+### Test: ui-class binding defaults to access=r
+
+**Purpose**: Verify ui-class-* bindings default to read-only
+
+**Input**:
+- `<div ui-class-active="isActive"></div>`
+
+**References**:
+- CRC: crc-BindingEngine.md - "Default Access Property"
+
+**Expected Results**:
+- Child variable created with `access=r` property
+- Class updated from backend only
+
+---
+
+### Test: ui-style binding defaults to access=r
+
+**Purpose**: Verify ui-style-* bindings default to read-only
+
+**Input**:
+- `<div ui-style-color="textColor"></div>`
+
+**References**:
+- CRC: crc-BindingEngine.md - "Default Access Property"
+
+**Expected Results**:
+- Child variable created with `access=r` property
+- Style updated from backend only
+
+---
+
+### Test: ui-view binding defaults to access=r
+
+**Purpose**: Verify ui-view bindings default to read-only
+
+**Input**:
+- `<div ui-view="contact"></div>`
+
+**References**:
+- CRC: crc-View.md - "Default Access Property"
+
+**Expected Results**:
+- Child variable created with `access=r` property
+- View is read-only
+
+---
+
+### Test: ui-viewlist binding defaults to access=r
+
+**Purpose**: Verify ui-viewlist bindings default to read-only
+
+**Input**:
+- `<div ui-viewlist="contacts"></div>`
+
+**References**:
+- CRC: crc-ViewList.md - "Default Access Property"
+
+**Expected Results**:
+- Child variable created with `access=r` property (and wrapper=lua.ViewList)
+- ViewList is read-only
+
+---
+
+### Test: explicit access property overrides default
+
+**Purpose**: Verify explicit access property takes precedence
+
+**Input**:
+- `<span ui-value="name?access=rw"></span>` (non-interactive with explicit rw)
+
+**References**:
+- CRC: crc-BindingEngine.md - "Default Access Property"
+
+**Expected Results**:
+- Child variable created with `access=rw` property
+- Explicit property overrides default
+
+---
+
 ## Coverage Summary
 
 **Responsibilities Covered:**
 - FrontendApp: initialize, handleBootstrap, handleVariableUpdate, sendMessage, navigateTo, handleTabActivation, showNotification
 - SPANavigator: bindToApp, handleHistoryChange, pushState, replaceState, go, handlePopState, buildFullUrl
-- ViewRenderer: render, clear, createElements, bindElements, handleViewChange, renderViewList, renderNestedView, updateDynamicContent
+- ViewRenderer: render, clear, createElements, collectScripts, appendToElement, bindElements, activateScripts, handleViewChange, renderViewList, renderNestedView, updateDynamicContent
 - WidgetBinder: bindWidget, bindShoelaceInput, bindShoelaceButton, bindShoelaceSelect, bindTabulator, bindDivContent, bindDivView, bindDivViewList, bindDynamicViewdef
+- BindingEngine: createCodeBinding, determineDefaultAccess
+- ValueBinding: executeCode (code binding execution)
+- View: default access property
+- ViewList: default access property
 
 **Scenarios Covered:**
 - seq-bootstrap.md: All paths
 - seq-spa-navigate.md: All paths
 - seq-render-view.md: All paths
+- seq-bind-element.md: ui-code binding, default access property
 
 **Gaps**: None identified

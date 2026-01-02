@@ -3,7 +3,7 @@
 // Spec: viewdefs.md
 
 import { ViewdefStore } from './viewdef_store';
-import { cloneViewdefContent } from './viewdef';
+import { cloneViewdefContent, collectScripts, activateScripts } from './viewdef';
 import { VariableStore } from './connection';
 import { ViewList, createViewList } from './viewlist';
 import { parsePath } from './binding';
@@ -164,9 +164,13 @@ export class View {
 
     console.log('RENDER VIEW', this)
 
-    // Clone template content
+    // Clone template content (returns DocumentFragment, not yet in DOM)
     const fragment = cloneViewdefContent(viewdef);
 
+    // Collect scripts before appending (store for later activation)
+    const scripts = collectScripts(fragment);
+
+    // Append to element (nodes are now in DOM)
     this.element.appendChild(fragment);
 
     // Process ui-viewlist elements before binding
@@ -185,6 +189,9 @@ export class View {
         }
       }
     }
+
+    // Activate scripts (scripts are now DOM-connected)
+    activateScripts(scripts);
 
     this.rendered = true;
     this.valueType = type;
@@ -247,6 +254,12 @@ export class View {
       const parentData = this.variableStore.get(contextVarId);
       if (parentData?.properties['fallbackNamespace']) {
         properties['fallbackNamespace'] = parentData.properties['fallbackNamespace'];
+      }
+
+      // Default to access=r for ui-viewlist (read-only binding)
+      // Spec: viewdefs.md - ViewLists
+      if (!properties['access']) {
+        properties['access'] = 'r';
       }
 
       this.variableStore.create({
@@ -322,6 +335,12 @@ export class View {
       const parentData = this.variableStore.get(contextVarId);
       if (parentData?.properties['fallbackNamespace']) {
         properties['fallbackNamespace'] = parentData.properties['fallbackNamespace'];
+      }
+
+      // Default to access=r for ui-view (read-only binding)
+      // Spec: viewdefs.md - Views
+      if (!properties['access']) {
+        properties['access'] = 'r';
       }
 
       // Create child variable with path property

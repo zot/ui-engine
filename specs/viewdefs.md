@@ -44,21 +44,40 @@ Viewdefs support hot-reloading for iterative development:
 - On-demand loading: when a new `type` is encountered, the server automatically loads matching `TYPE.*.html` files from the viewdef directory
 - This enables editing viewdefs without restarting the server
 
-## Variable Element Tracking
+## Widgets
 
-Each variable tracks the **element ID** of the element that created it. If the element doesn't have an ID, one is vended and assigned.
+A **Widget** is the binding context for an element with `ui-*` bindings. Each element with bindings has an associated Widget.
 
-**Element ID tracking is used for:**
-- Namespace inheritance (see Views section)
-- Debugging and inspection
-- Understanding the variable-element relationship
+**Widget properties:**
+- `elementId` - Auto-generated unique ID for the element (vended if element has no ID)
+- `variables` - Map of binding name to variable ID for all bindings on this element
+
+**Variable-Widget relationship:**
+- Each variable created by a binding stores a reference to its Widget via the element ID
+- Variables do NOT store direct references to DOM elements (use element ID lookup instead)
+- This enables proper cleanup and avoids memory leaks from DOM references
+
+**Element ID vending:**
+- If an element doesn't have an ID, the Widget vends and assigns one
+- Format: `ui-widget-{counter}` (auto-incremented)
+
+**Why no direct element references:**
+- Avoids circular references and memory leaks
+- Enables serialization of binding state
+- Allows element lookup by ID when needed (e.g., `document.getElementById(elementId)`)
 
 ## Value Bindings (variable → element)
 
 - `ui-value` - Bind a variable to the element's "value" (input field, file name, etc.)
-- `ui-attr-*` - Bind a variable value to an HTML attribute (e.g., `ui-attr-disabled`)
-- `ui-class-*` - Bind a variable value to CSS classes (value is a class string)
-- `ui-style-*` - Bind a variable value to a CSS style property (e.g., `ui-style-background-color`)
+  - For non-interactive elements (div, span, etc.), automatically adds `access=r` if no `access` property is specified
+  - Interactive elements (input, textarea, select, etc.) default to read-write
+- `ui-attr-*` - Bind a variable value to an HTML attribute (e.g., `ui-attr-disabled`); defaults to `access=r`
+- `ui-class-*` - Bind a variable value to CSS classes (value is a class string); defaults to `access=r`
+- `ui-style-*` - Bind a variable value to a CSS style property (e.g., `ui-style-background-color`); defaults to `access=r`
+- `ui-code` - Execute JavaScript code when the variable receives an update; defaults to `access=r`
+  - The attribute value is a path to a variable containing JS code
+  - When the variable's value changes, the code is executed
+  - The code has access to `element` (the bound element) and `value` (the new value)
 
 Variable values are used directly; variable properties can specify transformations.
 
@@ -167,6 +186,8 @@ A **View** is an element that renders a variable using a viewdef. Views are crea
 - `ui-view` - Path to an object reference variable to render
 - `ui-namespace` - (optional) Namespace for viewdef lookup
 
+The `ui-view` binding automatically adds `access=r` if no `access` property is specified, since views are typically read-only bindings.
+
 **Namespace variable properties:**
 
 When creating a view's variable:
@@ -226,9 +247,17 @@ The frontend maintains a `render(element, variable, namespace)` function:
    - If variable has `namespace` property and `TYPE.{namespace}` exists, use it
    - Else if variable has `fallbackNamespace` property and `TYPE.{fallbackNamespace}` exists, use it
    - Else use `TYPE.DEFAULT`
-3. Clear the element's children
-4. Deep clone the template's contents into the element
-5. Bind the cloned elements to the variable
+2. Clear the element's children
+3. Deep clone the template's contents (returns DocumentFragment, not yet in DOM)
+4. Collect all `<script>` elements from the cloned content (store for later activation)
+5. Append cloned nodes to the element (nodes are now in DOM)
+6. Bind the cloned elements to the variable
+7. Activate script elements (scripts are now DOM-connected):
+   - For each collected script element:
+     - Create a new `<script>` element via `document.createElement('script')`
+     - Set `type` to `text/javascript`
+     - Copy the `textContent` from the original to the new element
+     - Replace the original script element with the new one
 
 **Pending views:**
 
@@ -264,8 +293,10 @@ The `ui-viewlist` attribute is a shorthand that implicitly uses `lua.ViewList`:
 
 ```html
 <div ui-viewlist="contacts"></div>
-<!-- Equivalent to: <div ui-view="contacts?wrapper=lua.ViewList"></div> -->
+<!-- Equivalent to: <div ui-view="contacts?wrapper=lua.ViewList&access=r"></div> -->
 ```
+
+The `ui-viewlist` binding automatically adds `access=r` if no `access` property is specified, since lists are typically read-only bindings.
 
 With `ui-viewlist`, use `ui-namespace` to specify the item viewdef namespace. Namespace inheritance follows the same rules as Views (see above).
 

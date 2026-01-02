@@ -59,12 +59,12 @@
 **CRC Cards:**
 - crc-Viewdef.md
 - crc-ViewdefStore.md
-- crc-View.md (includes 3-tier namespace resolution, namespace property inheritance)
-- crc-ViewList.md (includes fallbackNamespace setting, exemplar namespace inheritance)
+- crc-View.md (includes 3-tier namespace resolution, namespace property inheritance, default access=r)
+- crc-ViewList.md (includes fallbackNamespace setting, exemplar namespace inheritance, default access=r)
 - crc-ViewListItem.md
 - crc-AppView.md
-- crc-BindingEngine.md
-- crc-ValueBinding.md
+- crc-BindingEngine.md (includes ui-code binding, default access property logic)
+- crc-ValueBinding.md (includes code binding execution, default access property)
 - crc-EventBinding.md
 
 **Sequence Diagrams:**
@@ -73,12 +73,14 @@
 - seq-render-view.md (includes 3-tier namespace resolution)
 - seq-viewlist-update.md (includes exemplar namespace inheritance)
 - seq-viewlist-presenter-sync.md
-- seq-bind-element.md
+- seq-bind-element.md (includes ui-code binding, default access property)
 - seq-handle-event.md
 
 **Notes:**
 - Namespace resolution: namespace -> fallbackNamespace -> DEFAULT
 - ViewList wrapper sets `fallbackNamespace: "list-item"` on its variable
+- Default access=r for: ui-value on non-interactive elements, ui-attr-*, ui-class-*, ui-style-*, ui-code, ui-view, ui-viewlist
+- ui-code binding executes JavaScript code with element and value in scope
 
 ---
 
@@ -391,10 +393,11 @@
 - [x] `web/src/app.ts` - SPA navigation (combined with FrontendApp)
 
 ### crc-ViewRenderer.md
-**Source Spec:** libraries.md
+**Source Spec:** viewdefs.md, libraries.md
 **Implementation:**
 - [x] `web/src/renderer.ts` - View renderer
 - [ ] `web/src/renderer.ts` - Update lookupViewdef for 3-tier namespace resolution
+- [ ] `web/src/renderer.ts` - Add script collection and activation (collectScripts, activateScripts)
 
 ### crc-WidgetBinder.md
 **Source Spec:** libraries.md, components.md

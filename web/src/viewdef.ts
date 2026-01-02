@@ -72,6 +72,24 @@ export function cloneViewdefContent(viewdef: Viewdef): DocumentFragment {
   return viewdef.template.content.cloneNode(true) as DocumentFragment;
 }
 
+// Collect script elements from a fragment or element
+// Spec: viewdefs.md - Render process step 4
+export function collectScripts(container: DocumentFragment | Element): HTMLScriptElement[] {
+  return Array.from(container.querySelectorAll('script')) as HTMLScriptElement[];
+}
+
+// Activate script elements by replacing with new ones
+// Cloned scripts don't execute; creating new script elements triggers execution
+// Spec: viewdefs.md - Render process step 7
+export function activateScripts(scripts: HTMLScriptElement[]): void {
+  for (const original of scripts) {
+    const newScript = document.createElement('script');
+    newScript.type = 'text/javascript';
+    newScript.textContent = original.textContent;
+    original.replaceWith(newScript);
+  }
+}
+
 // Get the key for a viewdef
 export function getViewdefKey(viewdef: Viewdef): string {
   return buildKey(viewdef.type, viewdef.namespace);

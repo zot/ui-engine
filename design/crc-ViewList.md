@@ -55,6 +55,10 @@
 
 ## Notes
 
+### Default Access Property
+
+The `ui-viewlist` binding automatically adds `access=r` (read-only) if no `access` property is specified. ViewLists are typically read-only bindings that display array contents.
+
 ### ViewList as Wrapper
 
 ViewList operates in two contexts:

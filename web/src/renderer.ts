@@ -7,7 +7,7 @@ import { ViewList, createViewList } from './viewlist';
 import { ViewdefStore } from './viewdef_store';
 import { VariableStore } from './connection';
 import { BindingEngine } from './binding';
-import { cloneViewdefContent } from './viewdef';
+import { cloneViewdefContent, collectScripts, activateScripts } from './viewdef';
 
 export class ViewRenderer {
   private rootElement: HTMLElement;
@@ -60,13 +60,16 @@ export class ViewRenderer {
     // Clear existing content
     this.clear();
 
-    // Clone template
+    // Clone template (returns DocumentFragment, not yet in DOM)
     const fragment = cloneViewdefContent(viewdef);
+
+    // Collect scripts before appending (store for later activation)
+    const scripts = collectScripts(fragment);
 
     // Process ui-view and ui-viewlist elements before appending
     this.processFragment(fragment, variableId);
 
-    // Append to root
+    // Append to root (nodes are now in DOM)
     this.rootElement.appendChild(fragment);
 
     // Bind all elements in root
@@ -75,6 +78,9 @@ export class ViewRenderer {
         this.bindingEngine.bindElement(child, variableId);
       }
     }
+
+    // Activate scripts (scripts are now DOM-connected)
+    activateScripts(scripts);
 
     this.currentVariableId = variableId;
     return true;
@@ -137,6 +143,12 @@ export class ViewRenderer {
         }
       }
 
+      // Default to access=r for ui-view (read-only binding)
+      // Spec: viewdefs.md - Views
+      if (!properties['access']) {
+        properties['access'] = 'r';
+      }
+
       // Create child variable with path property
       this.variableStore.create({
         parentId: contextVarId,
@@ -193,6 +205,12 @@ export class ViewRenderer {
         if (parentData.properties['fallbackNamespace']) {
           properties['fallbackNamespace'] = parentData.properties['fallbackNamespace'];
         }
+      }
+
+      // Default to access=r for ui-viewlist (read-only binding)
+      // Spec: viewdefs.md - ViewLists
+      if (!properties['access']) {
+        properties['access'] = 'r';
       }
 
       console.log('[DEBUG] Creating viewlist variable with properties:', properties);

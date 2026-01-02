@@ -29,6 +29,10 @@
 
 ## Notes
 
+### Default Access Property
+
+The `ui-view` binding automatically adds `access=r` (read-only) if no `access` property is specified. Views are typically read-only bindings that display object references.
+
 ### Namespace Property Setting
 
 When creating a view's variable:

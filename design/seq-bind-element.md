@@ -21,7 +21,7 @@
         |                      |---parseAttributes--->|                      |
         |                      |   (ui-*)             |                      |
         |                      |                      |                      |
-        |                      |     [for each ui-value, ui-attr-*, ui-class-*, ui-style-*]
+        |                      |     [for each ui-value, ui-attr-*, ui-class-*, ui-style-*, ui-code]
         |                      |                      |                      |
         |                      |---parsePath--------->|                      |
         |                      |   (extract path &    |                      |
@@ -78,12 +78,20 @@ Variable values are **object references** (`{"obj": 1}`), not actual data. Clien
 2. **Watches** the child variable for value updates from the backend
 3. **Destroys** the child variable on unbind
 
-This applies to: `ui-value`, `ui-attr-*`, `ui-class-*`, `ui-style-*`, `ui-event-*`, `ui-action`
+This applies to: `ui-value`, `ui-attr-*`, `ui-class-*`, `ui-style-*`, `ui-code`, `ui-event-*`, `ui-action`
 
 ### Path Options
 
 - Path values can include URL-style parameters (?create=Type&prop=value)
 - **Properties without values default to `true`:** `name?keypress` equals `name?keypress=true`
+
+### Default Access Property
+
+When creating child variables, the binding engine sets a default `access` property if not explicitly specified:
+- `ui-value` on interactive elements (input, textarea, select, sl-*): `access=rw`
+- `ui-value` on non-interactive elements (div, span, etc.): `access=r`
+- `ui-attr-*`, `ui-class-*`, `ui-style-*`, `ui-code`: `access=r`
+- `ui-view`, `ui-viewlist`: `access=r`
 
 ### Input Event Selection
 

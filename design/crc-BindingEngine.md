@@ -17,11 +17,13 @@
 - createAttrBinding: Create ui-attr-* binding with child variable
 - createClassBinding: Create ui-class-* binding with child variable
 - createStyleBinding: Create ui-style-* binding with child variable
+- createCodeBinding: Create ui-code binding with child variable for JS execution
 - createEventBinding: Create ui-event-* binding with action variable
 - createActionBinding: Create ui-action binding with action variable
 - parsePath: Parse path with optional URL-style properties (?create=Type&prop=value); properties without values default to `true`
 - selectInputEvent: Choose event type for input elements (`blur` by default, `input` if `keypress` property is set or `ui-keypress` attribute used)
 - integrateWidgetBinding: Coordinate with WidgetBinder for widget-specific value handling
+- determineDefaultAccess: Determine default `access` property based on binding type and element
 
 ## Child Variable Architecture (Server-Side Path Resolution)
 
@@ -32,7 +34,7 @@ Variable values sent to the frontend are **object references** (e.g., `{"obj": 1
 - All paths must be resolved by the backend, which has access to actual object data
 - Every binding creates a **child variable** with a `path` property that the backend resolves
 
-**Implementation pattern for ALL binding types (ui-value, ui-attr-*, ui-class-*, ui-style-*):**
+**Implementation pattern for ALL binding types (ui-value, ui-attr-*, ui-class-*, ui-style-*, ui-code):**
 
 1. Parse the path from the attribute value
 2. Create a **child variable** under the context variable with `path` property set
@@ -59,6 +61,48 @@ Bindings gracefully handle nullish paths (via PathNavigator):
 
 Example: `ui-value="selectedContact.firstName"` works when `selectedContact` is null (shows empty).
 When user attempts to edit a field with a nullish path, the field shows an error indicator until the path becomes valid.
+
+## Default Access Property
+
+Bindings automatically set `access=r` (read-only) unless explicitly overridden:
+
+| Binding Type | Default Access | Notes |
+|--------------|----------------|-------|
+| `ui-value` on interactive elements | `rw` | input, textarea, select, sl-input, sl-textarea, sl-select |
+| `ui-value` on non-interactive elements | `r` | div, span, etc. |
+| `ui-attr-*` | `r` | Attribute bindings are read-only |
+| `ui-class-*` | `r` | Class bindings are read-only |
+| `ui-style-*` | `r` | Style bindings are read-only |
+| `ui-code` | `r` | Code execution bindings are read-only |
+| `ui-view` | `r` | View bindings are read-only |
+| `ui-viewlist` | `r` | ViewList bindings are read-only |
+
+The `determineDefaultAccess` method checks the binding type and element tag to determine the appropriate default.
+
+## ui-code Binding
+
+The `ui-code` binding executes JavaScript code when the bound variable's value changes.
+
+**Attribute format:**
+```html
+<div ui-code="codePath">...</div>
+```
+
+**Behavior:**
+1. Creates a child variable with `path` property set to the attribute value
+2. When the child variable receives an update, the value is treated as JavaScript code
+3. The code is executed with two variables in scope:
+   - `element` - the bound DOM element
+   - `value` - the new value from the variable
+
+**Example:**
+```html
+<div ui-code="highlightCode"></div>
+```
+
+When the `highlightCode` variable changes to `"element.classList.add('highlight')"`, that code executes with `element` being the div.
+
+**Security note:** The code is executed using `new Function()` with controlled scope. Only use with trusted backend code.
 
 ## Input Update Behavior
 
