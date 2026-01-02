@@ -44,12 +44,42 @@ Viewdefs support hot-reloading for iterative development:
 - On-demand loading: when a new `type` is encountered, the server automatically loads matching `TYPE.*.html` files from the viewdef directory
 - This enables editing viewdefs without restarting the server
 
+## Element References (Cross-Cutting Requirement)
+
+**Frontend code MUST NOT store direct references to DOM elements.**
+
+Instead, all element references must be stored as element IDs. When an element needs to be accessed, look it up by ID using `document.getElementById(elementId)`.
+
+**Global Element ID Vendor:**
+- A single global counter starts at `1` and increments
+- Format: `ui-{counter}` (e.g., `ui-1`, `ui-2`, `ui-3`)
+- Used by: Widgets, Views, ViewLists, or any code that needs a unique element ID
+- When an element doesn't have an ID, the vendor assigns one
+
+**Rationale:**
+- Avoids circular references and memory leaks from DOM element references
+- Enables serialization of binding/widget state
+- Simplifies garbage collection
+- Elements can be looked up on demand via `document.getElementById()`
+
+**Implementation pattern:**
+```typescript
+// ❌ WRONG - storing element reference
+private element: Element
+
+// ✅ CORRECT - storing element ID
+private elementId: string
+
+// Access element when needed
+const element = document.getElementById(this.elementId)
+```
+
 ## Widgets
 
 A **Widget** is the binding context for an element with `ui-*` bindings. Each element with bindings has an associated Widget.
 
 **Widget properties:**
-- `elementId` - Auto-generated unique ID for the element (vended if element has no ID)
+- `elementId` - Element ID (from global vendor if element has no ID)
 - `variables` - Map of binding name to variable ID for all bindings on this element
 
 **Variable-Widget relationship:**
@@ -57,14 +87,8 @@ A **Widget** is the binding context for an element with `ui-*` bindings. Each el
 - Variables do NOT store direct references to DOM elements (use element ID lookup instead)
 - This enables proper cleanup and avoids memory leaks from DOM references
 
-**Element ID vending:**
-- If an element doesn't have an ID, the Widget vends and assigns one
-- Format: `ui-widget-{counter}` (auto-incremented)
-
-**Why no direct element references:**
-- Avoids circular references and memory leaks
-- Enables serialization of binding state
-- Allows element lookup by ID when needed (e.g., `document.getElementById(elementId)`)
+**Element ID assignment:**
+- If an element doesn't have an ID, the Widget uses the global ID vendor to assign one
 
 ## Value Bindings (variable → element)
 
@@ -77,7 +101,11 @@ A **Widget** is the binding context for an element with `ui-*` bindings. Each el
 - `ui-code` - Execute JavaScript code when the variable receives an update; defaults to `access=r`
   - The attribute value is a path to a variable containing JS code
   - When the variable's value changes, the code is executed
-  - The code has access to `element` (the bound element) and `value` (the new value)
+  - The code has access to:
+    - `element` - The bound element (looked up by element ID, not a stored reference)
+    - `value` - The new value from the variable
+    - `variable` - The variable for this binding (provides access to widget via properties)
+    - `store` - The VariableStore for accessing/creating other variables
 
 Variable values are used directly; variable properties can specify transformations.
 

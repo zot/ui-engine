@@ -6,13 +6,7 @@
 import { View } from './view';
 import { ViewdefStore } from './viewdef_store';
 import { VariableStore } from './connection';
-
-// Counter for unique HTML ids
-let nextViewListItemId = 1;
-
-function vendViewListItemId(): string {
-  return `ui-vl-item-${nextViewListItemId++}`;
-}
+import { ensureElementId } from './element_id_vendor';
 
 // Parsed path with optional URL parameters
 export interface ParsedViewListPath {
@@ -42,12 +36,12 @@ export function parseViewListPath(fullPath: string): ParsedViewListPath {
 }
 
 export class ViewList {
-  readonly element: HTMLElement;
+  readonly elementId: string;
 
   private itemWrapper?: string;
   private variableId: number | null = null;
-  private views: View[] = [];
-  private exemplar: HTMLElement;
+  private viewIds: string[] = [];  // element IDs of child views (no direct references)
+  private exemplarHtml: string;    // store as HTML string, not element reference
   private viewdefStore: ViewdefStore;
   private variableStore: VariableStore;
   private unwatch: (() => void) | null = null;
@@ -63,7 +57,7 @@ export class ViewList {
     variableStore: VariableStore,
     bindCallback?: (element: HTMLElement, variableId: number) => void
   ) {
-    this.element = element;
+    this.elementId = ensureElementId(element);
     this.itemWrapper = element.getAttribute('ui-item-wrapper') || undefined;
     this.viewdefStore = viewdefStore;
     this.variableStore = variableStore;
@@ -72,13 +66,19 @@ export class ViewList {
     // Check for exemplar in element (first child element)
     const firstChild = element.firstElementChild;
     if (firstChild instanceof HTMLElement) {
-      this.exemplar = firstChild.cloneNode(true) as HTMLElement;
+      this.exemplarHtml = firstChild.outerHTML;
       // Remove the exemplar from DOM
       element.removeChild(firstChild);
     } else {
       // Default exemplar is a div
-      this.exemplar = document.createElement('div');
+      this.exemplarHtml = '<div></div>';
     }
+  }
+
+  // Get the element by ID lookup (no stored reference)
+  // Spec: viewdefs.md - Element References (Cross-Cutting Requirement)
+  getElement(): HTMLElement | null {
+    return document.getElementById(this.elementId) as HTMLElement | null;
   }
 
   getItemWrapper(): string | undefined {
@@ -88,7 +88,7 @@ export class ViewList {
 
   // Set a custom exemplar element (e.g., sl-option)
   setExemplar(exemplar: HTMLElement): void {
-    this.exemplar = exemplar.cloneNode(true) as HTMLElement;
+    this.exemplarHtml = exemplar.outerHTML;
   }
 
   // Parse and store path configuration from ui-viewlist attribute
@@ -121,17 +121,18 @@ export class ViewList {
   // Resolve namespace for an item element
   // Spec: viewdefs.md - Namespace variable properties
   // Uses closest('[ui-namespace]') and checks if ViewList's element contains it
-  private resolveNamespace(element: HTMLElement, parentVar: { properties: Record<string, string> } | undefined): string | undefined {
+  private resolveNamespace(itemElement: HTMLElement, parentVar: { properties: Record<string, string> } | undefined): string | undefined {
     // Find closest element with ui-namespace attribute
-    const closestNsElement = element.closest('[ui-namespace]');
+    const closestNsElement = itemElement.closest('[ui-namespace]');
     if (!closestNsElement) {
       // No ui-namespace found, inherit from ViewList's variable
       return parentVar?.properties['namespace'];
     }
 
     // Get the ViewList's element (which is also the parent variable's element)
+    const listElement = this.getElement();
     // If the ViewList element contains the found namespace element, use it
-    if (this.element.contains(closestNsElement)) {
+    if (listElement && listElement.contains(closestNsElement)) {
       return closestNsElement.getAttribute('ui-namespace') || undefined;
     }
 
@@ -178,15 +179,15 @@ export class ViewList {
       return;
     }
     const itemCount = value.length;
-    // Build map of current views by index
-    const newViews: View[] = this.views.slice()
+    // Build map of current view IDs by index
+    const newViewIds: string[] = this.viewIds.slice()
 
-    while (newViews.length < itemCount) {
+    while (newViewIds.length < itemCount) {
       // Create new view with child variable for this index
       // createItemView appends element to DOM first so closest() works
       const view = this.createItemView();
-      const index = newViews.length
-      newViews.push(view);
+      const index = newViewIds.length
+      newViewIds.push(view.elementId);
       // Create child variable with path = index (0-based)
       const indexPath = this.itemWrapper ? `${index}?wrapper=${this.itemWrapper}`
         : String(index);
@@ -194,13 +195,8 @@ export class ViewList {
       const parent = variable?.parentId ? this.variableStore.get(variable.parentId) : undefined
       console.log('CREATE LIST ITEM VIEW WITH PARENT', JSON.stringify(parent))
 
-      // Ensure element has an ID for tracking
-      // Spec: viewdefs.md - Variable Element Tracking
-      if (!view.element.id) {
-        view.element.id = vendViewListItemId();
-      }
-
-      const itemProps: Record<string, string> = { path: indexPath, elementId: view.element.id }
+      // View already has an element ID from ensureElementId
+      const itemProps: Record<string, string> = { path: indexPath, elementId: view.elementId }
       const itemWrapper = parent?.properties.itemWrapper
       if (itemWrapper) {
         itemProps.wrapper = itemWrapper
@@ -208,10 +204,13 @@ export class ViewList {
 
       // Resolve namespace using closest ui-namespace element
       // Spec: viewdefs.md - Namespace variable properties
-      // The view.element is already appended to this.element (ViewList element)
-      const namespace = this.resolveNamespace(view.element, variable);
-      if (namespace) {
-        itemProps['namespace'] = namespace;
+      // The view element is already appended to the ViewList element
+      const viewElement = view.getElement();
+      if (viewElement) {
+        const namespace = this.resolveNamespace(viewElement, variable);
+        if (namespace) {
+          itemProps['namespace'] = namespace;
+        }
       }
 
       // Always inherit fallbackNamespace from ViewList's variable
@@ -231,25 +230,33 @@ export class ViewList {
     }
 
     // Remove views that are beyond the new array length
-    while (newViews.length > itemCount) {
-      const view = newViews.pop()!
-      view.destroy();
-      if (view.element.parentNode) {
-        view.element.parentNode.removeChild(view.element);
+    while (newViewIds.length > itemCount) {
+      const viewId = newViewIds.pop()!
+      const viewElement = document.getElementById(viewId);
+      if (viewElement && viewElement.parentNode) {
+        viewElement.parentNode.removeChild(viewElement);
       }
     }
 
-    // Update views array
-    this.views = newViews;
+    // Update viewIds array
+    this.viewIds = newViewIds;
 
   }
 
   // Create a view element for an item
   // Appends element to DOM first so closest() works for namespace resolution
   private createItemView(): View {
-    const element = this.exemplar.cloneNode(true) as HTMLElement;
+    // Create element from stored HTML
+    const template = document.createElement('template');
+    template.innerHTML = this.exemplarHtml;
+    const element = template.content.firstElementChild as HTMLElement;
+
     // Append to DOM before creating View so closest() works
-    this.element.appendChild(element);
+    const listElement = this.getElement();
+    if (listElement) {
+      listElement.appendChild(element);
+    }
+
     // Don't set ui-view attribute - ViewList manages the variable directly
     const view = new View(
       element,
@@ -262,29 +269,38 @@ export class ViewList {
 
   // Clear all items
   clear(): void {
-    for (let i = this.views.length - 1; i >= 0; i--) {
-      const view = this.views[i];
-      view.destroy();
+    // Remove child elements by ID
+    for (const viewId of this.viewIds) {
+      const viewElement = document.getElementById(viewId);
+      if (viewElement && viewElement.parentNode) {
+        viewElement.parentNode.removeChild(viewElement);
+      }
     }
-    this.views = [];
-    while (this.element.firstChild) {
-      this.element.removeChild(this.element.firstChild);
+    this.viewIds = [];
+
+    // Clear any remaining children from list element
+    const listElement = this.getElement();
+    if (listElement) {
+      while (listElement.firstChild) {
+        listElement.removeChild(listElement.firstChild);
+      }
     }
   }
 
   // Get number of items
   getCount(): number {
-    return this.views.length;
+    return this.viewIds.length;
   }
 
-  // Get view at index
-  getView(index: number): View | undefined {
-    return this.views[index];
+  // Get view element at index
+  getViewElement(index: number): HTMLElement | null {
+    const viewId = this.viewIds[index];
+    return viewId ? document.getElementById(viewId) as HTMLElement | null : null;
   }
 
-  // Get all views
-  getViews(): View[] {
-    return [...this.views];
+  // Get all view element IDs
+  getViewIds(): string[] {
+    return [...this.viewIds];
   }
 
   // Cleanup

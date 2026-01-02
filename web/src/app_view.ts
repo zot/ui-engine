@@ -5,12 +5,13 @@
 import { View } from './view';
 import { ViewdefStore } from './viewdef_store';
 import { VariableStore } from './connection';
+import { ensureElementId } from './element_id_vendor';
 
 // Root app variable ID is always 1
 const ROOT_VARIABLE_ID = 1;
 
 export class AppView {
-  readonly element: HTMLElement;
+  readonly elementId: string;
   readonly variableId: number = ROOT_VARIABLE_ID;
   readonly namespace: string;
 
@@ -26,18 +27,30 @@ export class AppView {
     variableStore: VariableStore,
     bindCallback?: (element: HTMLElement, variableId: number) => void
   ) {
-    this.element = element;
+    this.elementId = ensureElementId(element);
     this.namespace = element.getAttribute('ui-namespace') || 'DEFAULT';
     this.viewdefStore = viewdefStore;
     this.variableStore = variableStore;
     this.bindCallback = bindCallback;
   }
 
+  // Get the element by ID lookup (no stored reference)
+  // Spec: viewdefs.md - Element References (Cross-Cutting Requirement)
+  getElement(): HTMLElement | null {
+    return document.getElementById(this.elementId) as HTMLElement | null;
+  }
+
   // Initialize the AppView: create View and watch variable 1
   initialize(): void {
+    const element = this.getElement();
+    if (!element) {
+      console.error('AppView element not found:', this.elementId);
+      return;
+    }
+
     // Create View for the ui-app element
     this.view = new View(
-      this.element,
+      element,
       this.viewdefStore,
       this.variableStore,
       this.bindCallback

@@ -10,7 +10,7 @@ export default defineConfig({
         worker: 'src/worker.ts',
       },
       output: {
-        entryFileNames: '[name].js',
+        entryFileNames: '[name]-[hash].js',
       },
     },
   },

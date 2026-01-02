@@ -8,9 +8,10 @@ import { ViewdefStore } from './viewdef_store';
 import { VariableStore } from './connection';
 import { BindingEngine } from './binding';
 import { cloneViewdefContent, collectScripts, activateScripts } from './viewdef';
+import { ensureElementId } from './element_id_vendor';
 
 export class ViewRenderer {
-  private rootElement: HTMLElement;
+  private rootElementId: string;
   private viewdefStore: ViewdefStore;
   private variableStore: VariableStore;
   private bindingEngine: BindingEngine;
@@ -23,10 +24,16 @@ export class ViewRenderer {
     viewdefStore: ViewdefStore,
     variableStore: VariableStore
   ) {
-    this.rootElement = rootElement;
+    this.rootElementId = ensureElementId(rootElement);
     this.viewdefStore = viewdefStore;
     this.variableStore = variableStore;
     this.bindingEngine = new BindingEngine(variableStore);
+  }
+
+  // Get the root element by ID lookup (no stored reference)
+  // Spec: viewdefs.md - Element References (Cross-Cutting Requirement)
+  getRootElement(): HTMLElement | null {
+    return document.getElementById(this.rootElementId) as HTMLElement | null;
   }
 
   // Render a variable (main entry point)
@@ -60,6 +67,13 @@ export class ViewRenderer {
     // Clear existing content
     this.clear();
 
+    // Get root element by ID lookup
+    const rootElement = this.getRootElement();
+    if (!rootElement) {
+      console.error('Root element not found:', this.rootElementId);
+      return false;
+    }
+
     // Clone template (returns DocumentFragment, not yet in DOM)
     const fragment = cloneViewdefContent(viewdef);
 
@@ -70,10 +84,10 @@ export class ViewRenderer {
     this.processFragment(fragment, variableId);
 
     // Append to root (nodes are now in DOM)
-    this.rootElement.appendChild(fragment);
+    rootElement.appendChild(fragment);
 
     // Bind all elements in root
-    for (const child of Array.from(this.rootElement.children)) {
+    for (const child of Array.from(rootElement.children)) {
       if (child instanceof Element) {
         this.bindingEngine.bindElement(child, variableId);
       }
@@ -162,7 +176,7 @@ export class ViewRenderer {
       });
     }
 
-    this.views.set(view.htmlId, view);
+    this.views.set(view.elementId, view);
   }
 
   // Setup a ui-viewlist element
@@ -227,12 +241,8 @@ export class ViewRenderer {
       });
     }
 
-    // Generate unique ID for tracking
-    const id = element.id || `viewlist-${this.viewLists.size}`;
-    if (!element.id) {
-      element.id = id;
-    }
-    this.viewLists.set(id, viewList);
+    // Use element ID for tracking (ensured by ViewList constructor)
+    this.viewLists.set(viewList.elementId, viewList);
   }
 
   // Bind an element and its children
@@ -254,16 +264,20 @@ export class ViewRenderer {
     }
     this.viewLists.clear();
 
-    // Unbind all elements
-    for (const child of Array.from(this.rootElement.children)) {
-      if (child instanceof Element) {
-        this.bindingEngine.unbindElement(child);
+    // Get root element by ID lookup
+    const rootElement = this.getRootElement();
+    if (rootElement) {
+      // Unbind all elements
+      for (const child of Array.from(rootElement.children)) {
+        if (child instanceof Element) {
+          this.bindingEngine.unbindElement(child);
+        }
       }
-    }
 
-    // Clear DOM
-    while (this.rootElement.firstChild) {
-      this.rootElement.removeChild(this.rootElement.firstChild);
+      // Clear DOM
+      while (rootElement.firstChild) {
+        rootElement.removeChild(rootElement.firstChild);
+      }
     }
 
     this.currentVariableId = null;

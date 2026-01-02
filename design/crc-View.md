@@ -5,23 +5,23 @@
 ## Responsibilities
 
 ### Knows
-- element: Container DOM element for this view
-- htmlId: Unique frontend-vended HTML id
+- elementId: ID of container element for this view (NOT direct DOM reference)
 - variable: Variable bound to this view (object reference)
 - rendered: Whether view has been successfully rendered
 
 ### Does
-- create: Initialize view from element with ui-view attribute, set variable namespace properties
+- create: Initialize view from element with ui-view attribute, vend element ID if needed, set variable namespace properties
 - render: Render variable using 3-tier namespace resolution, returns boolean
 - setVariable: Update bound variable (triggers re-render)
 - clear: Remove rendered content from element
-- getHtmlId: Return unique HTML id
+- getElement: Look up DOM element by elementId (via document.getElementById)
 - markPending: Add to pending views list (missing type or viewdef)
 - removePending: Remove from pending views list after successful render
 - resolveNamespace: Apply 3-tier resolution (namespace -> fallbackNamespace -> DEFAULT)
 
 ## Collaborators
 
+- ElementIdVendor: Vends unique element ID if element lacks one
 - ViewdefStore: Retrieves viewdefs by TYPE.NAMESPACE
 - ViewRenderer: Creates and manages Views
 - BindingEngine: Applies bindings to rendered content

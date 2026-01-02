@@ -66,6 +66,7 @@ Each session has an associated Backend that handles variable management. Two imp
 - crc-ViewList.md
 - crc-ViewListItem.md
 - crc-AppView.md
+- crc-Widget.md
 - crc-BindingEngine.md
 - crc-ValueBinding.md
 - crc-EventBinding.md
@@ -203,6 +204,7 @@ Each session has an associated Backend that handles variable management. Two imp
 
 **Design Elements**:
 - crc-Config.md
+- crc-ElementIdVendor.md (global element ID vendor - no direct DOM references)
 - crc-ObjectReference.md
 - crc-PathSyntax.md
 - manifest-ui.md

@@ -7,9 +7,9 @@
 ### Knows
 
 **Frontend (DOM management):**
-- element: Container DOM element for the list
-- exemplar: Element to clone for each item (default: div)
-- views: Parallel array of View elements
+- elementId: ID of container element for the list (NOT direct DOM reference)
+- exemplarHtml: HTML string for cloning items (default: `<div></div>`)
+- viewIds: Parallel array of View element IDs (NOT direct element references)
 - delegate: Optional delegate for add/remove notifications
 
 **Backend (Wrapper behavior):**
@@ -22,11 +22,12 @@
 ### Does
 
 **Frontend (DOM management):**
-- create: Initialize from element with ui-viewlist attribute
-- setExemplar: Set element to clone for list items (e.g., sl-option)
-- update: Sync views array with bound variable array
-- addItem: Clone exemplar, create variable with inherited namespace properties, render and append
-- removeItem: Destroy variable, remove element from DOM
+- create: Initialize from element with ui-viewlist attribute, vend element ID if needed
+- setExemplarHtml: Set HTML string for cloning items (e.g., `<sl-option></sl-option>`)
+- getElement: Look up DOM element by elementId (via document.getElementById)
+- update: Sync viewIds array with bound variable array
+- addItem: Clone exemplar HTML, create variable with inherited namespace properties, render and append
+- removeItem: Destroy variable, remove element from DOM by ID
 - reorder: Reorder view elements to match array order
 - clear: Remove all items
 - setDelegate: Set delegate for notifications
@@ -44,6 +45,7 @@
 
 ## Collaborators
 
+- ElementIdVendor: Vends unique element ID if element lacks one
 - View: Individual view elements in the list (frontend)
 - ViewRenderer: Creates ViewLists (frontend)
 - BindingEngine: Binds list to variable, parses path properties (frontend)

@@ -5,7 +5,8 @@
 ## Responsibilities
 
 ### Knows
-- element: Target DOM element
+- widget: The Widget this binding belongs to (provides element ID and variable mappings)
+- elementId: ID of the bound element (from Widget, for element lookup)
 - childVarId: ID of the child variable created for this binding (NOT the parent context variable)
 - bindingType: One of value, keypress, attr, class, style, code
 - attributeName: For attr/class/style, the specific attribute
@@ -13,6 +14,7 @@
 - pathOptions: Parsed path options including `keypress`, `create`, `wrapper`, `access`, etc.
 - defaultValue: Empty/default value for nullish paths (empty string, false, etc.)
 - updateEvent: Event to listen for updates (`blur`/`input` for native, `sl-change`/`sl-input` for Shoelace)
+- store: VariableStore reference for ui-code execution scope
 - unbindValue: Callback to stop watching the child variable
 - unbindError: Callback to stop watching errors on the child variable
 
@@ -21,13 +23,14 @@
 - watchChildVariable: Watch the child variable (not parent) for value updates
 - apply: Set element property from child variable value (uses defaultValue for nullish)
 - update: Refresh element when child variable changes (handles nullish gracefully)
+- getElement: Look up DOM element by elementId (via document.getElementById)
 - getTargetProperty: Determine which element property to set
 - transformValue: Apply any value transformations
 - destroy: Clean up binding, unwatch, and **destroy child variable**
 - handleNullishRead: Display defaultValue when path resolves to null/undefined
 - handleNullishWrite: Send error message with code 'path-failure' when write path is nullish (causes UI error indicator)
 - selectUpdateEvent: Choose update event based on element type and `keypress` option
-- executeCode: For code bindings, execute JavaScript with element and value in scope
+- executeCode: For code bindings, execute JavaScript with element, value, variable, and store in scope
 
 ## Child Variable Architecture
 
@@ -71,16 +74,29 @@ When creating the child variable, if no explicit `access` property is in pathOpt
 For `ui-code` bindings, the `executeCode` method:
 
 1. Receives the code string from the child variable value
-2. Creates a function with controlled scope: `new Function('element', 'value', code)`
-3. Calls the function with the bound element and current value
-4. Catches and logs any execution errors (does not throw)
+2. Looks up the element by elementId (not stored reference)
+3. Creates a function with controlled scope: `new Function('element', 'value', 'variable', 'store', code)`
+4. Calls the function with the element, current value, variable, and VariableStore
+5. Catches and logs any execution errors (does not throw)
+
+**Scope variables:**
+- `element` - The bound DOM element (looked up by element ID)
+- `value` - The new value from the variable
+- `variable` - The variable for this binding (provides access to widget via properties)
+- `store` - The VariableStore for accessing/creating other variables
 
 **Example execution:**
 ```javascript
 // ui-code="formatCode" where variable value is "element.innerHTML = marked(value)"
-const fn = new Function('element', 'value', code);
-fn(this.element, currentValue);
+const element = document.getElementById(this.elementId);
+const fn = new Function('element', 'value', 'variable', 'store', code);
+fn(element, currentValue, this.childVariable, this.store);
 ```
+
+**Why element lookup instead of stored reference:**
+- Avoids memory leaks from DOM references in closures
+- Element may be removed/replaced; lookup ensures current element
+- Consistent with Widget pattern (element ID indirection)
 
 ## Input Update Event Selection
 
@@ -108,8 +124,10 @@ When `ui-keypress` is used, `pathOptions.keypress` is implicitly set to `true`, 
 
 ## Collaborators
 
+- Widget: Binding context (provides element ID, variable mappings)
 - BindingEngine: Creates and manages bindings
 - Variable: Source of bound value
+- VariableStore: Passed to ui-code execution scope
 - WatchManager: Notifies of value changes
 - WidgetBinder: Handles widget-specific bindings
 - PathSyntax: Parses path options including `keypress`

@@ -7,17 +7,10 @@ import { cloneViewdefContent, collectScripts, activateScripts } from './viewdef'
 import { VariableStore } from './connection';
 import { ViewList, createViewList } from './viewlist';
 import { parsePath } from './binding';
-
-// Counter for unique HTML ids
-let nextHtmlId = 1;
-
-function vendHtmlId(): string {
-  return `ui-view-${nextHtmlId++}`;
-}
+import { ensureElementId } from './element_id_vendor';
 
 export class View {
-  readonly element: HTMLElement;
-  readonly htmlId: string;
+  readonly elementId: string;
 
   private valueType: string = '';
   private variableId: number | null = null;
@@ -35,11 +28,7 @@ export class View {
     variableStore: VariableStore,
     bindCallback?: (element: HTMLElement, variableId: number) => void
   ) {
-    this.element = element;
-    this.htmlId = element.id || vendHtmlId();
-    if (!element.id) {
-      element.id = this.htmlId;
-    }
+    this.elementId = ensureElementId(element);
 
     this.viewdefStore = viewdefStore;
     this.variableStore = variableStore;
@@ -51,6 +40,12 @@ export class View {
       // Path creates a variable reference - not implemented yet
       // For now, we expect variable to be set directly
     }
+  }
+
+  // Get the element by ID lookup (no stored reference)
+  // Spec: viewdefs.md - Element References (Cross-Cutting Requirement)
+  getElement(): HTMLElement | null {
+    return document.getElementById(this.elementId) as HTMLElement | null;
   }
 
   // Get namespace from variable properties (set from ui-namespace or inherited)
@@ -170,20 +165,27 @@ export class View {
     // Collect scripts before appending (store for later activation)
     const scripts = collectScripts(fragment);
 
+    // Get element by ID lookup
+    const element = this.getElement();
+    if (!element) {
+      console.error('View element not found:', this.elementId);
+      return false;
+    }
+
     // Append to element (nodes are now in DOM)
-    this.element.appendChild(fragment);
+    element.appendChild(fragment);
 
     // Process ui-viewlist elements before binding
     // Spec: viewdefs.md - Path Resolution: Server-Side Only
-    // Note: fragment is now empty after appendChild, query this.element
-    this.processViewLists(this.element, this.variableId!);
+    // Note: fragment is now empty after appendChild, query element
+    this.processViewLists(element, this.variableId!);
 
     // Process ui-view elements before binding
-    this.processChildViews(this.element, this.variableId!);
+    this.processChildViews(element, this.variableId!);
 
     // Apply bindings to cloned content
     if (this.bindCallback) {
-      for (const child of this.element.children) {
+      for (const child of element.children) {
         if (child instanceof HTMLElement) {
           this.bindCallback(child, this.variableId!);
         }
@@ -232,14 +234,12 @@ export class View {
 
       // Ensure element has an ID for tracking
       // Spec: viewdefs.md - Variable Element Tracking
-      if (!element.id) {
-        element.id = vendHtmlId();
-      }
+      const elId = ensureElementId(element);
 
       // Create child variable with path and ViewList properties (wrapper, item, etc.)
       const properties: Record<string, string> = {
         path: basePath,
-        elementId: element.id,
+        elementId: elId,
         ...props,
       };
 
@@ -312,14 +312,12 @@ export class View {
 
       // Ensure element has an ID for tracking
       // Spec: viewdefs.md - Variable Element Tracking
-      if (!element.id) {
-        element.id = vendHtmlId();
-      }
+      const elId = ensureElementId(element);
 
       // Build properties with namespace inheritance
       const properties: Record<string, string> = {
         path: basePath,
-        elementId: element.id,
+        elementId: elId,
         ...(props.options as any),
         ...extra,
       };
@@ -373,8 +371,11 @@ export class View {
     this.childViews = [];
 
     // Clear DOM
-    while (this.element.firstChild) {
-      this.element.removeChild(this.element.firstChild);
+    const element = this.getElement();
+    if (element) {
+      while (element.firstChild) {
+        element.removeChild(element.firstChild);
+      }
     }
     this.rendered = false;
   }
@@ -382,14 +383,14 @@ export class View {
   // Mark as pending (waiting for type or viewdef)
   private markPending(): void {
     this.viewdefStore.addPendingView({
-      id: this.htmlId,
+      id: this.elementId,
       render: () => this.render(),
     });
   }
 
   // Remove from pending list
   private removePending(): void {
-    this.viewdefStore.removePendingView(this.htmlId);
+    this.viewdefStore.removePendingView(this.elementId);
   }
 
   // Check if rendered

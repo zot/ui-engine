@@ -3,9 +3,10 @@
 // Spec: viewdefs.md
 
 import { VariableStore, VariableError } from './connection'
+import { ensureElementId } from './element_id_vendor'
 
 export interface Binding {
-  element: Element
+  elementId: string
   unbind: () => void
 }
 
@@ -117,7 +118,7 @@ export function resolvePath(value: unknown, segments: string[]): unknown {
 
 export class BindingEngine {
   private store: VariableStore
-  private bindings: Map<Element, Binding[]> = new Map()
+  private bindings: Map<string, Binding[]> = new Map()  // keyed by elementId
 
   constructor(store: VariableStore) {
     this.store = store
@@ -205,7 +206,8 @@ export class BindingEngine {
     }
 
     if (elementBindings.length > 0) {
-      this.bindings.set(element, elementBindings)
+      const elementId = ensureElementId(element)
+      this.bindings.set(elementId, elementBindings)
     }
 
     // Recursively bind children
@@ -216,10 +218,13 @@ export class BindingEngine {
 
   // Unbind all bindings from an element and its children
   unbindElement(element: Element): void {
-    const elementBindings = this.bindings.get(element)
-    if (elementBindings) {
-      elementBindings.forEach((b) => b.unbind())
-      this.bindings.delete(element)
+    const elementId = element.id
+    if (elementId) {
+      const elementBindings = this.bindings.get(elementId)
+      if (elementBindings) {
+        elementBindings.forEach((b) => b.unbind())
+        this.bindings.delete(elementId)
+      }
     }
 
     for (const child of Array.from(element.children)) {
@@ -375,8 +380,9 @@ export class BindingEngine {
     }
     element.addEventListener('ui-value-change', changeHandler)
 
+    const elementId = ensureElementId(element)
     return {
-      element,
+      elementId,
       unbind: () => {
         if (unbindValue) unbindValue()
         if (unbindError) unbindError()
@@ -449,8 +455,9 @@ export class BindingEngine {
         console.error('Failed to create attr binding variable:', err)
       })
 
+    const elementId = ensureElementId(element)
     return {
-      element,
+      elementId,
       unbind: () => {
         if (unbindValue) unbindValue()
         if (childVarId !== null) {
@@ -507,8 +514,9 @@ export class BindingEngine {
         console.error('Failed to create class binding variable:', err)
       })
 
+    const elementId = ensureElementId(element)
     return {
-      element,
+      elementId,
       unbind: () => {
         if (unbindValue) unbindValue()
         if (childVarId !== null) {
@@ -566,8 +574,9 @@ export class BindingEngine {
         console.error('Failed to create style binding variable:', err)
       })
 
+    const elementId = ensureElementId(element)
     return {
-      element,
+      elementId,
       unbind: () => {
         if (unbindValue) unbindValue()
         if (childVarId !== null) {
@@ -597,15 +606,16 @@ export class BindingEngine {
     let childVarId: number | null = null
     let unbindValue: (() => void) | null = null
 
-    // Execute code with element and value in scope
+    // Execute code with element, value, variable, and store in scope
+    // Spec: viewdefs.md - ui-code binding scope
     const executeCode = (code: unknown) => {
       if (typeof code !== 'string' || !code) return
       try {
-        // Create function with element and value parameters
-        const fn = new Function('element', 'value', code)
-        // Get current value from store for the 'value' parameter
+        // Create function with element, value, variable, and store parameters
+        const fn = new Function('element', 'value', 'variable', 'store', code)
+        // Get current variable data from store
         const current = childVarId !== null ? this.store.get(childVarId) : null
-        fn(element, current?.value)
+        fn(element, current?.value, current, this.store)
       } catch (err) {
         console.error('Error executing ui-code:', err)
       }
@@ -629,8 +639,9 @@ export class BindingEngine {
         console.error('Failed to create code binding variable:', err)
       })
 
+    const elementId = ensureElementId(element)
     return {
-      element,
+      elementId,
       unbind: () => {
         if (unbindValue) unbindValue()
         if (childVarId !== null) {
@@ -686,8 +697,9 @@ export class BindingEngine {
 
     element.addEventListener(eventName, handler)
 
+    const elementId = ensureElementId(element)
     return {
-      element,
+      elementId,
       unbind: () => {
         element.removeEventListener(eventName, handler)
         if (actionVarId !== null) {
@@ -755,8 +767,9 @@ export class BindingEngine {
 
     element.addEventListener('click', handler)
 
+    const elementId = ensureElementId(element)
     return {
-      element,
+      elementId,
       unbind: () => {
         element.removeEventListener('click', handler)
         // Destroy the action variable

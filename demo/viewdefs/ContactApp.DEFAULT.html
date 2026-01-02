@@ -130,10 +130,10 @@
       </div>
 
       <!-- Contact List (each contact wrapped with ContactPresenter) -->
-      <div class="contact-list" ui-view="contacts()?access=r&wrapper=lua.ViewList&itemWrapper=ContactPresenter"></div>
+      <div class="contact-list" ui-view="contacts()?wrapper=lua.ViewList&itemWrapper=ContactPresenter"></div>
 
       <!-- Empty state -->
-      <div class="empty-state" ui-attr-hidden="hasContacts()?access=r">
+      <div class="empty-state" ui-attr-hidden="hasContacts()">
         <sl-icon name="person-rolodex" style="font-size: 3rem; margin-bottom: 1rem;"></sl-icon>
         <p>No contacts yet. Click "Add Contact" to get started.</p>
       </div>

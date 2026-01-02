@@ -1,7 +1,7 @@
 # Test Design: Viewdef System
 
 **Source Specs**: viewdefs.md, libraries.md
-**CRC Cards**: crc-Viewdef.md, crc-ViewdefStore.md, crc-View.md, crc-ViewList.md, crc-BindingEngine.md, crc-ValueBinding.md, crc-EventBinding.md
+**CRC Cards**: crc-Viewdef.md, crc-ViewdefStore.md, crc-View.md, crc-ViewList.md, crc-Widget.md, crc-BindingEngine.md, crc-ValueBinding.md, crc-EventBinding.md
 **Sequences**: seq-load-viewdefs.md, seq-viewdef-delivery.md, seq-render-view.md, seq-viewlist-update.md, seq-bind-element.md, seq-handle-event.md
 
 ## Overview
@@ -318,6 +318,141 @@ Tests for viewdef loading and validation, View/ViewList rendering, binding creat
 
 ---
 
+### Test: Widget created for element with bindings
+
+**Purpose**: Verify Widget creation during binding
+
+**Input**:
+- Element with ui-value="name" attribute
+- Element has no id attribute
+
+**References**:
+- CRC: crc-Widget.md - "Does: create, vendElementId"
+- CRC: crc-BindingEngine.md - "Does: getOrCreateWidget"
+- Sequence: seq-bind-element.md
+
+**Expected Results**:
+- Widget created for element
+- Element assigned auto-vended ID (format: ui-widget-{counter})
+- Widget tracks binding name to variable ID mapping
+
+---
+
+### Test: Widget uses existing element ID
+
+**Purpose**: Verify Widget respects existing element IDs
+
+**Input**:
+- Element with id="my-input" and ui-value="name"
+
+**References**:
+- CRC: crc-Widget.md - "Does: create"
+- CRC: crc-BindingEngine.md - "Does: getOrCreateWidget"
+
+**Expected Results**:
+- Widget uses "my-input" as elementId
+- No auto-vended ID assigned
+- Element id attribute unchanged
+
+---
+
+### Test: Widget tracks multiple bindings
+
+**Purpose**: Verify Widget variable mapping with multiple bindings
+
+**Input**:
+- Element with ui-value="name" and ui-attr-disabled="isLocked"
+
+**References**:
+- CRC: crc-Widget.md - "Knows: variables"
+- CRC: crc-BindingEngine.md - "Does: bind"
+
+**Expected Results**:
+- Single Widget created for element
+- Widget.variables has entries for both bindings
+- Each binding mapped to its child variable ID
+
+---
+
+### Test: Widget cleanup on unbind
+
+**Purpose**: Verify Widget destroyed when all bindings removed
+
+**Input**:
+- Element with single binding
+- Binding removed via unbind
+
+**References**:
+- CRC: crc-Widget.md - "Does: destroy"
+- CRC: crc-BindingEngine.md - "Does: unbind"
+- Sequence: seq-bind-element.md
+
+**Expected Results**:
+- Widget destroyed
+- Auto-vended element ID removed (if applicable)
+- No memory leaks
+
+---
+
+### Test: Variable stores elementId not DOM reference
+
+**Purpose**: Verify variable-Widget relationship via elementId
+
+**Input**:
+- Element with ui-code binding
+- Variable created for binding
+
+**References**:
+- CRC: crc-Widget.md - "Variable-Widget relationship"
+- CRC: crc-ValueBinding.md - "Knows: elementId"
+
+**Expected Results**:
+- Variable has elementId property (string)
+- Variable does NOT have direct element reference
+- Element accessible via document.getElementById(elementId)
+
+---
+
+### Test: ui-code binding receives extended scope
+
+**Purpose**: Verify ui-code execution scope includes variable and store
+
+**Input**:
+- `<div ui-code="myCode"></div>`
+- Variable value: `element.dataset.test = variable.id + ':' + typeof store`
+
+**References**:
+- CRC: crc-ValueBinding.md - "Does: executeCode"
+- CRC: crc-BindingEngine.md - "ui-code Binding"
+
+**Expected Results**:
+- Code executes with `element` (DOM element)
+- Code executes with `value` (the code string)
+- Code executes with `variable` (the child variable)
+- Code executes with `store` (the VariableStore)
+
+---
+
+### Test: ui-code element lookup by ID
+
+**Purpose**: Verify ui-code looks up element by ID (not stored reference)
+
+**Input**:
+- Element with ui-code binding
+- Element replaced in DOM (same ID)
+- Variable value changes
+
+**References**:
+- CRC: crc-ValueBinding.md - "Does: executeCode, getElement"
+- CRC: crc-Widget.md - "Why Element ID"
+
+**Expected Results**:
+- Code execution finds current element (not stale reference)
+- New element modified by code
+- No errors from stale DOM reference
+
+---
+
 ### Test: Render ui-content HTML
 
 **Purpose**: Verify HTML content rendering
@@ -578,8 +713,9 @@ Tests for viewdef loading and validation, View/ViewList rendering, binding creat
 - ViewdefStore: store, get, getForType, has, validate, batchUpdate, flushUpdates, addPendingView, processPendingViews, removePendingView
 - View: create, render, setVariable, clear, getHtmlId, markPending, removePending
 - ViewList: create, setExemplar, update, addItem, removeItem, reorder, clear, setDelegate, notifyAdd, notifyRemove
-- BindingEngine: bind, unbind, createValueBinding, createEventBinding, parsePath, updateBinding
-- ValueBinding: apply, update, getTargetProperty, transformValue, destroy
+- Widget: create, vendElementId, registerBinding, unregisterBinding, getVariableId, getElement, destroy
+- BindingEngine: bind, unbind, getOrCreateWidget, createValueBinding, createEventBinding, parsePath, updateBinding
+- ValueBinding: apply, update, getElement, getTargetProperty, transformValue, executeCode (extended scope), destroy
 - EventBinding: attach, detach, handleEvent, extractEventValue, isAction, destroy
 
 **Scenarios Covered:**
@@ -587,7 +723,7 @@ Tests for viewdef loading and validation, View/ViewList rendering, binding creat
 - seq-viewdef-delivery.md: All paths
 - seq-render-view.md: All paths (including pending views, namespace fallback)
 - seq-viewlist-update.md: All paths (add, remove, reorder)
-- seq-bind-element.md: All paths
+- seq-bind-element.md: All paths (including Widget creation, element ID vending)
 - seq-handle-event.md: All paths
 
 **Gaps**: None identified

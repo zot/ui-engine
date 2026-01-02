@@ -59,13 +59,15 @@
 **CRC Cards:**
 - crc-Viewdef.md
 - crc-ViewdefStore.md
-- crc-View.md (includes 3-tier namespace resolution, namespace property inheritance, default access=r)
-- crc-ViewList.md (includes fallbackNamespace setting, exemplar namespace inheritance, default access=r)
+- crc-View.md (includes 3-tier namespace resolution, namespace property inheritance, default access=r, elementId)
+- crc-ViewList.md (includes fallbackNamespace setting, exemplar namespace inheritance, default access=r, elementId)
 - crc-ViewListItem.md
-- crc-AppView.md
-- crc-BindingEngine.md (includes ui-code binding, default access property logic)
-- crc-ValueBinding.md (includes code binding execution, default access property)
-- crc-EventBinding.md
+- crc-AppView.md (elementId instead of element)
+- crc-Widget.md (binding context for elements with ui-* bindings, uses ElementIdVendor)
+- crc-BindingEngine.md (includes ui-code binding, Widget management, default access property logic, activeBindings keyed by elementId)
+- crc-ValueBinding.md (includes code binding execution with extended scope, default access property)
+- crc-EventBinding.md (elementId instead of element)
+- crc-ElementIdVendor.md (global vendor for element IDs - cross-cutting)
 
 **Sequence Diagrams:**
 - seq-load-viewdefs.md
@@ -73,14 +75,18 @@
 - seq-render-view.md (includes 3-tier namespace resolution)
 - seq-viewlist-update.md (includes exemplar namespace inheritance)
 - seq-viewlist-presenter-sync.md
-- seq-bind-element.md (includes ui-code binding, default access property)
+- seq-bind-element.md (includes Widget creation via ElementIdVendor, ui-code binding, default access property)
 - seq-handle-event.md
 
 **Notes:**
+- **No Direct Element References (Cross-Cutting Requirement)**: Frontend code MUST NOT store direct references to DOM elements
+- Widget: Binding context with elementId (vended via ElementIdVendor if needed) and variable map
+- Variables store elementId reference to Widget (not direct DOM references)
+- Element ID format: `ui-{counter}` (global ElementIdVendor, counter starts at 1)
 - Namespace resolution: namespace -> fallbackNamespace -> DEFAULT
 - ViewList wrapper sets `fallbackNamespace: "list-item"` on its variable
 - Default access=r for: ui-value on non-interactive elements, ui-attr-*, ui-class-*, ui-style-*, ui-code, ui-view, ui-viewlist
-- ui-code binding executes JavaScript code with element and value in scope
+- ui-code binding executes JavaScript code with element, value, variable, and store in scope
 
 ---
 
@@ -257,12 +263,14 @@
 - [x] `web/src/view.ts` - View class for ui-view elements
 - [ ] `web/src/view.ts` - Add 3-tier namespace resolution (namespace -> fallbackNamespace -> DEFAULT)
 - [ ] `web/src/view.ts` - Add namespace property inheritance from parent variable
+- [ ] `web/src/view.ts` - Use elementId instead of element (no direct DOM reference)
 
 ### crc-ViewList.md
 **Source Spec:** viewdefs.md, protocol.md
 **Implementation:**
 - [x] `web/src/viewlist.ts` - ViewList class for ui-viewlist elements (frontend)
 - [ ] `web/src/viewlist.ts` - Add exemplar namespace inheritance
+- [ ] `web/src/viewlist.ts` - Use elementId and viewIds instead of element/views (no direct DOM references)
 - [x] `internal/lua/viewlist.go` - ViewList wrapper (backend)
 - [ ] `internal/lua/viewlist.go` - Set fallbackNamespace: "list-item" on variable
 
@@ -275,21 +283,39 @@
 **Source Spec:** viewdefs.md
 **Implementation:**
 - [x] `web/src/app_view.ts` - AppView class for ui-app element
+- [ ] `web/src/app_view.ts` - Use elementId instead of element (no direct DOM reference)
+
+### crc-ElementIdVendor.md
+**Source Spec:** viewdefs.md (Cross-Cutting: No Direct Element References)
+**Implementation:**
+- [ ] `web/src/element_id_vendor.ts` - Global ElementIdVendor singleton
+- [ ] `web/src/element_id_vendor.ts` - vendId() returns `ui-{counter}` format
+
+### crc-Widget.md
+**Source Spec:** viewdefs.md
+**Implementation:**
+- [ ] `web/src/widget.ts` - Widget class (element ID, variable map)
+- [ ] `web/src/widget.ts` - Use ElementIdVendor for element ID (format: ui-{counter})
+- [ ] `web/src/widget.ts` - Variable-to-Widget relationship via elementId property
 
 ### crc-BindingEngine.md
 **Source Spec:** viewdefs.md, libraries.md
 **Implementation:**
 - [x] `web/src/binding.ts` - Binding engine with child variable architecture (all bindings create child variables for server-side path resolution)
+- [ ] `web/src/binding.ts` - Widget management (getOrCreateWidget, widget cleanup on unbind)
+- [ ] `web/src/binding.ts` - Use elementId keys for activeBindings map (no direct DOM references)
 
 ### crc-ValueBinding.md
 **Source Spec:** viewdefs.md, libraries.md
 **Implementation:**
 - [x] `web/src/binding.ts` - Value bindings with child variable creation, event selection based on keypress property
+- [ ] `web/src/binding.ts` - ui-code extended scope (element, value, variable, store)
 
 ### crc-EventBinding.md
 **Source Spec:** viewdefs.md
 **Implementation:**
 - [x] `web/src/binding.ts` - Event bindings (combined with BindingEngine)
+- [ ] `web/src/binding.ts` - Use elementId instead of element for EventBinding (no direct DOM reference)
 
 ### crc-Session.md
 **Source Spec:** main.md (UI Server Architecture - Frontend Layer), interfaces.md
@@ -398,6 +424,7 @@
 - [x] `web/src/renderer.ts` - View renderer
 - [ ] `web/src/renderer.ts` - Update lookupViewdef for 3-tier namespace resolution
 - [ ] `web/src/renderer.ts` - Add script collection and activation (collectScripts, activateScripts)
+- [ ] `web/src/renderer.ts` - Use rootElementId and activeElementIds instead of element references (no direct DOM references)
 
 ### crc-WidgetBinder.md
 **Source Spec:** libraries.md, components.md

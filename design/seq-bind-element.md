@@ -7,66 +7,89 @@
 
 - ViewRenderer: View display
 - BindingEngine: Binding coordinator
+- Widget: Binding context for element (element ID, variable map)
 - VariableStore: Variable creation and watching
 - Backend: Server-side path resolution
 
 ## Sequence
 
 ```
-     ViewRenderer         BindingEngine         VariableStore            Backend
-        |                      |                      |                      |
-        |---bind(element,----->|                      |                      |
-        |    contextVarId)     |                      |                      |
-        |                      |                      |                      |
-        |                      |---parseAttributes--->|                      |
-        |                      |   (ui-*)             |                      |
-        |                      |                      |                      |
+     ViewRenderer         BindingEngine            Widget           VariableStore            Backend
+        |                      |                      |                      |                      |
+        |---bind(element,----->|                      |                      |                      |
+        |    contextVarId)     |                      |                      |                      |
+        |                      |                      |                      |                      |
+        |                      |---getOrCreateWidget->|                      |                      |
+        |                      |   (element)          |                      |                      |
+        |                      |                      |                      |                      |
+        |                      |                      |---vendElementId----->|                      |
+        |                      |                      |   (via ElementIdVendor|                     |
+        |                      |                      |    if no id: "ui-{n}")|                     |
+        |                      |                      |                      |                      |
+        |                      |<--widget-------------|                      |                      |
+        |                      |                      |                      |                      |
+        |                      |---parseAttributes--->|                      |                      |
+        |                      |   (ui-*)             |                      |                      |
+        |                      |                      |                      |                      |
         |                      |     [for each ui-value, ui-attr-*, ui-class-*, ui-style-*, ui-code]
-        |                      |                      |                      |
-        |                      |---parsePath--------->|                      |
-        |                      |   (extract path &    |                      |
-        |                      |    options)          |                      |
-        |                      |                      |                      |
-        |                      |---store.create------>|                      |
-        |                      |   {parentId:         |                      |
-        |                      |    contextVarId,     |                      |
-        |                      |    properties:       |---create msg-------->|
-        |                      |    {path:"field"}}   |                      |
-        |                      |                      |                      |
-        |                      |<--childVarId---------|                      |
-        |                      |                      |                      |
-        |                      |                      |                      |---resolve path
-        |                      |                      |                      |   on parent obj
-        |                      |                      |                      |
-        |                      |---store.watch------->|                      |
-        |                      |   (childVarId)       |<--update(childVarId,-|
-        |                      |                      |      resolvedValue)  |
-        |                      |                      |                      |
-        |                      |<--callback(value)----|                      |
-        |                      |                      |                      |
-        |                      |---apply(element,---->|                      |
-        |                      |      value)          |                      |
-        |                      |                      |                      |
-        |                      |     [for each ui-event-*, ui-action]        |
-        |                      |                      |                      |
-        |                      |---store.create------>|                      |
-        |                      |   {parentId:         |                      |
-        |                      |    contextVarId,     |---create msg-------->|
-        |                      |    properties:       |                      |
-        |                      |    {path:"method()", |                      |
-        |                      |     access:"action"}}|                      |
-        |                      |                      |                      |
-        |                      |<--actionVarId--------|                      |
-        |                      |                      |                      |
-        |                      |---addEventListener-->|                      |
-        |                      |   (on click: update  |                      |
-        |                      |    actionVarId)      |                      |
-        |                      |                      |                      |
-        |<--bound element------|                      |                      |
-        |                      |                      |                      |
+        |                      |                      |                      |                      |
+        |                      |---parsePath--------->|                      |                      |
+        |                      |   (extract path &    |                      |                      |
+        |                      |    options)          |                      |                      |
+        |                      |                      |                      |                      |
+        |                      |---store.create------>|                      |                      |
+        |                      |   {parentId:         |                      |                      |
+        |                      |    contextVarId,     |                      |                      |
+        |                      |    properties:       |                      |---create msg-------->|
+        |                      |    {path:"field",    |                      |                      |
+        |                      |     elementId:id}}   |                      |                      |
+        |                      |                      |                      |                      |
+        |                      |<--childVarId---------|                      |                      |
+        |                      |                      |                      |                      |
+        |                      |---widget.register--->|                      |                      |
+        |                      |   Binding(name,      |                      |                      |
+        |                      |    childVarId)       |                      |                      |
+        |                      |                      |                      |                      |
+        |                      |                      |                      |                      |---resolve path
+        |                      |                      |                      |                      |   on parent obj
+        |                      |                      |                      |                      |
+        |                      |---store.watch------->|                      |                      |
+        |                      |   (childVarId)       |                      |<--update(childVarId,-|
+        |                      |                      |                      |      resolvedValue)  |
+        |                      |                      |                      |                      |
+        |                      |<--callback(value)----|                      |                      |
+        |                      |                      |                      |                      |
+        |                      |---apply(element,---->|                      |                      |
+        |                      |      value)          |                      |                      |
+        |                      |                      |                      |                      |
+        |                      |     [for each ui-event-*, ui-action]        |                      |
+        |                      |                      |                      |                      |
+        |                      |---store.create------>|                      |                      |
+        |                      |   {parentId:         |                      |                      |
+        |                      |    contextVarId,     |                      |---create msg-------->|
+        |                      |    properties:       |                      |                      |
+        |                      |    {path:"method()", |                      |                      |
+        |                      |     access:"action"}}|                      |                      |
+        |                      |                      |                      |                      |
+        |                      |<--actionVarId--------|                      |                      |
+        |                      |                      |                      |                      |
+        |                      |---addEventListener-->|                      |                      |
+        |                      |   (on click: update  |                      |                      |
+        |                      |    actionVarId)      |                      |                      |
+        |                      |                      |                      |                      |
+        |<--bound element------|                      |                      |                      |
+        |                      |                      |                      |                      |
 ```
 
 ## Notes
+
+### Widget Creation
+
+When binding an element:
+1. BindingEngine calls `getOrCreateWidget(element)`
+2. If element has no `id` attribute, Widget requests one from global ElementIdVendor: `ui-{counter}`
+3. Widget tracks mapping of binding names to variable IDs
+4. Variables store `elementId` property (not direct DOM reference) for Widget access
 
 ### Child Variable Architecture (Critical)
 
@@ -75,10 +98,18 @@
 Variable values are **object references** (`{"obj": 1}`), not actual data. Client-side path resolution is impossible. Each binding:
 
 1. **Creates** a child variable with `path` property under the context variable
-2. **Watches** the child variable for value updates from the backend
-3. **Destroys** the child variable on unbind
+2. **Registers** the binding with the Widget (name -> variable ID mapping)
+3. **Watches** the child variable for value updates from the backend
+4. **Destroys** the child variable on unbind (and unregisters from Widget)
 
 This applies to: `ui-value`, `ui-attr-*`, `ui-class-*`, `ui-style-*`, `ui-code`, `ui-event-*`, `ui-action`
+
+### Variable-Widget Relationship
+
+Variables created by bindings do NOT store direct DOM references:
+- Variable stores `elementId` property (the Widget's element ID)
+- Element is looked up via `document.getElementById(elementId)` when needed
+- This avoids memory leaks and enables serialization
 
 ### Path Options
 
@@ -106,6 +137,8 @@ When unbinding, the binding engine:
 1. Stops watching the child variable
 2. Removes event listeners
 3. **Destroys the child variable** (`store.destroy(childVarId)`)
+4. **Unregisters binding from Widget**
+5. **Destroys Widget** if no bindings remain (removes auto-vended ID if applicable)
 
 ### Nullish Path Handling
 

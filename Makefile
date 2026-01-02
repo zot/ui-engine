@@ -155,7 +155,8 @@ release-archives: release-bundled
 # Build demo binary with demo site bundled
 demo: build frontend
 	@echo "Copying frontend to demo..."
-	@cp $(SITE_DIR)/html/main.js $(SITE_DIR)/html/worker.js demo/html/
+	@rm -f demo/html/main-*.js demo/html/worker-*.js
+	@cp $(SITE_DIR)/html/index.html $(SITE_DIR)/html/main-*.js $(SITE_DIR)/html/worker-*.js demo/html/
 	@echo "Building demo binary..."
 	$(BUILD_DIR)/$(BINARY_NAME) bundle -o $(BUILD_DIR)/$(BINARY_NAME)-demo demo
 	@echo "Created: $(BUILD_DIR)/$(BINARY_NAME)-demo"

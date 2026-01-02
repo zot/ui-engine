@@ -5,10 +5,9 @@
 ## Responsibilities
 
 ### Knows
-- rootElement: DOM element for view display
+- rootElementId: ID of root element for view display (NOT direct DOM reference)
 - currentViewdef: Currently rendered viewdef
-- activeElements: Map of variable ID to bound elements
-- nextHtmlId: Counter for vending unique HTML ids
+- activeElementIds: Map of variable ID to element IDs (NOT direct element references)
 
 ### Does
 - render: Render variable with namespace, returns boolean success
@@ -22,11 +21,12 @@
 - createView: Create View for ui-view element
 - createViewList: Create ViewList for ui-viewlist element
 - updateDynamicContent: Handle ui-content HTML updates
-- vendHtmlId: Generate unique HTML id for views
+- getRootElement: Look up root element by rootElementId (via document.getElementById)
 - lookupViewdef: Get viewdef using 3-tier resolution (namespace -> fallbackNamespace -> DEFAULT)
 
 ## Collaborators
 
+- ElementIdVendor: Vends unique element IDs for views and managed elements
 - FrontendApp: Triggers rendering
 - AppView: Uses ViewRenderer for root app rendering
 - ViewdefStore: Retrieves viewdefs, manages pending views

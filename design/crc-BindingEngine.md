@@ -5,13 +5,15 @@
 ## Responsibilities
 
 ### Knows
-- activeBindings: Map of element to list of active bindings
+- activeBindings: Map of element ID to list of active bindings (keyed by elementId, NOT direct element references)
+- widgets: Map of element ID to Widget for bound elements
 - store: VariableStore for creating/watching child variables
 - inputElements: Set of element types that support two-way value binding (`input`, `textarea`, `sl-input`, `sl-textarea`)
 
 ### Does
-- bind: Apply all ui-* bindings to an element
-- unbind: Remove all bindings from an element and destroy child variables
+- bind: Apply all ui-* bindings to an element (creates Widget if needed)
+- unbind: Remove all bindings from an element, destroy child variables, and clean up Widget
+- getOrCreateWidget: Get existing Widget for element or create new one (vends element ID if needed)
 - createValueBinding: Create ui-value binding with child variable
 - createKeypressBinding: Create ui-keypress binding (shorthand for ui-value with keypress option)
 - createAttrBinding: Create ui-attr-* binding with child variable
@@ -91,9 +93,11 @@ The `ui-code` binding executes JavaScript code when the bound variable's value c
 **Behavior:**
 1. Creates a child variable with `path` property set to the attribute value
 2. When the child variable receives an update, the value is treated as JavaScript code
-3. The code is executed with two variables in scope:
-   - `element` - the bound DOM element
+3. The code is executed with four variables in scope:
+   - `element` - the bound DOM element (looked up by element ID, not a stored reference)
    - `value` - the new value from the variable
+   - `variable` - the variable for this binding (provides access to widget via properties)
+   - `store` - the VariableStore for accessing/creating other variables
 
 **Example:**
 ```html
@@ -101,6 +105,14 @@ The `ui-code` binding executes JavaScript code when the bound variable's value c
 ```
 
 When the `highlightCode` variable changes to `"element.classList.add('highlight')"`, that code executes with `element` being the div.
+
+**Advanced example (using variable and store):**
+```javascript
+// Code can access the widget via variable properties
+const widgetId = variable.properties.elementId;
+// Code can create or access other variables
+const otherVar = store.get(someVarId);
+```
 
 **Security note:** The code is executed using `new Function()` with controlled scope. Only use with trusted backend code.
 
@@ -125,6 +137,8 @@ To send updates on every keypress, add the `keypress` property to the path:
 
 ## Collaborators
 
+- ElementIdVendor: Global vendor for unique element IDs
+- Widget: Binding context for elements with ui-* bindings (element ID, variable map)
 - ValueBinding: Handles variable-to-element bindings
 - EventBinding: Handles element-to-variable bindings
 - Viewdef: Source of binding directives
