@@ -1574,6 +1574,11 @@ func (s *LuaSession) GetTracker() *changetracker.Tracker {
 	return s.variableStore.GetTracker(s.ID)
 }
 
+// GetAppVariableID returns the app variable ID (variable 1) for this session.
+func (s *LuaSession) GetAppVariableID() int64 {
+	return s.appVariableID
+}
+
 func (s *LuaSession) Set(varID int64, value any) error {
 	return s.GetTracker().GetVariable(varID).Set(value)
 }

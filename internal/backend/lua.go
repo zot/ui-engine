@@ -311,3 +311,61 @@ func (lb *LuaBackend) Shutdown() {
 	lb.inactiveVariables = nil
 	lb.varToSession = nil
 }
+
+// ClearDescendants removes all descendant variables of the given root.
+// Used when a page reconnects to clear stale child variables.
+func (lb *LuaBackend) ClearDescendants(rootID int64) {
+	lb.mu.Lock()
+	defer lb.mu.Unlock()
+
+	// Find all descendants by checking parent chains
+	allVars := lb.tracker.Variables()
+	var toDestroy []int64
+
+	for _, v := range allVars {
+		if v.ID == rootID {
+			continue // Skip the root itself
+		}
+		// Check if this variable is a descendant of rootID
+		if lb.isDescendantOf(v.ID, rootID, allVars) {
+			toDestroy = append(toDestroy, v.ID)
+		}
+	}
+
+	// Destroy in reverse order (children before parents)
+	for i := len(toDestroy) - 1; i >= 0; i-- {
+		varID := toDestroy[i]
+		lb.tracker.DestroyVariable(varID)
+		delete(lb.varToSession, varID)
+		delete(lb.watchCounts, varID)
+		delete(lb.watchers, varID)
+		delete(lb.inactiveVariables, varID)
+	}
+
+	lb.Log(3, "Cleared %d descendants of variable %d", len(toDestroy), rootID)
+}
+
+// isDescendantOf checks if varID is a descendant of ancestorID.
+func (lb *LuaBackend) isDescendantOf(varID, ancestorID int64, allVars []*changetracker.Variable) bool {
+	// Build a map for quick lookup
+	varMap := make(map[int64]*changetracker.Variable)
+	for _, v := range allVars {
+		varMap[v.ID] = v
+	}
+
+	// Walk up the parent chain
+	current := varID
+	for {
+		v, ok := varMap[current]
+		if !ok {
+			return false
+		}
+		if v.ParentID == ancestorID {
+			return true
+		}
+		if v.ParentID == 0 {
+			return false
+		}
+		current = v.ParentID
+	}
+}

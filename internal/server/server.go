@@ -146,12 +146,24 @@ func New(cfg *config.Config) *Server {
 		// Set up afterBatch callback for automatic change detection
 		s.wsEndpoint.SetAfterBatch(s.AfterBatch)
 
-		// Set up disconnect callback to clear sent-tracking for page refresh
+		// Set up disconnect callback to clear sent-tracking and stale variables for page refresh
 		s.wsEndpoint.SetOnDisconnect(func(internalSessionID string) {
 			// Translate internal UUID to vended ID for viewdef manager
 			vendedID := s.sessions.GetVendedID(internalSessionID)
 			if vendedID != "" && s.viewdefManager != nil {
 				s.viewdefManager.ClearSession(vendedID)
+			}
+
+			// Clear all descendants of the app variable so page refresh starts fresh
+			if vendedID != "" && s.storeAdapter != nil {
+				if lb := s.storeAdapter.GetBackend(vendedID); lb != nil {
+					if luaSession := s.GetLuaSession(vendedID); luaSession != nil {
+						rootID := luaSession.GetAppVariableID()
+						if rootID != 0 {
+							lb.ClearDescendants(rootID)
+						}
+					}
+				}
 			}
 		})
 
@@ -735,6 +747,13 @@ func (a *luaTrackerAdapter) SetBackend(sessionID string, lb *backend.LuaBackend)
 		a.varToSession = make(map[int64]string)
 	}
 	a.backends[sessionID] = lb
+}
+
+// GetBackend returns the backend for a session.
+func (a *luaTrackerAdapter) GetBackend(sessionID string) *backend.LuaBackend {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
+	return a.backends[sessionID]
 }
 
 // RemoveBackend removes the backend for a session.
