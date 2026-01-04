@@ -50,6 +50,10 @@
         |                      |   Binding(name,      |                      |                      |
         |                      |    childVarId)       |                      |                      |
         |                      |                      |                      |                      |
+        |                      |---widget.addUnbind-->|                      |                      |
+        |                      |   Handler(name,      |                      |                      |
+        |                      |    cleanupFn)        |                      |                      |
+        |                      |                      |                      |                      |
         |                      |                      |                      |                      |---resolve path
         |                      |                      |                      |                      |   on parent obj
         |                      |                      |                      |                      |
@@ -131,14 +135,15 @@ For input elements, the update event depends on `keypress` property:
 - With `keypress`: `input` (native) or `sl-input` (Shoelace)
 - See seq-input-value-binding.md for detailed flow
 
-### Unbind Cleanup
+### Unbind Cleanup (Widget-Based)
 
-When unbinding, the binding engine:
-1. Stops watching the child variable
-2. Removes event listeners
-3. **Destroys the child variable** (`store.destroy(childVarId)`)
-4. **Unregisters binding from Widget**
-5. **Destroys Widget** if no bindings remain (removes auto-vended ID if applicable)
+When unbinding an element:
+1. BindingEngine calls `widget.unbindAll()`
+2. Widget iterates `unbindHandlers` map and calls each cleanup function
+3. Each cleanup function: stops watching, removes listeners, destroys child variable
+4. Widget clears `unbindHandlers` map
+5. BindingEngine removes Widget from `widgets` map
+6. Widget removes auto-vended element ID if applicable
 
 ### Nullish Path Handling
 

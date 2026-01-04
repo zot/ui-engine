@@ -120,6 +120,7 @@
         <sl-input
           placeholder="Search contacts..."
           ui-value="searchQuery?keypress"
+          ui-event-keypress-enter="selectFirstContact()"
           clearable>
           <sl-icon name="search" slot="prefix"></sl-icon>
         </sl-input>

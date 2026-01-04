@@ -2,6 +2,8 @@
 
 **Source Spec:** viewdefs.md, libraries.md
 
+Value bindings connect variables to element properties. They are created by BindingEngine and registered with the Widget via unbind handlers (no separate Binding interface).
+
 ## Responsibilities
 
 ### Knows
@@ -18,7 +20,7 @@
 - unbindValue: Callback to stop watching the child variable
 - unbindError: Callback to stop watching errors on the child variable
 
-### Does
+### Does (implemented by BindingEngine)
 - createChildVariable: Create child variable with path property for backend resolution
 - watchChildVariable: Watch the child variable (not parent) for value updates
 - apply: Set element property from child variable value (uses defaultValue for nullish)
@@ -26,11 +28,19 @@
 - getElement: Look up DOM element by elementId (via document.getElementById)
 - getTargetProperty: Determine which element property to set
 - transformValue: Apply any value transformations
-- destroy: Clean up binding, unwatch, and **destroy child variable**
 - handleNullishRead: Display defaultValue when path resolves to null/undefined
 - handleNullishWrite: Send error message with code 'path-failure' when write path is nullish (causes UI error indicator)
 - selectUpdateEvent: Choose update event based on element type and `keypress` option
 - executeCode: For code bindings, execute JavaScript with element, value, variable, and store in scope
+- shouldSuppressUpdate: Check if update should be skipped due to duplicate value (see Duplicate Update Suppression)
+
+## Unbind Handler
+
+Each value binding registers an unbind handler with the Widget that:
+1. Stops watching the child variable (value and error callbacks)
+2. Destroys the child variable
+
+Called automatically when `widget.unbindAll()` is invoked.
 
 ## Child Variable Architecture
 
@@ -110,6 +120,47 @@ For two-way bound input elements, the update event is selected based on:
 | `<sl-textarea>` | `sl-change` | `sl-input` |
 
 The `keypress` property is parsed from the path (e.g., `name?keypress`) and defaults to `true` when specified without a value.
+
+## Local Value Setting (Universal Principle)
+
+**Spec: viewdefs.md "Frontend Update Behavior"**
+
+**Whenever the frontend sends a variable update to the backend, it MUST first set the value in the local variable cache.** This applies when ValueBinding sends updates in response to user input (blur/input events).
+
+When the user changes an input value:
+1. Set `variable.value` locally (MUST do this first)
+2. Send update message to backend
+
+This ensures the frontend's cached variable state accurately reflects the UI state being sent to the backend.
+
+## Duplicate Update Suppression
+
+**Spec: viewdefs.md "Frontend Update Behavior"**
+
+Bindings that do NOT have `access=action` or `access=w` MUST NOT send an update if the variable's value has not changed.
+
+**When to suppress:**
+- Before sending an update, compare the new value to the variable's current cached value
+- If values are equal, skip the update entirely (do not set local value, do not send message)
+
+**When NOT to suppress (always send):**
+- `access=action` - Actions are side-effect triggers, always send
+- `access=w` - Write-only bindings, always send
+
+**Implementation:**
+```typescript
+// shouldSuppressUpdate(variable, newValue): boolean
+if (pathOptions.access === 'action' || pathOptions.access === 'w') {
+  return false;  // Never suppress actions or write-only
+}
+return variable.value === newValue;  // Suppress if unchanged
+```
+
+**Rationale:**
+- Reduces unnecessary network traffic
+- Prevents redundant backend processing
+- Blur events may fire without actual value changes
+- Action bindings intentionally trigger side effects regardless of value
 
 ## ui-keypress Attribute
 

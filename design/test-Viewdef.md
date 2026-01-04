@@ -2,7 +2,7 @@
 
 **Source Specs**: viewdefs.md, libraries.md
 **CRC Cards**: crc-Viewdef.md, crc-ViewdefStore.md, crc-View.md, crc-ViewList.md, crc-Widget.md, crc-BindingEngine.md, crc-ValueBinding.md, crc-EventBinding.md
-**Sequences**: seq-load-viewdefs.md, seq-viewdef-delivery.md, seq-render-view.md, seq-viewlist-update.md, seq-bind-element.md, seq-handle-event.md
+**Sequences**: seq-load-viewdefs.md, seq-viewdef-delivery.md, seq-render-view.md, seq-viewlist-update.md, seq-bind-element.md, seq-handle-event.md (value sync, local value setting), seq-handle-keypress-event.md
 
 ## Overview
 
@@ -188,6 +188,137 @@ Tests for viewdef loading and validation, View/ViewList rendering, binding creat
 
 ---
 
+### Test: Parse ui-event-keypress-enter binding
+
+**Purpose**: Verify keypress event binding for Enter key
+
+**Input**:
+- HTML: `<input ui-event-keypress-enter="onEnter">`
+
+**References**:
+- CRC: crc-EventBinding.md - "Does: attach, handleKeypressEvent"
+- CRC: crc-BindingEngine.md - "Does: createKeypressEventBinding, parseKeypressAttribute"
+- Sequence: seq-handle-keypress-event.md
+
+**Expected Results**:
+- Keydown event listener attached
+- Target key: "Enter" (normalized from "enter")
+- Path: "onEnter"
+- Handler filters for Enter key only
+
+---
+
+### Test: Parse ui-event-keypress-escape binding
+
+**Purpose**: Verify keypress event binding for Escape key
+
+**Input**:
+- HTML: `<div ui-event-keypress-escape="onCancel" tabindex="0">`
+
+**References**:
+- CRC: crc-EventBinding.md - "Does: attach, matchesTargetKey"
+- Sequence: seq-handle-keypress-event.md
+
+**Expected Results**:
+- Keydown event listener attached
+- Target key: "Escape" (normalized from "escape")
+- Path: "onCancel"
+
+---
+
+### Test: Parse ui-event-keypress-arrow bindings
+
+**Purpose**: Verify keypress event bindings for arrow keys
+
+**Input**:
+- HTML: `<div ui-event-keypress-left="onLeft" ui-event-keypress-right="onRight">`
+
+**References**:
+- CRC: crc-EventBinding.md - "Keypress Binding"
+- CRC: crc-BindingEngine.md - "Does: normalizeKeyName"
+
+**Expected Results**:
+- Two keydown listeners attached
+- Target keys: "ArrowLeft", "ArrowRight"
+- Each binding independent
+
+---
+
+### Test: Parse ui-event-keypress-letter binding
+
+**Purpose**: Verify keypress event binding for letter keys
+
+**Input**:
+- HTML: `<input ui-event-keypress-a="onLetterA">`
+
+**References**:
+- CRC: crc-EventBinding.md - "Keypress Binding"
+- Sequence: seq-handle-keypress-event.md
+
+**Expected Results**:
+- Keydown event listener attached
+- Target key: "a" (case-insensitive match)
+- Matches both "a" and "A"
+
+---
+
+### Test: Keypress binding fires only on matching key
+
+**Purpose**: Verify keypress event filtering
+
+**Input**:
+- Input with `ui-event-keypress-enter="onEnter"`
+- User presses "a" key
+- User presses "Enter" key
+
+**References**:
+- CRC: crc-EventBinding.md - "Does: matchesTargetKey, handleKeypressEvent"
+- Sequence: seq-handle-keypress-event.md
+
+**Expected Results**:
+- "a" key press: no variable update
+- "Enter" key press: update(varId, "enter") sent
+- Variable value is "enter" (lowercase key name)
+
+---
+
+### Test: Keypress binding sets variable to key name
+
+**Purpose**: Verify keypress binding value
+
+**Input**:
+- Input with `ui-event-keypress-escape="onEscape"`
+- User presses Escape key
+
+**References**:
+- CRC: crc-EventBinding.md - "handleKeypressEvent"
+- Sequence: seq-handle-keypress-event.md
+
+**Expected Results**:
+- update(varId, "escape") sent
+- Variable value is "escape" (the attribute key name, not "Escape")
+
+---
+
+### Test: Multiple keypress bindings on same element
+
+**Purpose**: Verify multiple keypress bindings work independently
+
+**Input**:
+- Input with `ui-event-keypress-enter="onEnter" ui-event-keypress-tab="onTab"`
+- User presses Enter, then Tab
+
+**References**:
+- CRC: crc-EventBinding.md - "Keypress Binding"
+- Sequence: seq-handle-keypress-event.md
+
+**Expected Results**:
+- Enter press: updates onEnter variable to "enter"
+- Tab press: updates onTab variable to "tab"
+- Each binding has its own variable
+
+---
+
 ### Test: Parse ui-action binding
 
 **Purpose**: Verify action binding (button)
@@ -296,6 +427,216 @@ Tests for viewdef loading and validation, View/ViewList rendering, binding creat
 - update(varId, {action: "save"}) sent
 - Includes form values if applicable
 - Presenter method invoked
+
+---
+
+### Test: Local value setting on variable update
+
+**Purpose**: Verify local value is set before sending update to backend
+
+**Input**:
+- Input with ui-value="name" bound to variable 5
+- User changes input value to "Alice"
+
+**References**:
+- CRC: crc-BindingEngine.md - "Does: sendVariableUpdate", "Local Value Setting"
+- CRC: crc-EventBinding.md - "Local Value Setting"
+- Sequence: seq-handle-event.md
+
+**Expected Results**:
+- Variable 5's local value set to "Alice" immediately
+- update(5, "Alice") message sent to backend
+- UI reflects "Alice" before backend response (optimistic update)
+
+---
+
+### Test: Event binding syncs ui-value before sending event
+
+**Purpose**: Verify event binding checks for ui-value binding on same widget and syncs first
+
+**Input**:
+- Input with `ui-value="name"` (variable 5) and `ui-event-keypress-enter="onSubmit"` (variable 7)
+- User types "John" in input (not yet synced, variable 5 still has old value "Jo")
+- User presses Enter
+
+**References**:
+- CRC: crc-EventBinding.md - "Does: syncValueBinding", "Event Update Behavior"
+- CRC: crc-Widget.md - "Does: hasBinding, getVariableId"
+- Sequence: seq-handle-event.md
+
+**Expected Results**:
+- EventBinding checks widget for "ui-value" binding
+- Found: variable 5 with path "name"
+- Current element value "John" differs from variable 5's value "Jo"
+- update(5, "John") sent first (with local value set)
+- update(7, "enter") sent second
+
+---
+
+### Test: Event binding skips sync when values match (duplicate suppression)
+
+**Purpose**: Verify event binding skips value sync when values already match (duplicate suppression)
+
+**Input**:
+- Input with `ui-value="name"` (variable 5) and `ui-event-click="onClick"` (variable 7)
+- Variable 5 value is "John", input value is "John"
+- User clicks input
+
+**References**:
+- CRC: crc-EventBinding.md - "Does: syncValueBinding", "Event Update Behavior"
+- CRC: crc-BindingEngine.md - "Duplicate Update Suppression"
+- Sequence: seq-handle-event.md
+
+**Expected Results**:
+- EventBinding checks widget for "ui-value" binding
+- Found: variable 5, values match
+- Duplicate suppression: no update sent for variable 5
+- Only update(7, clickValue) sent
+
+---
+
+### Test: Event binding skips sync when no ui-value binding
+
+**Purpose**: Verify event binding works normally without ui-value binding
+
+**Input**:
+- Button with `ui-event-click="onClick"` (no ui-value binding)
+- User clicks button
+
+**References**:
+- CRC: crc-EventBinding.md - "Does: syncValueBinding"
+- CRC: crc-Widget.md - "Does: hasBinding"
+- Sequence: seq-handle-event.md
+
+**Expected Results**:
+- EventBinding checks widget for "ui-value" binding
+- Not found
+- Event update sent normally (no value sync step)
+
+---
+
+### Test: Duplicate update suppression - value unchanged on blur
+
+**Purpose**: Verify no update sent when input value hasn't changed (blur event)
+
+**Input**:
+- Input with `ui-value="name"` bound to variable 5
+- Variable 5 value is "John"
+- User focuses input, doesn't change value, then blurs
+
+**References**:
+- CRC: crc-ValueBinding.md - "Duplicate Update Suppression"
+- CRC: crc-BindingEngine.md - "shouldSuppressUpdate"
+- Sequence: seq-input-value-binding.md
+
+**Expected Results**:
+- Blur event fires
+- extractValue gets "John"
+- shouldSuppressUpdate(variable5, "John") returns true (values equal)
+- No update message sent
+- No local value set (already correct)
+
+---
+
+### Test: Duplicate update suppression - value changed sends update
+
+**Purpose**: Verify update sent when input value has changed
+
+**Input**:
+- Input with `ui-value="name"` bound to variable 5
+- Variable 5 value is "John"
+- User changes input to "Jane", then blurs
+
+**References**:
+- CRC: crc-ValueBinding.md - "Duplicate Update Suppression"
+- CRC: crc-BindingEngine.md - "shouldSuppressUpdate"
+- Sequence: seq-input-value-binding.md
+
+**Expected Results**:
+- Blur event fires
+- extractValue gets "Jane"
+- shouldSuppressUpdate(variable5, "Jane") returns false (values differ)
+- variable5.value set to "Jane" locally first
+- update(5, "Jane") message sent
+
+---
+
+### Test: Duplicate update suppression - action binding always sends
+
+**Purpose**: Verify action bindings (access=action) always send, even with same value
+
+**Input**:
+- Button with `ui-action="save()"` bound to variable 7 (access=action)
+- Variable 7 has null value
+- User clicks button twice
+
+**References**:
+- CRC: crc-BindingEngine.md - "Duplicate Update Suppression"
+- CRC: crc-EventBinding.md - "Does: isAction"
+- Sequence: seq-handle-event.md
+
+**Expected Results**:
+- First click: update(7, null) sent
+- Second click: update(7, null) sent (not suppressed)
+- Both clicks processed because access=action bypasses suppression
+
+---
+
+### Test: Duplicate update suppression - write-only binding always sends
+
+**Purpose**: Verify write-only bindings (access=w) always send, even with same value
+
+**Input**:
+- Element with binding having access=w property
+- Same value sent twice
+
+**References**:
+- CRC: crc-BindingEngine.md - "Duplicate Update Suppression"
+- CRC: crc-ValueBinding.md - "Duplicate Update Suppression"
+
+**Expected Results**:
+- First update sent
+- Second update with same value also sent (not suppressed)
+- access=w bypasses duplicate suppression
+
+---
+
+### Test: Duplicate update suppression - rw binding suppresses duplicates
+
+**Purpose**: Verify read-write bindings (access=rw) suppress duplicate updates
+
+**Input**:
+- Input with `ui-value="name"` (default access=rw on interactive element)
+- Variable value is "Test"
+- User triggers blur without changing value
+
+**References**:
+- CRC: crc-BindingEngine.md - "Duplicate Update Suppression", "Default Access Property"
+- CRC: crc-ValueBinding.md - "shouldSuppressUpdate"
+
+**Expected Results**:
+- access=rw is not action or w
+- Values are equal
+- shouldSuppressUpdate returns true
+- No update sent
+
+---
+
+### Test: Widget hasBinding returns correct result
+
+**Purpose**: Verify Widget.hasBinding method for sibling binding lookup
+
+**Input**:
+- Element with ui-value="name" and ui-event-click="onClick"
+- Check hasBinding("ui-value"), hasBinding("ui-event-click"), hasBinding("ui-attr-disabled")
+
+**References**:
+- CRC: crc-Widget.md - "Does: hasBinding"
+
+**Expected Results**:
+- hasBinding("ui-value") returns true
+- hasBinding("ui-event-click") returns true
+- hasBinding("ui-attr-disabled") returns false
 
 ---
 
@@ -713,10 +1054,10 @@ Tests for viewdef loading and validation, View/ViewList rendering, binding creat
 - ViewdefStore: store, get, getForType, has, validate, batchUpdate, flushUpdates, addPendingView, processPendingViews, removePendingView
 - View: create, render, setVariable, clear, getHtmlId, markPending, removePending
 - ViewList: create, setExemplar, update, addItem, removeItem, reorder, clear, setDelegate, notifyAdd, notifyRemove
-- Widget: create, vendElementId, registerBinding, unregisterBinding, getVariableId, getElement, destroy
-- BindingEngine: bind, unbind, getOrCreateWidget, createValueBinding, createEventBinding, parsePath, updateBinding
-- ValueBinding: apply, update, getElement, getTargetProperty, transformValue, executeCode (extended scope), destroy
-- EventBinding: attach, detach, handleEvent, extractEventValue, isAction, destroy
+- Widget: create, vendElementId, registerBinding, unregisterBinding, getVariableId, hasBinding, getElement, destroy
+- BindingEngine: bind, unbind, getOrCreateWidget, createValueBinding, createEventBinding, createKeypressEventBinding, parseKeypressAttribute, normalizeKeyName, parsePath, updateBinding, sendVariableUpdate, shouldSuppressUpdate
+- ValueBinding: apply, update, getElement, getTargetProperty, transformValue, executeCode (extended scope), shouldSuppressUpdate, destroy
+- EventBinding: attach, detach, handleEvent, handleKeypressEvent, extractEventValue, matchesTargetKey, isAction, isKeypressBinding, syncValueBinding, destroy
 
 **Scenarios Covered:**
 - seq-load-viewdefs.md: All paths (including validation)
@@ -724,6 +1065,8 @@ Tests for viewdef loading and validation, View/ViewList rendering, binding creat
 - seq-render-view.md: All paths (including pending views, namespace fallback)
 - seq-viewlist-update.md: All paths (add, remove, reorder)
 - seq-bind-element.md: All paths (including Widget creation, element ID vending)
-- seq-handle-event.md: All paths
+- seq-handle-event.md: All paths (including value sync, local value setting, duplicate suppression)
+- seq-handle-keypress-event.md: All paths (key matching, filtering, value setting)
+- seq-input-value-binding.md: All paths (including duplicate suppression)
 
 **Gaps**: None identified

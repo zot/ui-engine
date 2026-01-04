@@ -10,7 +10,6 @@ import (
 
 	"github.com/zot/ui-engine/internal/backend"
 	"github.com/zot/ui-engine/internal/config"
-	"github.com/zot/ui-engine/internal/variable"
 )
 
 // MessageSender is an interface for sending messages to a connection.
@@ -47,7 +46,6 @@ type BackendLookup interface {
 // Handler processes protocol messages.
 type Handler struct {
 	config              *config.Config
-	store               *variable.Store
 	backendLookup       BackendLookup
 	sender              MessageSender
 	pending             PendingQueuer
@@ -55,10 +53,9 @@ type Handler struct {
 }
 
 // NewHandler creates a new protocol handler.
-func NewHandler(cfg *config.Config, store *variable.Store, sender MessageSender) *Handler {
+func NewHandler(cfg *config.Config, sender MessageSender) *Handler {
 	return &Handler{
 		config: cfg,
-		store:  store,
 		sender: sender,
 	}
 }
@@ -104,12 +101,6 @@ func (h *Handler) HandleMessage(connectionID string, msg *Message) (*Response, e
 		return h.handleWatch(connectionID, msg.Data)
 	case MsgUnwatch:
 		return h.handleUnwatch(connectionID, msg.Data)
-	case MsgGet:
-		return h.handleGet(msg.Data)
-	case MsgGetObjects:
-		return h.handleGetObjects(msg.Data)
-	case MsgPoll:
-		return h.handlePoll(connectionID, msg.Data)
 	default:
 		return nil, fmt.Errorf("unknown message type: %s", msg.Type)
 	}
@@ -129,14 +120,8 @@ func (h *Handler) handleCreate(connectionID string, data json.RawMessage) (*Resp
 	var initialProps map[string]string
 	var err error
 
-	// Check if this is a path-based variable (has path property and parent)
-	pathProp := ""
-	if msg.Properties != nil {
-		pathProp = msg.Properties["path"]
-	}
-
 	//h.Log(2, "handleCreate 2")
-	if pathProp != "" && msg.ParentID != 0 && h.pathVariableHandler != nil {
+	if h.pathVariableHandler != nil {
 		// Path-based variable: delegate to Lua runtime
 		var sessionID string
 		if h.backendLookup != nil {
@@ -152,28 +137,6 @@ func (h *Handler) handleCreate(connectionID string, data json.RawMessage) (*Resp
 		id, initialValue, initialProps, err = h.pathVariableHandler.HandleFrontendCreate(sessionID, msg.ParentID, msg.Properties)
 		if err != nil {
 			h.Log(2, "Error, handleCreate: %s", err.Error())
-			return &Response{Error: err.Error()}, nil
-		}
-
-		// Also create in UI server's store for tracking
-		h.store.Create(variable.CreateOptions{
-			ID:         id,
-			ParentID:   msg.ParentID,
-			Value:      initialValue,
-			Properties: initialProps,
-		})
-	} else {
-		// Regular variable: create in store
-		initialProps = msg.Properties
-		id, err = h.store.Create(variable.CreateOptions{
-			ParentID:   msg.ParentID,
-			Value:      msg.Value,
-			Properties: initialProps,
-			NoWatch:    msg.NoWatch,
-			Unbound:    msg.Unbound,
-		})
-		if err != nil {
-			h.Log(0, "ERROR, handleCreate: %s", err.Error())
 			return &Response{Error: err.Error()}, nil
 		}
 	}
@@ -241,11 +204,6 @@ func (h *Handler) handleDestroy(connectionID string, data json.RawMessage) (*Res
 			watchers = b.GetWatchers(msg.VarID)
 		}
 	}
-
-	if err := h.store.Destroy(msg.VarID); err != nil {
-		return &Response{Error: err.Error()}, nil
-	}
-
 	// Notify watchers of destruction
 	destroyNotif, _ := NewMessage(MsgDestroy, DestroyMessage{VarID: msg.VarID})
 	for _, watcherID := range watchers {
@@ -356,90 +314,6 @@ func (h *Handler) handleUnwatch(connectionID string, data json.RawMessage) (*Res
 	}
 
 	return resp, nil
-}
-
-// handleGet processes a get message.
-func (h *Handler) handleGet(data json.RawMessage) (*Response, error) {
-	var msg GetMessage
-	if err := json.Unmarshal(data, &msg); err != nil {
-		return nil, err
-	}
-
-	variables := make([]VariableData, 0, len(msg.VarIDs))
-	for _, id := range msg.VarIDs {
-		v, ok := h.store.Get(id)
-		if ok {
-			valBytes, _ := json.Marshal(v.GetValue())
-			variables = append(variables, VariableData{
-				ID:         v.ID,
-				Value:      valBytes,
-				Properties: v.GetProperties(),
-			})
-		}
-	}
-
-	return &Response{
-		Result: GetResponse{Variables: variables},
-	}, nil
-}
-
-// handleGetObjects processes a getObjects message.
-func (h *Handler) handleGetObjects(data json.RawMessage) (*Response, error) {
-	var msg GetObjectsMessage
-	if err := json.Unmarshal(data, &msg); err != nil {
-		return nil, err
-	}
-
-	objects := make([]ObjectData, 0, len(msg.ObjIDs))
-	for _, id := range msg.ObjIDs {
-		v, ok := h.store.Get(id)
-		if ok {
-			valBytes, _ := json.Marshal(v.GetValue())
-			objects = append(objects, ObjectData{
-				ID:    id,
-				Value: valBytes,
-			})
-		}
-	}
-
-	return &Response{
-		Result: GetObjectsResponse{Objects: objects},
-	}, nil
-}
-
-// handlePoll processes a poll message for long-polling.
-func (h *Handler) handlePoll(connectionID string, data json.RawMessage) (*Response, error) {
-	var msg PollMessage
-	if data != nil {
-		if err := json.Unmarshal(data, &msg); err != nil {
-			return nil, err
-		}
-	}
-
-	// Parse wait duration if specified
-	var waitDuration time.Duration
-	if msg.Wait != "" {
-		var err error
-		waitDuration, err = time.ParseDuration(msg.Wait)
-		if err != nil {
-			return &Response{Error: "invalid wait duration"}, nil
-		}
-	}
-
-	// Get pending messages from queue
-	var pending []Message
-	if h.pending != nil {
-		messages := h.pending.Poll(connectionID, waitDuration)
-		for _, m := range messages {
-			if m != nil {
-				pending = append(pending, *m)
-			}
-		}
-	}
-
-	return &Response{
-		Pending: pending,
-	}, nil
 }
 
 // SendError sends an error message to a connection.

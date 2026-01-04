@@ -2,11 +2,14 @@
 // CRC: crc-Variable.md
 // Spec: protocol.md
 
+import type { Widget } from './binding';
+
 export interface Variable {
   varId: number;
   parentId?: number;
   value: unknown;
   properties: Record<string, string>;
+  widget?: Widget;  // Widget that created this variable (if any)
   unbound?: boolean;
 }
 

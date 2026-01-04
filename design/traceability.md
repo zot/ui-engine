@@ -63,10 +63,10 @@
 - crc-ViewList.md (includes fallbackNamespace setting, exemplar namespace inheritance, default access=r, elementId)
 - crc-ViewListItem.md
 - crc-AppView.md (elementId instead of element)
-- crc-Widget.md (binding context for elements with ui-* bindings, uses ElementIdVendor)
-- crc-BindingEngine.md (includes ui-code binding, Widget management, default access property logic, activeBindings keyed by elementId)
-- crc-ValueBinding.md (includes code binding execution with extended scope, default access property)
-- crc-EventBinding.md (elementId instead of element)
+- crc-Widget.md (binding context for elements with ui-* bindings, uses ElementIdVendor, hasBinding for sibling lookup, unbindHandlers map, unbindAll())
+- crc-BindingEngine.md (includes ui-code binding, Widget management, default access property logic, widgets map keyed by elementId, local value setting, sendVariableUpdate, Widget-based binding ownership, duplicate update suppression)
+- crc-ValueBinding.md (includes code binding execution with extended scope, default access property, duplicate update suppression)
+- crc-EventBinding.md (elementId instead of element, widget reference, syncValueBinding, event update behavior with duplicate suppression, unbind handler registration)
 - crc-ElementIdVendor.md (global vendor for element IDs - cross-cutting)
 
 **Sequence Diagrams:**
@@ -76,17 +76,24 @@
 - seq-viewlist-update.md (includes exemplar namespace inheritance)
 - seq-viewlist-presenter-sync.md
 - seq-bind-element.md (includes Widget creation via ElementIdVendor, ui-code binding, default access property)
-- seq-handle-event.md
+- seq-handle-event.md (includes value sync and local value setting)
+- seq-handle-keypress-event.md (ui-event-keypress-* specific key detection)
 
 **Notes:**
 - **No Direct Element References (Cross-Cutting Requirement)**: Frontend code MUST NOT store direct references to DOM elements
-- Widget: Binding context with elementId (vended via ElementIdVendor if needed) and variable map
+- **Widget-Based Binding Ownership**: Widget is sole owner of all bindings for an element (no separate Binding interface)
+- Widget: Binding context with elementId, variable map, and unbindHandlers map
+- Widget.unbindAll() calls all cleanup handlers; BindingEngine.unbindElement() calls widget.unbindAll()
 - Variables store elementId reference to Widget (not direct DOM references)
 - Element ID format: `ui-{counter}` (global ElementIdVendor, counter starts at 1)
 - Namespace resolution: namespace -> fallbackNamespace -> DEFAULT
 - ViewList wrapper sets `fallbackNamespace: "list-item"` on its variable
 - Default access=r for: ui-value on non-interactive elements, ui-attr-*, ui-class-*, ui-style-*, ui-code, ui-view, ui-viewlist
 - ui-code binding executes JavaScript code with element, value, variable, and store in scope
+- ui-event-keypress-* bindings listen for specific keys and set variable to key name (e.g., "enter")
+- **Frontend Update Behavior (Universal)**: When sending ANY variable update to backend, MUST first set value in local variable cache
+- **Duplicate Update Suppression**: Bindings without `access=action` or `access=w` MUST NOT send update if value unchanged
+- **Event binding value sync**: Before sending event update, check for ui-value binding on same widget; if element value differs from cached variable value, send value update first (subject to duplicate suppression)
 
 ---
 
@@ -294,28 +301,39 @@
 ### crc-Widget.md
 **Source Spec:** viewdefs.md
 **Implementation:**
-- [ ] `web/src/widget.ts` - Widget class (element ID, variable map)
+- [ ] `web/src/widget.ts` - Widget class (element ID, variable map, unbindHandlers map)
 - [ ] `web/src/widget.ts` - Use ElementIdVendor for element ID (format: ui-{counter})
 - [ ] `web/src/widget.ts` - Variable-to-Widget relationship via elementId property
+- [ ] `web/src/widget.ts` - hasBinding method for sibling binding lookup
+- [ ] `web/src/widget.ts` - addUnbindHandler(name, fn) method
+- [ ] `web/src/widget.ts` - unbindAll() method (calls all unbind handlers, clears map)
 
 ### crc-BindingEngine.md
 **Source Spec:** viewdefs.md, libraries.md
 **Implementation:**
 - [x] `web/src/binding.ts` - Binding engine with child variable architecture (all bindings create child variables for server-side path resolution)
-- [ ] `web/src/binding.ts` - Widget management (getOrCreateWidget, widget cleanup on unbind)
-- [ ] `web/src/binding.ts` - Use elementId keys for activeBindings map (no direct DOM references)
+- [ ] `web/src/binding.ts` - Widget management (getOrCreateWidget, widgets map keyed by elementId)
+- [ ] `web/src/binding.ts` - Register unbind handlers with Widget for each binding
+- [ ] `web/src/binding.ts` - unbindElement calls widget.unbindAll() and removes Widget from map
+- [ ] `web/src/binding.ts` - sendVariableUpdate method (set local value, then send)
+- [ ] `web/src/binding.ts` - Pass widget reference to event bindings
+- [ ] `web/src/binding.ts` - shouldSuppressUpdate method (duplicate update suppression)
 
 ### crc-ValueBinding.md
 **Source Spec:** viewdefs.md, libraries.md
 **Implementation:**
 - [x] `web/src/binding.ts` - Value bindings with child variable creation, event selection based on keypress property
 - [ ] `web/src/binding.ts` - ui-code extended scope (element, value, variable, store)
+- [ ] `web/src/binding.ts` - shouldSuppressUpdate for duplicate value detection
 
 ### crc-EventBinding.md
 **Source Spec:** viewdefs.md
 **Implementation:**
 - [x] `web/src/binding.ts` - Event bindings (combined with BindingEngine)
 - [ ] `web/src/binding.ts` - Use elementId instead of element for EventBinding (no direct DOM reference)
+- [ ] `web/src/binding.ts` - Add widget reference to EventBinding for sibling binding access
+- [ ] `web/src/binding.ts` - Implement syncValueBinding (check ui-value, compare, sync if changed with duplicate suppression)
+- [ ] `web/src/binding.ts` - Set local variable value before sending update to backend
 
 ### crc-Session.md
 **Source Spec:** main.md (UI Server Architecture - Frontend Layer), interfaces.md

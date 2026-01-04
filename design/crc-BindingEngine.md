@@ -5,24 +5,28 @@
 ## Responsibilities
 
 ### Knows
-- activeBindings: Map of element ID to list of active bindings (keyed by elementId, NOT direct element references)
-- widgets: Map of element ID to Widget for bound elements
+- widgets: Map of element ID to Widget for bound elements (sole tracking structure for bindings)
 - store: VariableStore for creating/watching child variables
 - inputElements: Set of element types that support two-way value binding (`input`, `textarea`, `sl-input`, `sl-textarea`)
 
 ### Does
 - bind: Apply all ui-* bindings to an element (creates Widget if needed)
-- unbind: Remove all bindings from an element, destroy child variables, and clean up Widget
+- unbindElement: Call widget.unbindAll() and remove Widget from widgets map
 - getOrCreateWidget: Get existing Widget for element or create new one (vends element ID if needed)
-- createValueBinding: Create ui-value binding with child variable
+- createValueBinding: Create ui-value binding with child variable, register unbind handler with Widget
 - createKeypressBinding: Create ui-keypress binding (shorthand for ui-value with keypress option)
-- createAttrBinding: Create ui-attr-* binding with child variable
-- createClassBinding: Create ui-class-* binding with child variable
-- createStyleBinding: Create ui-style-* binding with child variable
-- createCodeBinding: Create ui-code binding with child variable for JS execution
-- createEventBinding: Create ui-event-* binding with action variable
-- createActionBinding: Create ui-action binding with action variable
+- createAttrBinding: Create ui-attr-* binding with child variable, register unbind handler with Widget
+- createClassBinding: Create ui-class-* binding with child variable, register unbind handler with Widget
+- createStyleBinding: Create ui-style-* binding with child variable, register unbind handler with Widget
+- createCodeBinding: Create ui-code binding with child variable, register unbind handler with Widget
+- createEventBinding: Create ui-event-* binding, register unbind handler with Widget (passes widget reference)
+- createKeypressEventBinding: Create ui-event-keypress-* binding, register unbind handler with Widget
+- createActionBinding: Create ui-action binding, register unbind handler with Widget
+- sendVariableUpdate: Send variable update with local value setting and duplicate suppression (checks if update should be skipped, sets local value first, then sends)
+- shouldSuppressUpdate: Check if update should be skipped due to duplicate value (see Duplicate Update Suppression)
 - parsePath: Parse path with optional URL-style properties (?create=Type&prop=value); properties without values default to `true`
+- parseKeypressAttribute: Extract target key from ui-event-keypress-* attribute name
+- normalizeKeyName: Convert attribute key name to browser event.key value (e.g., "enter" -> "Enter")
 - selectInputEvent: Choose event type for input elements (`blur` by default, `input` if `keypress` property is set or `ui-keypress` attribute used)
 - integrateWidgetBinding: Coordinate with WidgetBinder for widget-specific value handling
 - determineDefaultAccess: Determine default `access` property based on binding type and element
@@ -116,6 +120,95 @@ const otherVar = store.get(someVarId);
 
 **Security note:** The code is executed using `new Function()` with controlled scope. Only use with trusted backend code.
 
+## Keypress Event Binding
+
+The `ui-event-keypress-*` attribute creates an event binding that fires only when a specific key is pressed.
+
+**Attribute format:**
+```html
+<input ui-event-keypress-enter="onEnterPressed">
+<div ui-event-keypress-escape="onEscape" tabindex="0">
+```
+
+**Processing:**
+1. `parseKeypressAttribute(attrName)` extracts the key name from the attribute (e.g., "enter" from "ui-event-keypress-enter")
+2. `normalizeKeyName(keyName)` converts it to the browser's `event.key` format:
+   - `enter` -> `Enter`
+   - `escape` -> `Escape`
+   - `left` -> `ArrowLeft`
+   - `right` -> `ArrowRight`
+   - `up` -> `ArrowUp`
+   - `down` -> `ArrowDown`
+   - `tab` -> `Tab`
+   - `space` -> ` ` (space character)
+   - Single letters remain as-is (case-insensitive matching)
+3. `createKeypressEventBinding(element, path, targetKey)` creates an EventBinding that:
+   - Listens to `keydown` events on the element
+   - Filters by the normalized target key
+   - Updates the variable with the key name when matched
+
+**Example:**
+```html
+<input ui-event-keypress-enter="saveField">
+```
+When the user presses Enter in the input, the `saveField` variable is set to `"enter"`.
+
+## Local Value Setting (Universal Principle)
+
+**Spec: viewdefs.md "Frontend Update Behavior"**
+
+**Whenever the frontend sends a variable update to the backend, it MUST first set the value in the local variable cache.** This ensures the frontend's cached variable state accurately reflects the UI state being sent to the backend.
+
+**Pattern:**
+```typescript
+// sendVariableUpdate(variable, newValue, pathOptions)
+if (shouldSuppressUpdate(variable, newValue, pathOptions)) {
+  return;  // Skip duplicate updates
+}
+variable.value = newValue;  // MUST set local value first
+protocolHandler.send({type: 'update', id: variable.id, value: newValue});
+```
+
+**Benefits:**
+- Immediate UI feedback (no waiting for backend round-trip)
+- Consistency between local state and pending backend state
+- Enables optimistic updates with eventual consistency
+- Frontend cache always reflects what was sent to backend
+
+**Used by:**
+- ValueBinding: When element value changes
+- EventBinding: When syncing value before event (via syncValueBinding)
+- Any code sending variable updates to backend
+
+## Duplicate Update Suppression
+
+**Spec: viewdefs.md "Frontend Update Behavior"**
+
+Bindings that do NOT have `access=action` or `access=w` MUST NOT send an update if the variable's value has not changed.
+
+**Pattern:**
+```typescript
+// shouldSuppressUpdate(variable, newValue, pathOptions): boolean
+if (pathOptions.access === 'action' || pathOptions.access === 'w') {
+  return false;  // Never suppress actions or write-only
+}
+return variable.value === newValue;  // Suppress if unchanged
+```
+
+**When to suppress:**
+- Before sending an update, compare the new value to the variable's current cached value
+- If values are equal, skip the update entirely (do not set local value, do not send message)
+
+**When NOT to suppress (always send):**
+- `access=action` - Actions are side-effect triggers, always send
+- `access=w` - Write-only bindings, always send
+
+**Rationale:**
+- Reduces unnecessary network traffic
+- Prevents redundant backend processing
+- Blur events may fire without actual value changes
+- Action bindings intentionally trigger side effects regardless of value
+
 ## Input Update Behavior
 
 By default, input elements send updates on `blur` (when the user tabs out or clicks away). This reduces network traffic and allows users to make multiple edits before committing.
@@ -135,12 +228,29 @@ To send updates on every keypress, add the `keypress` property to the path:
 
 **Widget integration:** BindingEngine calls WidgetBinder's `bindWidget()` for Shoelace elements, passing the parsed path options including `keypress`. WidgetBinder uses these options to select the appropriate event type.
 
+## Widget-Based Binding Ownership
+
+Widget is the sole owner of all bindings for an element. There is no separate Binding interface - cleanup is managed via `widget.unbindHandlers`:
+
+**Creating a binding:**
+1. BindingEngine creates child variable and sets up watch/listener
+2. BindingEngine creates a cleanup function that: removes listeners, unwatches variable, destroys child variable
+3. BindingEngine registers the cleanup function: `widget.addUnbindHandler(bindingName, cleanupFn)`
+
+**Unbinding an element:**
+1. BindingEngine calls `widget.unbindAll()` - invokes all cleanup handlers
+2. BindingEngine removes Widget from `widgets` map
+3. Widget removes auto-vended element ID if applicable
+
+**Benefits:**
+- No separate Binding interface to maintain
+- Widget encapsulates all cleanup for an element
+- Single point of control for binding lifecycle
+
 ## Collaborators
 
 - ElementIdVendor: Global vendor for unique element IDs
-- Widget: Binding context for elements with ui-* bindings (element ID, variable map)
-- ValueBinding: Handles variable-to-element bindings
-- EventBinding: Handles element-to-variable bindings
+- Widget: Binding context for elements with ui-* bindings (element ID, variable map, unbind handlers)
 - Viewdef: Source of binding directives
 - Variable: Target of bindings
 - WatchManager: Subscribes to variable changes
@@ -152,6 +262,7 @@ To send updates on every keypress, add the `keypress` property to the path:
 
 - seq-bind-element.md: Element binding process
 - seq-handle-event.md: Event to variable flow
+- seq-handle-keypress-event.md: Keypress event binding flow
 - seq-render-view.md: Full view rendering
 - seq-viewlist-update.md: ViewList array updates
 - seq-input-value-binding.md: Input element two-way binding with event selection

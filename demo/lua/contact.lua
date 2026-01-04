@@ -197,6 +197,14 @@ function ContactApp:hasContacts()
     return #self:contacts() > 0
 end
 
+-- Select first contact in filtered list (for Enter key in search)
+function ContactApp:selectFirstContact()
+    local filtered = self:contacts()
+    if #filtered > 0 then
+        self:editContact(filtered[1])
+    end
+end
+
 print("LUA: initialized. Contact", Contact, "ContactPresenter", ContactPresenter, "ContactApp", ContactApp)
 
 -- Create the app instance

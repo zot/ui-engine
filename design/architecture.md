@@ -77,6 +77,7 @@ Each session has an associated Backend that handles variable management. Two imp
 - seq-viewlist-presenter-sync.md
 - seq-bind-element.md
 - seq-handle-event.md
+- seq-handle-keypress-event.md
 - seq-input-value-binding.md
 
 ### Session System (Frontend Layer)

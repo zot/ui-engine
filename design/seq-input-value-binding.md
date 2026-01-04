@@ -67,6 +67,10 @@
         |                      |                      |                      |                      |                      |                      |
         |                      |                      |                      |---extractValue------>|                      |                      |
         |                      |                      |                      |                      |                      |                      |
+        |                      |                      |                      |---shouldSuppress?--->|                      |                      |
+        |                      |                      |                      |   (compare values)   |                      |                      |
+        |                      |                      |                      |                      |                      |                      |
+        |                      |                      |          [if NOT suppressed (value changed OR access=action/w)]   |                      |
         |                      |                      |                      |---update(varId,----->|                      |----------------->|
         |                      |                      |                      |    value)            |                      |                      |
         |                      |                      |                      |                      |                      |                      |
@@ -81,4 +85,5 @@
 - Shoelace elements use custom events: `sl-change` vs `sl-input`
 - BindingEngine detects widget tags and delegates to WidgetBinder
 - WidgetBinder receives path options from BindingEngine
-- Both paths share the same update flow: extract value, update variable
+- Both paths share the same update flow: extract value, check suppression, update variable
+- **Duplicate suppression**: If new value equals cached value AND access is not `action` or `w`, skip the update

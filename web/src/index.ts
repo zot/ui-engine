@@ -3,8 +3,8 @@
 
 export { UIApp, initUIApp } from './app';
 export { Connection, VariableStore } from './connection';
-export { BindingEngine, parsePath, resolvePath } from './binding';
-export type { Binding, ParsedPath, PathOptions } from './binding';
+export { BindingEngine, Widget, parsePath, resolvePath } from './binding';
+export type { ParsedPath, PathOptions } from './binding';
 export type {
   Message,
   MessageType,

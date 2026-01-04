@@ -27,7 +27,6 @@ import (
 	"github.com/zot/ui-engine/internal/lua"
 	"github.com/zot/ui-engine/internal/protocol"
 	"github.com/zot/ui-engine/internal/session"
-	"github.com/zot/ui-engine/internal/variable"
 	"github.com/zot/ui-engine/internal/viewdef"
 )
 
@@ -35,7 +34,6 @@ import (
 // CRC: crc-Server.md
 type Server struct {
 	config          *config.Config
-	store           *variable.Store
 	sessions        *session.Manager
 	handler         *protocol.Handler
 	pendingQueues   *PendingQueueManager
@@ -60,20 +58,15 @@ type luaSetupConfig struct {
 
 // New creates a new server with the given configuration.
 func New(cfg *config.Config) *Server {
-	store := variable.NewStore(cfg)
-
 	sessions := session.NewManager(cfg.Session.Timeout.Duration())
-
 	s := &Server{
 		config:        cfg,
-		store:         store,
 		sessions:      sessions,
 		pendingQueues: NewPendingQueueManager(),
 	}
-
 	// Create message sender that wraps WebSocket endpoint
 	sender := &serverMessageSender{server: s}
-	s.handler = protocol.NewHandler(cfg, store, sender)
+	s.handler = protocol.NewHandler(cfg, sender)
 
 	// Set up pending queue for CLI/REST clients
 	s.handler.SetPendingQueuer(s.pendingQueues)
@@ -181,9 +174,7 @@ func (s *Server) Start() error {
 	if err != nil {
 		return err
 	}
-	
 	s.config.Log(0, "HTTP server listening on %s", url)
-	
 	// Block until shutdown
 	if err := srv.Serve(ln); err != nil && err != http.ErrServerClosed {
 		return fmt.Errorf("HTTP server error: %v", err)
@@ -219,12 +210,12 @@ func (s *Server) configureHTTP(port int) (*http.Server, net.Listener, string, er
 		_, portStr, _ := net.SplitHostPort(addr)
 		s.config.Server.Port, _ = strconv.Atoi(portStr)
 	}
-	
+
 	host := s.config.Server.Host
 	if host == "" || host == "0.0.0.0" {
 		host = "127.0.0.1"
 	}
-	
+
 	url := fmt.Sprintf("http://%s:%d", host, s.config.Server.Port)
 	return s.httpServer, listener, url, nil
 }
@@ -251,11 +242,6 @@ func (s *Server) Shutdown(ctx context.Context) error {
 	}
 
 	return nil
-}
-
-// GetStore returns the variable store.
-func (s *Server) GetStore() *variable.Store {
-	return s.store
 }
 
 // GetSessions returns the session manager.
@@ -391,7 +377,7 @@ func (s *Server) setupLua(cfg *config.Config) {
 	}
 
 	// Create store adapter (will be shared across sessions)
-	s.storeAdapter = &luaTrackerAdapter{config: cfg, store: s.store}
+	s.storeAdapter = &luaTrackerAdapter{config: cfg} //, store: s.store}
 
 	// In bundle mode, pre-cache main.lua content for per-session execution
 	if cfg.Server.Dir == "" {
@@ -555,7 +541,6 @@ func (s *Server) AfterBatch(internalSessionID string) {
 		}
 	}
 }
-
 
 // ExecuteInSession executes code within a session's context.
 // This queues through the session's executor to serialize with WebSocket operations.
@@ -725,7 +710,6 @@ func (s *Server) preloadMainLuaFromBundleToConfig() {
 // It coordinates with per-session LuaBackends for change detection.
 type luaTrackerAdapter struct {
 	config         *config.Config
-	store          *variable.Store
 	viewdefManager *viewdef.ViewdefManager
 	backends       map[string]*backend.LuaBackend // vendedID -> backend
 	luaSessions    map[string]*lua.LuaSession     // vendedID -> LuaSession

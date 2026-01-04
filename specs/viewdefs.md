@@ -76,19 +76,24 @@ const element = document.getElementById(this.elementId)
 
 ## Widgets
 
-A **Widget** is the binding context for an element with `ui-*` bindings. Each element with bindings has an associated Widget.
+A **Widget** is the binding context for an element with `ui-*` bindings. Each element with bindings has exactly one Widget that manages all its bindings.
 
 **Widget properties:**
 - `elementId` - Element ID (from global vendor if element has no ID)
 - `variables` - Map of binding name to variable ID for all bindings on this element
+- `unbindHandlers` - Map of binding name to cleanup function
 
-**Variable-Widget relationship:**
-- Each variable created by a binding stores a reference to its Widget via the element ID
-- Variables do NOT store direct references to DOM elements (use element ID lookup instead)
-- This enables proper cleanup and avoids memory leaks from DOM references
+**Widget responsibilities:**
+- Tracks all bindings and their variable IDs for the element
+- Provides cleanup via `unbindAll()` which calls all unbind handlers
+- Enables bindings to look up sibling bindings (e.g., event binding finding ui-value variable)
 
 **Element ID assignment:**
 - If an element doesn't have an ID, the Widget uses the global ID vendor to assign one
+
+**Variable-Widget relationship:**
+- Variables do NOT store direct references to DOM elements (use element ID lookup instead)
+- This enables proper cleanup and avoids memory leaks from DOM references
 
 ## Value Bindings (variable → element)
 
@@ -141,15 +146,42 @@ The binding engine must:
 3. Backend resolves `isEditView` on the parent object and sends `true` or `false`
 4. Binding updates the `hidden` attribute based on the boolean value
 
+## Frontend Update Behavior
+
+**Whenever the frontend sends a variable update to the backend, it MUST first set the value in the local variable cache.** This ensures the frontend's cached variable state accurately reflects the UI state being sent to the backend.
+
+**Duplicate update suppression:** Bindings that do NOT have `access=action` or `access=w` MUST NOT send an update if the variable's value has not changed. Before sending an update, compare the new value to the variable's current cached value; if they are equal, skip the update.
+
 ## Event Bindings (element → variable)
 
 - `ui-event-*` - Trigger a variable value change on an event (e.g., `ui-event-click`, `ui-event-change`)
   - Sets the bound variable to a specified value when the event fires
+  - **Value sync with `ui-value`:** When an event fires on an element that also has a `ui-value` binding:
+    1. Check if the element's current value differs from the variable's cached value
+    2. If different, send a variable update with the new value first
+    3. Then send the event update
+- `ui-event-keypress-*` - Trigger on specific key presses (e.g., `ui-event-keypress-enter`, `ui-event-keypress-left`)
+  - Fires only when the specified key is pressed
+  - Key names are case-insensitive and match keyboard event `key` values:
+    - `ui-event-keypress-enter` - Enter/Return key
+    - `ui-event-keypress-escape` - Escape key
+    - `ui-event-keypress-left` - Left arrow key
+    - `ui-event-keypress-right` - Right arrow key
+    - `ui-event-keypress-up` - Up arrow key
+    - `ui-event-keypress-down` - Down arrow key
+    - `ui-event-keypress-tab` - Tab key
+    - `ui-event-keypress-space` - Space bar
+    - `ui-event-keypress-{letter}` - Any single letter (e.g., `ui-event-keypress-a`)
+  - Listens on the `keydown` event of the element
+  - **Value behavior depends on path type:**
+    - **Non-action path** (e.g., `lastKey`): Sets the variable to the lowercase key name (e.g., `"enter"`)
+    - **No-arg action** (e.g., `selectFirst()`): Invokes the action with `null` (side-effect only)
+    - **1-arg action** (e.g., `handleKey(_)`): Invokes the action with the key name as the argument
 
 ## Action Bindings
 
 - `ui-action` - Bind a button/element click to a method call on the presenter
-  - Value is a path ending in a method call
+  - Value is a path ending in a method call; remember that paths can have properties
   - `method()` - call with no arguments
   - `method(_)` - call with the update message's value as the argument
   - Examples:

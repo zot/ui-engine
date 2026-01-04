@@ -5,6 +5,7 @@
 import { Message, Response, CreateResponse, encodeMessage, UpdateMessage, ErrorMessage } from './protocol';
 import { Variable } from './variable';
 import { FrontendOutgoingBatcher, Priority } from './outgoing_batcher';
+import type { Widget } from './binding';
 
 export type MessageHandler = (msg: Message) => void;
 export type ErrorHandler = (error: string) => void;
@@ -349,12 +350,14 @@ export class VariableStore {
   }
 
   // Create a variable and return the assigned ID
+  // CRC: crc-Variable.md - widget reference set at creation time
   async create(options: {
     parentId?: number;
     value?: unknown;
     properties?: Record<string, string>;
     nowatch?: boolean;
     unbound?: boolean;
+    widget?: Widget;  // Widget that created this variable
   }): Promise<number> {
     console.log('SENDING CREATE')
     const resp = await this.connection.sendAndAwaitResponse({ type: 'create', data: options });
@@ -366,11 +369,14 @@ export class VariableStore {
     }
     if (resp.pending?.length) {
       const data = resp.pending[0].data as any as UpdateMessage;
-      
+
       console.log('CREATE RESPONSE', resp.result.id, resp)
       const variable = { varId: data.varId, value: undefined, properties: options.properties || {} } as Variable;
       if (options.parentId !== undefined) {
         variable.parentId = options.parentId
+      }
+      if (options.widget) {
+        variable.widget = options.widget
       }
       this.variables.set(data.varId, variable);
       setTimeout(()=> {
@@ -381,7 +387,33 @@ export class VariableStore {
     return resp.result.id;
   }
 
+  // Spec: viewdefs.md - Frontend Update Behavior
+  // MUST set local value before sending to backend
+  // Spec: viewdefs.md - Duplicate update suppression
   update(varId: number, value?: unknown, properties?: Record<string, string>): void {
+    const variable = this.variables.get(varId);
+
+    // Duplicate update suppression: bindings without access=action or access=w
+    // should not send an update if the value hasn't changed
+    if (variable && value !== undefined) {
+      const access = variable.properties?.access;
+      const shouldAlwaysSend = access === 'action' || access === 'w';
+      if (!shouldAlwaysSend && variable.value === value) {
+        // Value unchanged and not an action/write-only binding - skip update
+        return;
+      }
+    }
+
+    // Set local cache first (without triggering watchers - this is outgoing, not incoming)
+    if (variable) {
+      if (value !== undefined) {
+        variable.value = value;
+      }
+      if (properties) {
+        variable.properties = { ...variable.properties, ...properties };
+      }
+    }
+    // Then send to backend
     this.connection.send({ type: 'update', data: { varId, value, properties } });
   }
 

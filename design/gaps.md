@@ -1,84 +1,136 @@
 # Gap Analysis
 
-**Date:** 2025-12-30
-**CRC Cards:** 42 | **Sequences:** 37 | **UI Specs:** 2 | **Test Designs:** 7
+**Date:** 2026-01-04
+**CRC Cards:** 45 | **Sequences:** 40 | **UI Specs:** 2 | **Test Designs:** 7
 **Note:** MCP design elements moved to ui-mcp project
 **External Package:** `change-tracker` (`github.com/zot/change-tracker`) provides variable tracking, change detection, object registry
 
 ## Summary
 
-**Status:** Green
-**Type A (Critical):** 0 (1 resolved)
-**Type B (Quality):** 1 (2 resolved)
+**Status:** Yellow
+**Type A (Critical):** 2 (MCP sequence references)
+**Type B (Quality):** 3 (Test coverage, implementation gaps)
 **Type C (Enhancements):** 3
 
 ---
 
 ## Type A Issues (Critical)
 
-### A1: Missing Sequence Diagrams Referenced by CRC Cards
+### A1: Missing MCP Sequence Diagrams Referenced by CRC Cards
 
-**Issue:** Two CRC cards reference sequence diagrams that do not exist in the design directory.
+**Issue:** Three CRC cards reference MCP-related sequence diagrams that do not exist in the design directory.
 
 **Required by:** Referenced in CRC cards
 
 **Expected in:**
-- `seq-lua-action-dispatch.md` - Referenced by crc-ProtocolHandler.md (line 51)
-- `seq-packet-protocol-message.md` - Referenced by crc-PacketProtocol.md (line 28)
+- `seq-mcp-create-presenter.md` - Referenced by crc-ViewdefStore.md (line 38), crc-LuaPresenterLogic.md (line 32)
+- `seq-mcp-create-session.md` - Referenced by crc-SessionManager.md (line 39)
 
-**Impact:** Incomplete design documentation. Developers implementing these behaviors lack the step-by-step flow documentation. This could lead to inconsistent implementations.
+**Impact:** Incomplete design documentation for MCP integration. These sequences were likely planned for the ui-mcp project but the CRC card references were not updated.
 
-**Status:** ✅ Resolved (2025-12-30)
+**Status:** Open
 
-**Resolution:**
-- Updated crc-ProtocolHandler.md to reference `seq-lua-handle-action.md` (existing sequence that covers this flow)
-- Updated crc-PacketProtocol.md to reference `seq-backend-socket-accept.md` (covers message read/write cycle)
+**Recommendation:** Either:
+1. Remove these sequence references from CRC cards (if MCP sequences are in ui-mcp project)
+2. Create stub sequence files indicating sequences are documented in ui-mcp project
+3. Create full sequence diagrams if MCP integration is part of this project
+
+---
+
+### A2: Widget Class Not Implemented
+
+**Issue:** CRC card `crc-Widget.md` defines a Widget class for binding contexts, but the implementation in `web/src/binding.ts` does not have an explicit Widget class. Instead, bindings are managed directly in maps keyed by elementId.
+
+**Required by:** viewdefs.md - Element References, Widgets section
+
+**Expected in:** `web/src/widget.ts` or integrated into `web/src/binding.ts`
+
+**Current State:** The functionality is partially covered:
+- `ensureElementId()` is implemented in `element_id_vendor.ts`
+- Bindings are tracked by elementId in `BindingEngine.bindings` map
+- But no explicit Widget class with `variables` map for sibling binding lookup
+
+**Impact:**
+- `syncValueBinding` feature (Event binding syncs ui-value before event) may not work correctly
+- `hasBinding` lookup for sibling bindings not implemented
+- Widget-to-variable relationship not properly tracked
+
+**Status:** Open
+
+**Recommendation:** Either:
+1. Implement explicit Widget class per CRC design
+2. Update CRC card to reflect actual implementation approach
+3. Add the `syncValueBinding` behavior to EventBinding using current structure
 
 ---
 
 ## Type B Issues (Quality)
 
-### B1: Test Code Coverage Improving
+### B1: Test Code Coverage Needs Improvement
 
-**Issue:** Test coverage was previously low, now significantly improved.
+**Issue:** Test coverage continues to improve but still has gaps.
 
 **Current Test Files:**
-- `internal/lua/runtime_test.go` - 5 tests (Lua runtime)
+- `internal/lua/runtime_test.go` - Lua runtime tests
 - `internal/lua/viewlist_test.go` - ViewList tests
-- `internal/session/session_test.go` - 18 tests (Session management)
-- `internal/protocol/protocol_test.go` - 17 tests (Message batching, protocol)
-- `internal/server/http_test.go` - 11 tests (HTTP endpoint)
+- `internal/session/session_test.go` - Session management tests
+- `internal/protocol/protocol_test.go` - Protocol/batching tests
+- `internal/server/http_test.go` - HTTP endpoint tests
 
-**Test Designs Covered:**
-- ✅ test-Session.md - Fully covered (18 tests)
-- ✅ test-Communication.md - Partially covered (HTTP: 11 tests, MessageBatcher: 17 tests)
-- ✅ test-Lua.md - Partially covered (5 tests)
-- ⬜ test-VariableProtocol.md - Partially covered (protocol messages)
-- ⬜ test-Frontend.md - Not covered (TypeScript/browser tests)
-- ⬜ test-Viewdef.md - Not covered (TypeScript/browser tests)
-- ⬜ test-Backend.md - Path navigation tests needed
+**Test Designs Coverage:**
+- [x] test-Session.md - Backend tests exist
+- [x] test-Communication.md - Partially covered (HTTP, batching)
+- [x] test-Lua.md - Partially covered
+- [ ] test-VariableProtocol.md - Partially covered (protocol messages)
+- [ ] test-Frontend.md - Not covered (TypeScript/browser tests needed)
+- [ ] test-Viewdef.md - Not covered (TypeScript/browser tests needed)
+- [ ] test-Backend.md - Path navigation tests needed
 
-**Status:** In Progress (51 tests total, up from 7)
+**Status:** In Progress
 
----
-
-### B2: Backend Interface Traceability Checkbox Inconsistent
-
-**Issue:** traceability.md shows `crc-Backend.md` implementation checkbox as unchecked, but the file exists and defines the Backend interface with proper traceability comments.
-
-**Status:** ✅ Resolved (2025-12-30)
-
-**Resolution:** Updated traceability.md checkbox to `[x]` for `internal/backend/backend.go`
+**Recommendation:**
+1. Add TypeScript test infrastructure for frontend tests
+2. Implement browser-based tests for viewdef binding system
+3. Add path navigation tests for backend
 
 ---
 
-### B3: Wrapper Lua Implementation Marked Optional but Unclear
+### B2: Traceability Checkboxes Have Unchecked Items
 
-**Issue:** traceability.md shows `lib/wrapper.lua` as optional/incomplete for crc-Wrapper.md. However, Lua wrapper conventions are documented in libraries.md and the Go implementation in `internal/lua/wrapper.go` handles wrapper creation.
+**Issue:** Several items in traceability.md are unchecked, indicating implementation gaps or outdated tracking.
 
-**Status:** ✅ Resolved (2025-12-30)
+**Unchecked Items:**
+- `web/src/variable.ts` - namespace/fallbackNamespace property inheritance
+- `web/src/view.ts` - 3-tier namespace resolution, elementId usage
+- `web/src/viewlist.ts` - exemplar namespace inheritance, elementId usage
+- `web/src/app_view.ts` - elementId instead of element
+- `web/src/element_id_vendor.ts` - ElementIdVendor implementation (ACTUALLY IMPLEMENTED - checkbox is wrong)
+- `web/src/widget.ts` - Widget class (see A2)
+- `web/src/binding.ts` - Multiple unchecked items (Widget management, elementId keys, sendVariableUpdate, widget reference to event bindings)
+- `web/src/renderer.ts` - 3-tier namespace resolution, script collection/activation, elementId usage
 
-**Resolution:** Updated traceability.md to reference `lib/wrapper_example.lua` which demonstrates the custom wrapper pattern. Added note clarifying that wrapper base is in Go, with Lua wrappers following the example pattern.
+**Status:** In Progress
+
+**Recommendation:**
+1. Update traceability.md checkboxes that are actually complete (e.g., element_id_vendor.ts)
+2. Prioritize implementing remaining unchecked features
+3. Review whether all unchecked items are still required
+
+---
+
+### B3: Some Design Elements Reference Non-Existent Collaborators
+
+**Issue:** Some CRC cards reference collaborators or elements that may be outdated.
+
+**Found Issues:**
+- `crc-BindingEngine.md` references `WatchManager` as collaborator (line 204) - WatchManager was merged into LuaBackend
+- `test-VariableProtocol.md` references `crc-WatchManager.md` (line 4) - This CRC was deleted
+
+**Impact:** Minor - documentation inconsistency only
+
+**Status:** Open
+
+**Recommendation:** Update references to reflect current architecture (WatchManager functionality is now in LuaBackend)
 
 ---
 
@@ -128,36 +180,44 @@
 |--------|-----------|--------------|-------|
 | Variable Protocol | 5 | 5 | Complete |
 | Presenter | 3 | 3 | Complete |
-| Viewdef | 9 | 9 | Complete |
+| Viewdef | 11 | 9 | Widget not fully implemented, some namespace features pending |
 | Session | 3 | 3 | Complete |
-| Backend | 2 | 2 | Backend interface exists - update checkbox |
-| Communication | 5 | 5 | Complete |
+| Backend | 2 | 2 | Complete |
+| Communication | 6 | 6 | Complete |
 | Backend Socket | 3 | 3 | Complete |
 | Lua Runtime | 4 | 4 | Complete |
 | Backend Library | 2 | 2 | change-tracker provides core tracking |
 | Frontend Library | 4 | 4 | Complete |
-| Cross-Cutting | 5 | 5 | Complete |
+| Cross-Cutting | 5 | 4 | ElementIdVendor implemented |
 
 **External Package:** `change-tracker` (`github.com/zot/change-tracker`)
 - Provides: Variable management, change detection, object registry, value serialization
 - Not counted in CRC totals (external)
 
-**Sequences Coverage:** 37/37 (100%)
-- All referenced sequences exist
-- CRC cards updated to reference correct existing sequences
+**Sequences Coverage:** 40/42 (95%)
+- 40 sequence files exist
+- 2 MCP sequences referenced but missing (see A1)
 
 **UI Specs Coverage:** 2/2 (100%)
 - ui-app-shell.md
 - manifest-ui.md
 
-**Test Implementation Coverage:** ~50%
-- 5 test files with 51 tests covering 4 of 7 test designs
-- Remaining: Frontend tests (TypeScript), Viewdef tests (TypeScript), Backend path navigation
+**Test Design Coverage:**
+| Test Design | Backend Tests | Frontend Tests | Coverage |
+|-------------|---------------|----------------|----------|
+| test-Session.md | Yes | N/A | Good |
+| test-Communication.md | Partial | No | Partial |
+| test-Lua.md | Partial | N/A | Partial |
+| test-VariableProtocol.md | Partial | No | Partial |
+| test-Frontend.md | N/A | No | Missing |
+| test-Viewdef.md | N/A | No | Missing |
+| test-Backend.md | Partial | N/A | Partial |
 
 **Traceability:**
 - All 10 spec files have corresponding design elements
 - All CRC cards reference source specs
-- 2 broken sequence references found (see A1)
+- 2 broken sequence references found (MCP sequences)
+- 1 broken collaborator reference (WatchManager in BindingEngine)
 
 ---
 
@@ -174,22 +234,25 @@
 | `web/src/binding.ts` | crc-BindingEngine.md, crc-ValueBinding.md, crc-EventBinding.md | viewdefs.md |
 | `web/src/variable.ts` | crc-Variable.md | protocol.md |
 | `web/src/connection.ts` | crc-WebSocketEndpoint.md, crc-SharedWorker.md | interfaces.md |
+| `web/src/element_id_vendor.ts` | crc-ElementIdVendor.md | viewdefs.md |
 
 ---
 
 ## Artifact Verification
 
 ### Sequence References Valid
-- **Status:** PASS
-- All CRC cards reference existing sequence diagrams
+- **Status:** FAIL - 2 missing sequences
+- `seq-mcp-create-presenter.md` - Referenced but missing
+- `seq-mcp-create-session.md` - Referenced but missing
 
 ### Complex Behaviors Have Sequences
 - **Status:** PASS
-- All major workflows have sequence diagrams (37 sequences exist)
+- All major workflows have sequence diagrams (40 sequences exist)
 
 ### Collaborator Format Valid
-- **Status:** PASS
-- All collaborators reference CRC card names or marked "(External)"
+- **Status:** WARN - 1 outdated reference
+- `crc-BindingEngine.md` references `WatchManager` (deleted)
+- All other collaborators reference CRC card names or marked "(External)"
 
 ### Architecture Updated
 - **Status:** PASS
@@ -209,14 +272,14 @@
 ## Quality Checklist
 
 **Completeness:**
-- [x] All CRC cards analyzed (42)
-- [x] All sequences analyzed (37)
+- [x] All CRC cards analyzed (45)
+- [x] All sequences analyzed (40 exist, 2 missing)
 - [x] All source files examined
 
 **Artifact Verification:**
-- [x] Sequence references valid
+- [ ] Sequence references valid (2 missing MCP sequences)
 - [x] Complex behaviors have sequences
-- [x] Collaborators are CRC card names
+- [ ] Collaborators are CRC card names (1 outdated WatchManager ref)
 - [x] All CRCs in architecture.md
 - [x] All CRCs in traceability.md
 - [x] Test designs exist for testable components
@@ -230,20 +293,32 @@
 
 ## Recommended Priority Order
 
-1. **B1:** Implement test code for test designs (incremental)
-2. **C3:** Create test-Demo.md (optional)
+1. **A2:** Decide on Widget implementation approach (high impact on binding system)
+2. **A1:** Fix MCP sequence references in CRC cards
+3. **B2:** Update traceability checkboxes for completed items
+4. **B3:** Fix WatchManager reference in BindingEngine
+5. **B1:** Implement frontend test infrastructure
+6. **C3:** Create test-Demo.md (optional)
 
-## Recently Resolved (2025-12-30)
+## Changes Since Last Analysis (2025-12-30)
 
-- ✅ **A1:** Fixed missing sequence references in CRC cards
-- ✅ **B2:** Updated traceability.md Backend interface checkbox
-- ✅ **B3:** Clarified Lua wrapper documentation
+**New Issues Found:**
+- A1: MCP sequence references (previously not flagged)
+- A2: Widget class implementation gap (newly identified)
+- B3: WatchManager collaborator reference (newly identified)
 
-## Previously Resolved
+**Previously Resolved (Retained):**
+- Sequence reference fixes for ProtocolHandler, PacketProtocol
+- Backend interface checkbox update
+- Wrapper Lua documentation clarification
 
-- ~~A2: ObjectRegistry status~~ - Now documented as external change-tracker package
-- ~~B2 (old): WatchManager CRC~~ - Deleted (functionality in LuaBackend + change-tracker)
-- ~~crc-ChangeDetector.md~~ - Deleted (provided by change-tracker)
-- ~~crc-ObjectRegistry.md~~ - Deleted (provided by change-tracker)
-- ~~seq-object-registry.md~~ - Deleted (internal to change-tracker)
-- ~~B4: lib/lua/change.lua~~ - File does not exist (already removed as expected)
+## Historical: Previously Resolved
+
+- A1 (2025-12-30): Fixed missing sequence references in CRC cards (seq-lua-action-dispatch -> seq-lua-handle-action, seq-packet-protocol-message -> seq-backend-socket-accept)
+- B2 (2025-12-30): Updated traceability.md Backend interface checkbox
+- B3 (2025-12-30): Clarified Lua wrapper documentation
+- ObjectRegistry status - Now documented as external change-tracker package
+- WatchManager CRC - Deleted (functionality in LuaBackend + change-tracker)
+- crc-ChangeDetector.md - Deleted (provided by change-tracker)
+- crc-ObjectRegistry.md - Deleted (provided by change-tracker)
+- seq-object-registry.md - Deleted (internal to change-tracker)
