@@ -132,11 +132,11 @@ export class Connection {
       return;
     }
 
-    if (this.batcher.shouldBypassBatch(msg)) {
-      this.batcher.sendImmediate(msg);
-    } else {
+    //if (this.batcher.shouldBypassBatch(msg)) {
+    //  this.batcher.sendImmediate(msg);
+    //} else {
       this.batcher.enqueue(msg, priority);
-    }
+    //}
   }
 
   // Send a message and wait for a response (for create operations)
