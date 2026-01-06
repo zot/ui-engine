@@ -195,7 +195,7 @@ export class BindingEngine {
     for (const attr of Array.from(element.attributes)) {
       if (attr.name.startsWith('ui-attr-')) {
         const targetAttr = attr.name.substring(8) // Remove "ui-attr-"
-        this.createAttrBinding(element, contextVarId, attr.value, targetAttr, widget)
+        this.createAttrBinding(contextVarId, attr.value, targetAttr, widget)
         hasBindings = true
       }
     }
@@ -204,7 +204,7 @@ export class BindingEngine {
     for (const attr of Array.from(element.attributes)) {
       if (attr.name.startsWith('ui-class-')) {
         const className = attr.name.substring(9) // Remove "ui-class-"
-        this.createClassBinding(element, contextVarId, attr.value, className, widget)
+        this.createClassBinding(contextVarId, attr.value, className, widget)
         hasBindings = true
       }
     }
@@ -213,7 +213,7 @@ export class BindingEngine {
     for (const attr of Array.from(element.attributes)) {
       if (attr.name.startsWith('ui-style-')) {
         const styleProp = attr.name.substring(9) // Remove "ui-style-"
-        this.createStyleBinding(element, contextVarId, attr.value, styleProp, widget)
+        this.createStyleBinding(contextVarId, attr.value, styleProp, widget)
         hasBindings = true
       }
     }
@@ -237,7 +237,7 @@ export class BindingEngine {
     // ui-code binding (execute JS when variable updates)
     const uiCode = element.getAttribute('ui-code')
     if (uiCode) {
-      this.createCodeBinding(element, contextVarId, uiCode, widget)
+      this.createCodeBinding(contextVarId, uiCode, widget)
       hasBindings = true
     }
 
@@ -307,38 +307,51 @@ export class BindingEngine {
         isSlInput(element) ||
         ('value' in element && !(element.nodeName in READ_ONLY_WITH_VALUE)))
 
+    // Capture element ID for closures to avoid holding DOM references
+    // Spec: viewdefs.md - Element References (use ID lookup, not direct references)
+    const elementId = widget.elementId
+
     // Helper to scroll element to bottom if scrollable
     const scrollToBottom = () => {
-      if (scrollOnOutput && element.scrollHeight > element.clientHeight) {
-        element.scrollTop = element.scrollHeight
+      if (scrollOnOutput) {
+        const el = document.getElementById(elementId)
+        if (el && el.scrollHeight > el.clientHeight) {
+          el.scrollTop = el.scrollHeight
+        }
       }
     }
 
     const update = editableValue
       ? (value: unknown) => {
+          const el = document.getElementById(elementId)
+          if (!el) return
           // Preserve number type for components like sl-rating, sl-range
           if (typeof value === 'number') {
-            (element as any).value = value
+            (el as any).value = value
           } else {
-            (element as any).value = value?.toString() ?? ''
+            (el as any).value = value?.toString() ?? ''
           }
           scrollToBottom()
         }
       : (value: unknown) => {
-          element.textContent = value?.toString() ?? ''
+          const el = document.getElementById(elementId)
+          if (!el) return
+          el.textContent = value?.toString() ?? ''
           scrollToBottom()
         }
 
     // Handle error state changes - add/remove ui-error class and ui-error-* attributes
     const updateError = (error: VariableError | null) => {
+      const el = document.getElementById(elementId)
+      if (!el) return
       if (error) {
-        element.classList.add('ui-error')
-        element.setAttribute('ui-error-code', error.code)
-        element.setAttribute('ui-error-description', error.description)
+        el.classList.add('ui-error')
+        el.setAttribute('ui-error-code', error.code)
+        el.setAttribute('ui-error-description', error.description)
       } else {
-        element.classList.remove('ui-error')
-        element.removeAttribute('ui-error-code')
-        element.removeAttribute('ui-error-description')
+        el.classList.remove('ui-error')
+        el.removeAttribute('ui-error-code')
+        el.removeAttribute('ui-error-description')
       }
     }
 
@@ -453,7 +466,6 @@ export class BindingEngine {
   // Create an attribute binding
   // Spec: viewdefs.md - Path Resolution: Server-Side Only
   private createAttrBinding(
-    element: Element,
     varId: number,
     path: string,
     targetAttr: string,
@@ -469,11 +481,16 @@ export class BindingEngine {
       properties['access'] = 'r'
     }
 
+    // Capture element ID for closures to avoid holding DOM references
+    const elementId = widget.elementId
+
     const update = (value: unknown) => {
+      const el = document.getElementById(elementId)
+      if (!el) return
       if (value !== null && value !== undefined && value !== false) {
-        element.setAttribute(targetAttr, value.toString())
+        el.setAttribute(targetAttr, value.toString())
       } else {
-        element.removeAttribute(targetAttr)
+        el.removeAttribute(targetAttr)
       }
     }
 
@@ -505,7 +522,6 @@ export class BindingEngine {
   // Create a class binding
   // Spec: viewdefs.md - Path Resolution: Server-Side Only
   private createClassBinding(
-    element: Element,
     varId: number,
     path: string,
     className: string,
@@ -521,11 +537,16 @@ export class BindingEngine {
       properties['access'] = 'r'
     }
 
+    // Capture element ID for closures to avoid holding DOM references
+    const elementId = widget.elementId
+
     const update = (value: unknown) => {
+      const el = document.getElementById(elementId)
+      if (!el) return
       if (value) {
-        element.classList.add(className)
+        el.classList.add(className)
       } else {
-        element.classList.remove(className)
+        el.classList.remove(className)
       }
     }
 
@@ -557,7 +578,6 @@ export class BindingEngine {
   // Create a style binding
   // Spec: viewdefs.md - Path Resolution: Server-Side Only
   private createStyleBinding(
-    element: Element,
     varId: number,
     path: string,
     styleProp: string,
@@ -566,7 +586,6 @@ export class BindingEngine {
     const parsed = parsePath(path)
     const properties = pathOptionsToProperties(parsed.options)
     properties['path'] = parsed.segments.join('.')
-    const htmlElement = element as HTMLElement
 
     // Default to access=r for style bindings (read-only)
     // Spec: viewdefs.md - Value Bindings
@@ -574,11 +593,16 @@ export class BindingEngine {
       properties['access'] = 'r'
     }
 
+    // Capture element ID for closures to avoid holding DOM references
+    const elementId = widget.elementId
+
     const update = (value: unknown) => {
+      const el = document.getElementById(elementId) as HTMLElement | null
+      if (!el) return
       if (value !== null && value !== undefined) {
-        htmlElement.style.setProperty(styleProp, value.toString())
+        el.style.setProperty(styleProp, value.toString())
       } else {
-        htmlElement.style.removeProperty(styleProp)
+        el.style.removeProperty(styleProp)
       }
     }
 
@@ -610,7 +634,6 @@ export class BindingEngine {
   // Create a code binding (execute JS when variable updates)
   // Spec: viewdefs.md - Value Bindings (ui-code)
   private createCodeBinding(
-    element: Element,
     varId: number,
     path: string,
     widget: Widget
@@ -625,18 +648,23 @@ export class BindingEngine {
       properties['access'] = 'r'
     }
 
+    // Capture element ID for closures to avoid holding DOM references
+    const elementId = widget.elementId
+
     let childVarId: number | null = null
 
     // Execute code with element, value, variable, and store in scope
     // Spec: viewdefs.md - ui-code binding scope
     const executeCode = (code: unknown) => {
       if (typeof code !== 'string' || !code) return
+      const el = document.getElementById(elementId)
+      if (!el) return
       try {
         // Create function with element, value, variable, and store parameters
         const fn = new Function('element', 'value', 'variable', 'store', code)
         // Get current variable data from store
         const current = childVarId !== null ? this.store.get(childVarId) : null
-        fn(element, current?.value, current, this.store)
+        fn(el, current?.value, current, this.store)
       } catch (err) {
         console.error('Error executing ui-code:', err)
       }
