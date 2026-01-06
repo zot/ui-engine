@@ -395,7 +395,7 @@ ViewList is a wrapper type (see protocol.md). When `ui-viewlist="path"` is used:
 
 This preserves internal state (like selection) while keeping ViewListItems in sync with the array.
 
-The ViewList can access path properties like `item=ContactPresenter` from the variable's properties.
+The ViewList can access path properties like `itemWrapper=ContactPresenter` from the variable's properties.
 
 **ViewListItem objects:**
 

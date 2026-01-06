@@ -29,7 +29,7 @@
         |                      |                      |---getValue()-------->|                      |
         |                      |                      |                      |                      |
         |                      |                      |---getProperty------->|                      |
-        |                      |                      |   ("item" type)      |                      |
+        |                      |                      |   ("itemWrapper")    |                      |
         |                      |                      |                      |                      |
         |                      |<--wrapper------------|                      |                      |
         |                      |   (new instance)     |                      |                      |

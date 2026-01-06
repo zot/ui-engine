@@ -28,7 +28,7 @@ function isSlInput(element: any) {
   )
 }
 
-// Parse a path like "father.name?create=Person&wrapper=ViewList&item=ContactPresenter"
+// Parse a path like "father.name?create=Person&wrapper=lua.ViewList&itemWrapper=ContactPresenter"
 // Properties without values default to "true": "name?keypress" equals "name?keypress=true"
 // Spec: protocol.md - Path property syntax, libraries.md - View rendering
 export function parsePath(path: string): ParsedPath {
@@ -270,7 +270,6 @@ export class BindingEngine {
   // Create a value binding (sets textContent or value, and handles changes)
   // Spec: viewdefs.md - Nullish path handling with error indicators
   // Spec: libraries.md - Input update behavior (blur by default, keypress for immediate)
-  // ARCHITECTURE.md: Frontend creates child variables for paths
   private createValueBinding(
     element: Element,
     varId: number,

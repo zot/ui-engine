@@ -17,7 +17,7 @@
 ```
      Variable              Resolver               ViewList           ViewListItem         ObjectRegistry
         |                      |                      |                      |                      |
-        |   [on variable create with wrapper=ViewList]                                              |
+        |   [on variable create with wrapper=lua.ViewList]                                              |
         |                      |                      |                      |                      |
         |---CreateWrapper----->|                      |                      |                      |
         |   (variable)         |                      |                      |                      |
@@ -31,7 +31,7 @@
         |                      |                      |   (get array)        |                      |
         |                      |                      |                      |                      |
         |                      |                      |---getProperty------->|                      |
-        |                      |                      |   ("item" type)      |                      |
+        |                      |                      |   ("itemWrapper")    |                      |
         |                      |                      |                      |                      |
         |                      |                      |---sync()------------>|                      |
         |                      |                      |   (initial sync)     |                      |

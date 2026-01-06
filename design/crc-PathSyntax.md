@@ -43,7 +43,7 @@ Nullish coalescing during path traversal is handled by PathNavigator (see crc-Pa
 Paths can include properties that are set on the created variable:
 
 ```
-contacts?wrapper=ViewList&item=ContactPresenter
+contacts?wrapper=lua.ViewList&itemWrapper=ContactPresenter
 ```
 
 - Properties after `?` are set on the created variable
@@ -51,7 +51,7 @@ contacts?wrapper=ViewList&item=ContactPresenter
 - **Properties without values default to `true`:** `x?a&b` parses as `x?a=true&b=true`
 - Common properties:
   - `wrapper` - Wrapper type for value transformation
-  - `item` - Item presenter type (for ViewList)
+  - `itemWrapper` - Item presenter type (for ViewList)
   - `create` - Type to instantiate as variable value
   - `keypress` - Boolean, controls input update timing (see crc-BindingEngine.md)
   - `scrollOnOutput` - Boolean, auto-scrolls element to bottom on value update (see crc-ValueBinding.md)
@@ -62,8 +62,8 @@ contacts?wrapper=ViewList&item=ContactPresenter
 - `contacts.1` - Array index (1-based)
 - `@customers.2.name` - Standard variable prefix
 - `getName()` - Method call
-- `contacts?wrapper=ViewList` - Path with wrapper property
-- `contacts?item=ContactPresenter&editable=true` - Multiple properties
+- `contacts?wrapper=lua.ViewList` - Path with wrapper property
+- `contacts?itemWrapper=ContactPresenter&editable=true` - Multiple properties
 - `name?keypress` - Property defaults to true (equivalent to `name?keypress=true`)
 - `log?scrollOnOutput` - Auto-scroll element to bottom on value updates
 
@@ -72,7 +72,7 @@ contacts?wrapper=ViewList&item=ContactPresenter
 - PathNavigator: Uses for path resolution
 - BindingEngine: Parses ui-* attribute values (including ui-action paths)
 - Variable: Path stored in path property, URL params become variable properties
-- ViewList: Receives item property from path params
+- ViewList: Receives itemWrapper property from path params
 
 ## Sequences
 

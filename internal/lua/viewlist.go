@@ -19,7 +19,7 @@ type ViewList struct {
 	value          interface{}             // The raw array of domain objects (slice or array)
 	Items          []*ViewListItem         // The actual list of ViewListItem objects
 	SelectionIndex int                     // The current selection index
-	itemType       string                  // ItemWrapper type name from "item" property
+	itemType       string                  // Wrapper type name from "itemWrapper" property
 	nextObjID      int64                   // counter for generating ViewListItem object IDs
 	mu             sync.RWMutex
 }

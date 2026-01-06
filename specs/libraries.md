@@ -214,7 +214,7 @@ The frontend library connects to the UI server and supports remote UIs:
 - Dynamic View: `ui-viewdef` attribute - holds computed viewdef
 - ViewList: `ui-viewlist` attribute - holds array of object refs, `ui-namespace` - viewdef namespace
   - ViewList uses the `wrapper` variable property to transform domain objects
-  - Path properties configure wrapping: `ui-viewlist="contacts?item=ContactPresenter"`
+  - Path properties configure wrapping: `ui-viewlist="contacts?itemWrapper=ContactPresenter"`
   - See viewdefs.md for full ViewList documentation
 
 **Input update behavior:**

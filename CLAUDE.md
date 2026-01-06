@@ -1,8 +1,8 @@
 # Project Instructions
 
-## Essential Reading: Architecture Overview
+## Essential Reading: Usage Guide
 
-**ALWAYS read `ARCHITECTURE.md` before working on frontend/backend integration.**
+**ALWAYS read `USAGE.md` before working on frontend/backend integration.**
 
 This document explains the core data flow:
 - Frontend creates most variables (backend only creates variable 1)

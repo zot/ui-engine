@@ -61,10 +61,10 @@ Variable metadata properties with special meaning:
 - Parent traversal: `..`
 - Method calls: `getName()`
 - Standard variable prefix: `@customers.2.name` (starts from a well-known registered variable)
-- Path properties: `contacts?wrapper=ViewList&item=ContactPresenter`
+- Path properties: `contacts?wrapper=lua.ViewList&itemWrapper=ContactPresenter`
   - Properties after `?` are set on the created variable
   - Uses URL query string syntax: `key=value&key2=value2`
-  - Common properties: `wrapper`, `item`, `create`
+  - Common properties: `wrapper`, `itemWrapper`, `create`
 
 ## Variable Wrappers
 

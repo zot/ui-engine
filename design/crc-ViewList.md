@@ -17,7 +17,7 @@
 - value: The array value (accessed via `variable:getValue()`)
 - items: Array of ViewListItem objects (one per array element)
 - selectionIndex: Current selection index for frontend use (default: 0, or -1 for no selection)
-- itemType: Optional custom ViewListItem type name (from variable's `item` property)
+- itemType: Optional custom ViewListItem type name (from variable's `itemWrapper` property)
 
 ### Does
 
@@ -68,12 +68,12 @@ ViewList operates in two contexts:
 1. **Frontend**: Manages DOM elements for rendering array items
 2. **Backend**: Acts as a wrapper that stands in for the variable's value
 
-When `ui-viewlist="contacts?item=ContactPresenter"` is used:
-1. Frontend creates variable with `wrapper=ViewList` and `item=ContactPresenter` properties
+When `ui-viewlist="contacts?itemWrapper=ContactPresenter"` is used:
+1. Frontend creates variable with `wrapper=lua.ViewList` and `itemWrapper=ContactPresenter` properties
 2. `Resolver.CreateWrapper(variable)` calls `ViewList:new(variable)`
 3. ViewList stores `variable` property (accesses array via `variable:getValue()`)
 4. **ViewList sets `fallbackNamespace: "list-item"` on the variable**
-5. ViewList reads `item` property from variable for custom ViewListItem type
+5. ViewList reads `itemWrapper` property from variable for custom ViewListItem type
 6. ViewList is registered in object registry (stands in for child path navigation)
 7. ViewList maintains `items` array of ViewListItem objects
 8. ViewList maintains `selectionIndex` for frontend selection state
@@ -143,7 +143,7 @@ This allows a ViewList with `ui-namespace="COMPACT"` to render all its items usi
 
 ViewList configuration via path properties:
 - `contacts` - Basic ViewList with default ViewListItem
-- `contacts?item=ContactPresenter` - Custom ViewListItem type for each item
+- `contacts?itemWrapper=ContactPresenter` - Custom ViewListItem type for each item
 
 ### ViewListItem Objects
 
@@ -156,7 +156,7 @@ See crc-ViewListItem.md for full documentation.
 
 ### Custom ViewListItems
 
-When `item=PresenterType` is specified in path properties, ViewList creates instances of that type instead of plain ViewListItems. The custom type is constructed with the ViewList and index: `PresenterType:new(viewList, index)`.
+When `itemWrapper=PresenterType` is specified in path properties, ViewList creates instances of that type instead of plain ViewListItems. The custom type is constructed with the ViewList and index: `PresenterType:new(viewList, index)`.
 
 Custom ViewListItems can have UI-specific methods like `delete()` that can:
 - Access the domain object via `self.item`
