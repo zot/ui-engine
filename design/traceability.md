@@ -90,10 +90,13 @@
 - ViewList wrapper sets `fallbackNamespace: "list-item"` on its variable
 - Default access=r for: ui-value on non-interactive elements, ui-attr-*, ui-class-*, ui-style-*, ui-code, ui-view, ui-viewlist
 - ui-code binding executes JavaScript code with element, value, variable, and store in scope
-- ui-event-keypress-* bindings listen for specific keys and set variable to key name (e.g., "enter")
+- ui-event-keypress-* bindings listen for specific keys (with optional modifiers) and set variable to key name (e.g., "enter")
+- Keypress modifier support: `ui-event-keypress-{modifiers}-{key}` where modifiers can be ctrl, shift, alt, meta (combinable)
+- Exact modifier matching: specified modifiers must all be pressed, no additional modifiers allowed
 - **Frontend Update Behavior (Universal)**: When sending ANY variable update to backend, MUST first set value in local variable cache
 - **Duplicate Update Suppression**: Bindings without `access=action` or `access=w` MUST NOT send update if value unchanged
 - **Event binding value sync**: Before sending event update, check for ui-value binding on same widget; if element value differs from cached variable value, send value update first (subject to duplicate suppression)
+- **Auto-scroll on output**: `scrollOnOutput` path property auto-scrolls element to bottom when value updates (for log viewers, chat windows, etc.)
 
 ---
 
@@ -184,6 +187,7 @@
 - Embedded Lua uses LuaSession instead of BackendConnection
 - Path properties without values default to `true` (e.g., `?keypress` equals `?keypress=true`)
 - Input elements use blur-based events by default; `keypress` property switches to keystroke events
+- `scrollOnOutput` path property auto-scrolls element to bottom on value update (for log viewers, chat windows)
 
 ---
 
@@ -325,6 +329,7 @@
 - [x] `web/src/binding.ts` - Value bindings with child variable creation, event selection based on keypress property
 - [ ] `web/src/binding.ts` - ui-code extended scope (element, value, variable, store)
 - [ ] `web/src/binding.ts` - shouldSuppressUpdate for duplicate value detection
+- [ ] `web/src/binding.ts` - scrollOnOutput path property for auto-scroll on value update
 
 ### crc-EventBinding.md
 **Source Spec:** viewdefs.md
@@ -460,6 +465,7 @@
 **Implementation:**
 - [x] `internal/path/syntax.go` - Path parsing
 - [x] `web/src/binding.ts` - Frontend path parsing (properties without values default to true)
+- [ ] `web/src/binding.ts` - Parse `scrollOnOutput` path property
 
 ### crc-BackendSocket.md
 **Source Spec:** deployment.md, interfaces.md

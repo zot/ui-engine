@@ -222,6 +222,11 @@ The frontend library connects to the UI server and supports remote UIs:
 - Add `keypress` property to send updates on every keypress: `ui-value="name?keypress"`
 - This applies to `<input>`, `<textarea>`, `<sl-input>`, and `<sl-textarea>`
 
+**Auto-scroll behavior:**
+- Add `scrollOnOutput` property to auto-scroll an element to the bottom when its value updates: `ui-value="log?scrollOnOutput"`
+- Useful for log viewers, chat windows, or streaming content containers
+- Only scrolls if the element has overflow (is scrollable)
+
 **Shoelace widget bindings:**
 - Input: `ui-value`, `ui-disabled`
 - Button: `ui-action`

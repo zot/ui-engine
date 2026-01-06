@@ -135,6 +135,14 @@ For input elements, the update event depends on `keypress` property:
 - With `keypress`: `input` (native) or `sl-input` (Shoelace)
 - See seq-input-value-binding.md for detailed flow
 
+### Auto-Scroll on Output
+
+When `scrollOnOutput` path property is set (e.g., `ui-value="log?scrollOnOutput"`):
+- After applying the value to the element (step: `apply(element, value)`)
+- Check if element is scrollable (`element.scrollHeight > element.clientHeight`)
+- If scrollable, auto-scroll to bottom: `element.scrollTop = element.scrollHeight`
+- Useful for log viewers, chat windows, streaming content containers
+
 ### Unbind Cleanup (Widget-Based)
 
 When unbinding an element:

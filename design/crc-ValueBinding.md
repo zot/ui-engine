@@ -13,7 +13,7 @@ Value bindings connect variables to element properties. They are created by Bind
 - bindingType: One of value, keypress, attr, class, style, code
 - attributeName: For attr/class/style, the specific attribute
 - path: Path property value sent to backend for resolution
-- pathOptions: Parsed path options including `keypress`, `create`, `wrapper`, `access`, etc.
+- pathOptions: Parsed path options including `keypress`, `create`, `wrapper`, `access`, `scrollOnOutput`, etc.
 - defaultValue: Empty/default value for nullish paths (empty string, false, etc.)
 - updateEvent: Event to listen for updates (`blur`/`input` for native, `sl-change`/`sl-input` for Shoelace)
 - store: VariableStore reference for ui-code execution scope
@@ -30,6 +30,7 @@ Value bindings connect variables to element properties. They are created by Bind
 - transformValue: Apply any value transformations
 - handleNullishRead: Display defaultValue when path resolves to null/undefined
 - handleNullishWrite: Send error message with code 'path-failure' when write path is nullish (causes UI error indicator)
+- scrollToBottom: Scroll element to bottom if `scrollOnOutput` option is set and element is scrollable
 - selectUpdateEvent: Choose update event based on element type and `keypress` option
 - executeCode: For code bindings, execute JavaScript with element, value, variable, and store in scope
 - shouldSuppressUpdate: Check if update should be skipped due to duplicate value (see Duplicate Update Suppression)
@@ -161,6 +162,44 @@ return variable.value === newValue;  // Suppress if unchanged
 - Prevents redundant backend processing
 - Blur events may fire without actual value changes
 - Action bindings intentionally trigger side effects regardless of value
+
+## Auto-Scroll on Output
+
+The `scrollOnOutput` path property enables automatic scrolling to the bottom when a value updates:
+
+```html
+<div ui-value="log?scrollOnOutput"></div>
+<pre ui-value="terminal?scrollOnOutput"></pre>
+```
+
+**Behavior:**
+1. When the child variable receives an update (value change from backend)
+2. After applying the value to the element
+3. If `pathOptions.scrollOnOutput` is true:
+   - Check if element is scrollable (`element.scrollHeight > element.clientHeight`)
+   - If scrollable, set `element.scrollTop = element.scrollHeight`
+
+**Use cases:**
+- Log viewers showing streaming output
+- Chat windows with new messages
+- Terminal emulators with command output
+- Any container displaying appended content
+
+**Implementation:**
+```typescript
+// In update handler, after applying value
+if (pathOptions.scrollOnOutput) {
+  const element = document.getElementById(this.elementId);
+  if (element && element.scrollHeight > element.clientHeight) {
+    element.scrollTop = element.scrollHeight;
+  }
+}
+```
+
+**Notes:**
+- Only scrolls if the element has overflow (is actually scrollable)
+- Scroll happens after DOM update to ensure accurate scrollHeight
+- Works with any element that can have overflow (div, pre, textarea, etc.)
 
 ## ui-keypress Attribute
 

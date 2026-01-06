@@ -54,6 +54,7 @@ contacts?wrapper=ViewList&item=ContactPresenter
   - `item` - Item presenter type (for ViewList)
   - `create` - Type to instantiate as variable value
   - `keypress` - Boolean, controls input update timing (see crc-BindingEngine.md)
+  - `scrollOnOutput` - Boolean, auto-scrolls element to bottom on value update (see crc-ValueBinding.md)
 
 **Examples:**
 - `name` - Simple property access
@@ -64,6 +65,7 @@ contacts?wrapper=ViewList&item=ContactPresenter
 - `contacts?wrapper=ViewList` - Path with wrapper property
 - `contacts?item=ContactPresenter&editable=true` - Multiple properties
 - `name?keypress` - Property defaults to true (equivalent to `name?keypress=true`)
+- `log?scrollOnOutput` - Auto-scroll element to bottom on value updates
 
 ## Collaborators
 

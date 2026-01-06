@@ -11,15 +11,17 @@ Event bindings connect DOM events to variable updates. They are created by Bindi
 - eventType: DOM event name (click, change, input, keydown, etc.)
 - variableId: Target variable ID
 - actionPath: Path for action triggers (e.g., "submit()")
-- targetKey: For keypress bindings, the specific key to listen for (e.g., "enter", "escape")
+- targetKey: For keypress bindings, the specific key to listen for (e.g., "enter", "escape", "s")
+- modifierKeys: For keypress bindings, set of required modifiers (e.g., `{"ctrl", "shift"}`)
 - widget: Reference to the Widget for this element (for accessing sibling bindings)
 
 ### Does (implemented by BindingEngine)
 - createEventBinding: Add event listener to element (looked up by ID), register unbind handler with Widget
 - handleEvent: Process DOM event and update variable (with value sync)
-- handleKeypressEvent: Process keydown event, filter by targetKey, update variable with key name
+- handleKeypressEvent: Process keydown event, filter by targetKey and modifiers, update variable with key name
 - extractEventValue: Get relevant value from event (input value, click data, etc.)
 - matchesTargetKey: Check if keyboard event matches targetKey (case-insensitive)
+- matchesModifiers: Check if keyboard event matches required modifiers exactly (no extra modifiers)
 - isAction: Check if binding triggers an action vs. value update
 - isKeypressBinding: Check if this is a keypress-specific binding (ui-event-keypress-*)
 - getElement: Look up DOM element by elementId (via document.getElementById)
@@ -35,23 +37,41 @@ Called automatically when `widget.unbindAll()` is invoked.
 
 ## Keypress Binding
 
-The `ui-event-keypress-*` attribute creates a specialized event binding for specific key presses.
+The `ui-event-keypress-*` attribute creates a specialized event binding for specific key presses, with optional modifier key support.
 
 **Attribute format:**
+```
+ui-event-keypress-{modifiers}-{key}
+```
+Where modifiers are optional and can be combined in any order before the key.
+
+**Examples:**
 ```html
 <input ui-event-keypress-enter="onEnter">
 <div ui-event-keypress-escape="onCancel" tabindex="0">
 <input ui-event-keypress-a="onLetterA">
+<input ui-event-keypress-ctrl-enter="submitForm">
+<input ui-event-keypress-ctrl-shift-s="saveAll">
+<div ui-event-keypress-alt-left="navigateBack" tabindex="0">
 ```
 
 **Behavior:**
 1. Listens on the `keydown` event of the element
 2. Filters events by the specified key (case-insensitive comparison with `event.key`)
-3. When the target key is pressed, updates the variable based on path type:
+3. Filters events by required modifiers (exact match - see "Modifier Matching")
+4. When the target key and modifiers match, updates the variable based on path type:
    - **Non-action path** (e.g., `lastKey`): Sets variable to key name (e.g., `"enter"`)
    - **No-arg action** (e.g., `selectFirst()`): Updates with `null` (invokes action for side-effect)
    - **1-arg action** (e.g., `handleKey(_)`): Updates with key name as argument
-4. Non-matching keydown events are ignored (no variable update)
+5. Non-matching keydown events are ignored (no variable update)
+
+**Supported modifiers:**
+- `ctrl` - Control key must be held (matches `event.ctrlKey`)
+- `shift` - Shift key must be held (matches `event.shiftKey`)
+- `alt` - Alt key must be held (matches `event.altKey`)
+- `meta` - Meta/Command key must be held (matches `event.metaKey`)
+
+Modifiers can be combined in any order: `ctrl-shift-s`, `shift-ctrl-s`, `alt-ctrl-enter` are all valid.
 
 **Supported keys:**
 - `enter` - Enter/Return key (matches "Enter")
@@ -63,6 +83,12 @@ The `ui-event-keypress-*` attribute creates a specialized event binding for spec
 - `tab` - Tab key (matches "Tab")
 - `space` - Space bar (matches " " or "Spacebar")
 - Single letters (`a`-`z`) - Any letter key (case-insensitive)
+
+**Modifier matching (exact):**
+When modifiers are specified, **all** specified modifiers must be pressed and **no additional** modifiers should be pressed. This ensures precise key combinations:
+- `ui-event-keypress-ctrl-s` fires on Ctrl+S but NOT on Ctrl+Shift+S
+- `ui-event-keypress-ctrl-shift-s` fires on Ctrl+Shift+S but NOT on Ctrl+S or Ctrl+Alt+Shift+S
+- `ui-event-keypress-enter` (no modifiers) fires on Enter but NOT on Ctrl+Enter or Shift+Enter
 
 **Key name normalization:**
 The binding normalizes the attribute key name to match the browser's `event.key` value:

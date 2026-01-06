@@ -100,6 +100,10 @@ A **Widget** is the binding context for an element with `ui-*` bindings. Each el
 - `ui-value` - Bind a variable to the element's "value" (input field, file name, etc.)
   - For non-interactive elements (div, span, etc.), automatically adds `access=r` if no `access` property is specified
   - Interactive elements (input, textarea, select, etc.) default to read-write
+  - **Path properties:**
+    - `scrollOnOutput` - Auto-scroll element to bottom when value updates (e.g., `ui-value="log?scrollOnOutput"`)
+      - Useful for log viewers, chat windows, or any container showing streaming content
+      - Only scrolls if the element is scrollable (has overflow)
 - `ui-attr-*` - Bind a variable value to an HTML attribute (e.g., `ui-attr-disabled`); defaults to `access=r`
 - `ui-class-*` - Bind a variable value to CSS classes (value is a class string); defaults to `access=r`
 - `ui-style-*` - Bind a variable value to a CSS style property (e.g., `ui-style-background-color`); defaults to `access=r`
@@ -160,8 +164,19 @@ The binding engine must:
     1. Check if the element's current value differs from the variable's cached value
     2. If different, send a variable update with the new value first
     3. Then send the event update
-- `ui-event-keypress-*` - Trigger on specific key presses (e.g., `ui-event-keypress-enter`, `ui-event-keypress-left`)
-  - Fires only when the specified key is pressed
+- `ui-event-keypress-*` - Trigger on specific key presses (e.g., `ui-event-keypress-enter`, `ui-event-keypress-ctrl-enter`)
+  - Fires only when the specified key (and modifiers, if any) is pressed
+  - **Format:** `ui-event-keypress-{modifiers}-{key}` where modifiers are optional
+  - **Modifiers** (can be combined in any order before the key):
+    - `ctrl` - Control key must be held
+    - `shift` - Shift key must be held
+    - `alt` - Alt key must be held
+    - `meta` - Meta/Command key must be held
+  - **Examples with modifiers:**
+    - `ui-event-keypress-ctrl-enter` - Ctrl+Enter
+    - `ui-event-keypress-shift-enter` - Shift+Enter
+    - `ui-event-keypress-ctrl-shift-s` - Ctrl+Shift+S
+    - `ui-event-keypress-alt-left` - Alt+Left arrow
   - Key names are case-insensitive and match keyboard event `key` values:
     - `ui-event-keypress-enter` - Enter/Return key
     - `ui-event-keypress-escape` - Escape key
@@ -173,6 +188,7 @@ The binding engine must:
     - `ui-event-keypress-space` - Space bar
     - `ui-event-keypress-{letter}` - Any single letter (e.g., `ui-event-keypress-a`)
   - Listens on the `keydown` event of the element
+  - **Modifier matching is exact:** If modifiers are specified, they must all be pressed and no additional modifiers should be pressed (e.g., `ui-event-keypress-ctrl-s` won't fire if Ctrl+Shift+S is pressed)
   - **Value behavior depends on path type:**
     - **Non-action path** (e.g., `lastKey`): Sets the variable to the lowercase key name (e.g., `"enter"`)
     - **No-arg action** (e.g., `selectFirst()`): Invokes the action with `null` (side-effect only)

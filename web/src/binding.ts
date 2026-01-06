@@ -284,6 +284,11 @@ export class BindingEngine {
     // Check if keypress mode is enabled (send updates on every keypress vs blur)
     const useKeypress = parsed.options.props?.['keypress'] === 'true'
 
+    // Check if scrollOnOutput is enabled (auto-scroll to bottom on value updates)
+    // Spec: viewdefs.md - scrollOnOutput path property
+    // CRC: crc-ValueBinding.md - scrollToBottom
+    const scrollOnOutput = parsed.options.props?.['scrollOnOutput'] === 'true'
+
     // Create a child variable for this path
     // The server will resolve the path and send back the value
     let childVarId: number | null = null
@@ -301,6 +306,14 @@ export class BindingEngine {
         element instanceof HTMLSelectElement ||
         isSlInput(element) ||
         ('value' in element && !(element.nodeName in READ_ONLY_WITH_VALUE)))
+
+    // Helper to scroll element to bottom if scrollable
+    const scrollToBottom = () => {
+      if (scrollOnOutput && element.scrollHeight > element.clientHeight) {
+        element.scrollTop = element.scrollHeight
+      }
+    }
+
     const update = editableValue
       ? (value: unknown) => {
           // Preserve number type for components like sl-rating, sl-range
@@ -309,8 +322,12 @@ export class BindingEngine {
           } else {
             (element as any).value = value?.toString() ?? ''
           }
+          scrollToBottom()
         }
-      : (value: unknown) => (element.textContent = value?.toString() ?? '')
+      : (value: unknown) => {
+          element.textContent = value?.toString() ?? ''
+          scrollToBottom()
+        }
 
     // Handle error state changes - add/remove ui-error class and ui-error-* attributes
     const updateError = (error: VariableError | null) => {
@@ -680,6 +697,49 @@ export class BindingEngine {
     return event.key === normalizedTarget
   }
 
+  // Known modifier keys for keypress bindings
+  // Spec: viewdefs.md - ui-event-keypress-* modifiers
+  // CRC: crc-BindingEngine.md - isModifierKey
+  private static readonly MODIFIER_KEYS = new Set(['ctrl', 'shift', 'alt', 'meta'])
+
+  // Parse keypress attribute suffix into modifiers and key
+  // e.g., "ctrl-shift-enter" → { modifiers: Set(['ctrl', 'shift']), key: 'enter' }
+  // CRC: crc-BindingEngine.md - parseKeypressAttribute
+  private parseKeypressAttribute(suffix: string): { modifiers: Set<string>; key: string } {
+    const parts = suffix.toLowerCase().split('-')
+    const modifiers = new Set<string>()
+    let key = ''
+
+    for (const part of parts) {
+      if (BindingEngine.MODIFIER_KEYS.has(part)) {
+        modifiers.add(part)
+      } else {
+        // Last non-modifier part is the key
+        key = part
+      }
+    }
+
+    return { modifiers, key }
+  }
+
+  // Check if keyboard event modifiers match exactly (all required, no extras)
+  // Spec: viewdefs.md - Modifier matching is exact
+  // CRC: crc-EventBinding.md - matchesModifiers
+  private matchesModifiers(event: KeyboardEvent, requiredModifiers: Set<string>): boolean {
+    const eventModifiers = new Set<string>()
+    if (event.ctrlKey) eventModifiers.add('ctrl')
+    if (event.shiftKey) eventModifiers.add('shift')
+    if (event.altKey) eventModifiers.add('alt')
+    if (event.metaKey) eventModifiers.add('meta')
+
+    // Check exact match: same size and all required modifiers present
+    if (eventModifiers.size !== requiredModifiers.size) return false
+    for (const mod of requiredModifiers) {
+      if (!eventModifiers.has(mod)) return false
+    }
+    return true
+  }
+
   // Sync ui-value before sending event if element value differs from cached
   // Spec: viewdefs.md - Event Bindings (value sync with ui-value)
   // CRC: crc-EventBinding.md - Event Update Behavior
@@ -768,9 +828,9 @@ export class BindingEngine {
       })
   }
 
-  // Create a keypress-specific binding (ui-event-keypress-enter, etc.)
-  // Listens on keydown, filters by target key, updates variable with key name
-  // Spec: viewdefs.md - ui-event-keypress-* bindings
+  // Create a keypress-specific binding (ui-event-keypress-enter, ui-event-keypress-ctrl-enter, etc.)
+  // Listens on keydown, filters by target key and modifiers, updates variable with key name
+  // Spec: viewdefs.md - ui-event-keypress-* bindings with modifiers
   // CRC: crc-EventBinding.md - Keypress Binding
   private createKeypressBinding(
     element: Element,
@@ -779,10 +839,16 @@ export class BindingEngine {
     eventName: string,
     widget: Widget
   ): void {
-    // Extract target key from eventName (e.g., "enter" from "keypress-enter")
-    const targetKey = eventName.substring(9) // Remove "keypress-"
-    if (!targetKey) {
+    // Extract modifiers and key from eventName (e.g., "ctrl-enter" from "keypress-ctrl-enter")
+    const suffix = eventName.substring(9) // Remove "keypress-"
+    if (!suffix) {
       console.error('Invalid keypress binding - missing key name:', eventName)
+      return
+    }
+
+    const { modifiers, key: targetKey } = this.parseKeypressAttribute(suffix)
+    if (!targetKey) {
+      console.error('Invalid keypress binding - no key found:', eventName)
       return
     }
 
@@ -801,11 +867,11 @@ export class BindingEngine {
 
     let childVarId: number | null = null
 
-    // Listen on keydown and filter by target key
-    // Spec: viewdefs.md - Event Bindings (value sync with ui-value)
+    // Listen on keydown and filter by target key and modifiers
+    // Spec: viewdefs.md - Event Bindings (value sync with ui-value), Modifier matching is exact
     const handler = (event: Event) => {
       const keyEvent = event as KeyboardEvent
-      if (this.matchesTargetKey(keyEvent, targetKey)) {
+      if (this.matchesTargetKey(keyEvent, targetKey) && this.matchesModifiers(keyEvent, modifiers)) {
         if (childVarId !== null) {
           // Sync ui-value before sending event
           this.syncValueBeforeEvent(element, widget)

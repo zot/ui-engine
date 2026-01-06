@@ -24,9 +24,10 @@
 - createActionBinding: Create ui-action binding, register unbind handler with Widget
 - sendVariableUpdate: Send variable update with local value setting and duplicate suppression (checks if update should be skipped, sets local value first, then sends)
 - shouldSuppressUpdate: Check if update should be skipped due to duplicate value (see Duplicate Update Suppression)
-- parsePath: Parse path with optional URL-style properties (?create=Type&prop=value); properties without values default to `true`
-- parseKeypressAttribute: Extract target key from ui-event-keypress-* attribute name
+- parsePath: Parse path with optional URL-style properties (?create=Type&prop=value); properties without values default to `true`; recognizes `scrollOnOutput` for auto-scroll behavior
+- parseKeypressAttribute: Extract target key and modifiers from ui-event-keypress-* attribute name (returns `{key, modifiers}`)
 - normalizeKeyName: Convert attribute key name to browser event.key value (e.g., "enter" -> "Enter")
+- isModifierKey: Check if a segment is a known modifier (ctrl, shift, alt, meta)
 - selectInputEvent: Choose event type for input elements (`blur` by default, `input` if `keypress` property is set or `ui-keypress` attribute used)
 - integrateWidgetBinding: Coordinate with WidgetBinder for widget-specific value handling
 - determineDefaultAccess: Determine default `access` property based on binding type and element
@@ -122,16 +123,28 @@ const otherVar = store.get(someVarId);
 
 ## Keypress Event Binding
 
-The `ui-event-keypress-*` attribute creates an event binding that fires only when a specific key is pressed.
+The `ui-event-keypress-*` attribute creates an event binding that fires only when a specific key (with optional modifiers) is pressed.
 
 **Attribute format:**
+```
+ui-event-keypress-{modifiers}-{key}
+```
+
+**Examples:**
 ```html
 <input ui-event-keypress-enter="onEnterPressed">
 <div ui-event-keypress-escape="onEscape" tabindex="0">
+<input ui-event-keypress-ctrl-enter="submitForm">
+<input ui-event-keypress-ctrl-shift-s="saveAll">
+<div ui-event-keypress-alt-left="navigateBack" tabindex="0">
 ```
 
 **Processing:**
-1. `parseKeypressAttribute(attrName)` extracts the key name from the attribute (e.g., "enter" from "ui-event-keypress-enter")
+1. `parseKeypressAttribute(attrName)` extracts the key name and modifiers from the attribute:
+   - Splits the attribute suffix on `-` (e.g., `ctrl-shift-s` -> `["ctrl", "shift", "s"]`)
+   - Uses `isModifierKey()` to identify modifiers (ctrl, shift, alt, meta)
+   - The last non-modifier segment is the key
+   - Returns `{key: "s", modifiers: Set{"ctrl", "shift"}}`
 2. `normalizeKeyName(keyName)` converts it to the browser's `event.key` format:
    - `enter` -> `Enter`
    - `escape` -> `Escape`
@@ -142,16 +155,26 @@ The `ui-event-keypress-*` attribute creates an event binding that fires only whe
    - `tab` -> `Tab`
    - `space` -> ` ` (space character)
    - Single letters remain as-is (case-insensitive matching)
-3. `createKeypressEventBinding(element, path, targetKey)` creates an EventBinding that:
+3. `createKeypressEventBinding(element, path, targetKey, modifiers)` creates an EventBinding that:
    - Listens to `keydown` events on the element
    - Filters by the normalized target key
+   - Filters by exact modifier match (all specified modifiers pressed, no extra modifiers)
    - Updates the variable with the key name when matched
+
+**Modifier matching:**
+The `matchesModifiers(event, requiredModifiers)` function checks:
+- `event.ctrlKey` matches `"ctrl" in requiredModifiers`
+- `event.shiftKey` matches `"shift" in requiredModifiers`
+- `event.altKey` matches `"alt" in requiredModifiers`
+- `event.metaKey` matches `"meta" in requiredModifiers`
+
+All four conditions must be true for an exact match. This ensures `ctrl-s` does not match Ctrl+Shift+S.
 
 **Example:**
 ```html
-<input ui-event-keypress-enter="saveField">
+<input ui-event-keypress-ctrl-enter="submitForm">
 ```
-When the user presses Enter in the input, the `saveField` variable is set to `"enter"`.
+When the user presses Ctrl+Enter (without Shift, Alt, or Meta) in the input, the `submitForm` variable is set to `"enter"`.
 
 ## Local Value Setting (Universal Principle)
 
