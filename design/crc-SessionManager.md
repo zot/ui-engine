@@ -36,7 +36,6 @@
 
 - seq-create-session.md: Full session creation (including Lua session)
 - seq-navigate-url.md: URL path resolution
-- seq-mcp-create-session.md: MCP session creation
 - seq-frontend-reconnect.md: Reconnection to existing session
 
 ## Notes

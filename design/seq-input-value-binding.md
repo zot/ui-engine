@@ -10,13 +10,13 @@
 - PathSyntax: Path parser
 - ValueBinding: Value binding handler
 - WidgetBinder: Widget-specific bindings (for Shoelace)
-- WatchManager: Variable watching
+- VariableStore: Variable watching (provides watch() method)
 - ProtocolHandler: Message processor
 
 ## Sequence
 
 ```
-     ViewRenderer         BindingEngine           PathSyntax          ValueBinding          WidgetBinder         WatchManager       ProtocolHandler
+     ViewRenderer         BindingEngine           PathSyntax          ValueBinding          WidgetBinder        VariableStore      ProtocolHandler
         |                      |                      |                      |                      |                      |                      |
         |---bind(element,----->|                      |                      |                      |                      |                      |
         |    contextVarId)     |                      |                      |                      |                      |                      |

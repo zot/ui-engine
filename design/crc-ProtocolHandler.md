@@ -32,7 +32,7 @@
 ## Collaborators
 
 - VariableStore: Modifies variable state
-- WatchManager: Manages subscriptions
+- LuaBackend: Manages per-session watch subscriptions
 - MessageRelay: Forwards messages
 - MessageBatcher: Builds priority-ordered batches for outgoing messages
 - WebSocketEndpoint: Receives messages from frontend

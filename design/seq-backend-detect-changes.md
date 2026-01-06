@@ -57,4 +57,4 @@
 - Values are compared to cached values to detect changes
 - Updates are sent only to watchers within this session (watchers map is per-session)
 - No cross-session interference because variable IDs and maps are session-scoped
-- This fixes the bug where global WatchManager maps caused collisions between sessions
+- Watcher management is handled by LuaBackend per-session, avoiding the collisions that occurred with global maps

@@ -27,7 +27,6 @@
 - Viewdef: Individual viewdef instances (template elements)
 - Variable: Variable 1 holds viewdefs property
 - ProtocolHandler: Delivers viewdef updates
-- MCPTool: Creates viewdefs via MCP
 - View: Views waiting for viewdefs
 - MessageBatcher: Queues viewdef updates with :high priority
 
@@ -35,4 +34,3 @@
 
 - seq-load-viewdefs.md: Initial viewdef loading and validation
 - seq-viewdef-delivery.md: Priority-based viewdef delivery
-- seq-mcp-create-presenter.md: AI creating viewdefs

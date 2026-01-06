@@ -9,12 +9,12 @@
 - ProtocolHandler: Message processor
 - VariableStore: Variable storage
 - ViewdefStore: Viewdef storage
-- WatchManager: Watch manager
+- LuaBackend: Per-session watcher management
 
 ## Sequence
 
 ```
-     Creator           ProtocolHandler         VariableStore          ViewdefStore          WatchManager
+     Creator           ProtocolHandler         VariableStore          ViewdefStore           LuaBackend
         |                      |                      |                      |                      |
         |---create(parent,---->|                      |                      |                      |
         |    data,{type:T})    |                      |                      |                      |

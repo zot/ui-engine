@@ -217,8 +217,7 @@ When `ui-keypress` is used, `pathOptions.keypress` is implicitly set to `true`, 
 - Widget: Binding context (provides element ID, variable mappings)
 - BindingEngine: Creates and manages bindings
 - Variable: Source of bound value
-- VariableStore: Passed to ui-code execution scope
-- WatchManager: Notifies of value changes
+- VariableStore: Passed to ui-code execution scope, provides watch() for value change notifications
 - WidgetBinder: Handles widget-specific bindings
 - PathSyntax: Parses path options including `keypress`
 

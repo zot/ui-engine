@@ -9,12 +9,12 @@
 - Resolver: Calls CreateWrapper on value changes, handles wrapper reuse
 - Wrapper: Stands in for variable's value for path navigation
 - ObjectRegistry: Registers wrapper for child path navigation
-- WatchManager: Notifies watchers of changes
+- LuaBackend: Notifies watchers of changes (per-session)
 
 ## Sequence
 
 ```
-     Variable              Resolver               Wrapper            ObjectRegistry         WatchManager
+     Variable              Resolver               Wrapper            ObjectRegistry          LuaBackend
         |                      |                      |                      |                      |
         |   [on create with wrapper property]        |                      |                      |
         |                      |                      |                      |                      |

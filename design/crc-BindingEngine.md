@@ -276,7 +276,7 @@ Widget is the sole owner of all bindings for an element. There is no separate Bi
 - Widget: Binding context for elements with ui-* bindings (element ID, variable map, unbind handlers)
 - Viewdef: Source of binding directives
 - Variable: Target of bindings
-- WatchManager: Subscribes to variable changes
+- VariableStore: Provides watch() for subscribing to variable changes
 - View: Handles ui-view bindings
 - ViewList: Handles ui-viewlist bindings
 - WidgetBinder: Widget-specific value binding (called by BindingEngine for Shoelace elements)

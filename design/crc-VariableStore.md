@@ -23,8 +23,9 @@
 
 - Variable: Individual variable instances
 - ProtocolHandler: Receives protocol messages
-- WatchManager: Notifies when variables change
 - Config: Logging delegate (variable operations and errors)
+
+**Note:** Watch functionality is internal to VariableStore via watch()/watchErrors() methods.
 
 ## Sequences
 

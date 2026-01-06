@@ -23,10 +23,9 @@
 - LuaSession: Executes Lua code
 - Presenter: Base presenter interface
 - ProtocolHandler: Receives action triggers
-- WatchManager: Notifies of presenter changes
+- LuaBackend: Manages session and notifies of presenter changes
 
 ## Sequences
 
 - seq-load-lua-code.md: Defining presenter types
 - seq-lua-handle-action.md: Action handling flow
-- seq-mcp-create-presenter.md: AI creating Lua presenters

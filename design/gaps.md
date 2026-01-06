@@ -1,66 +1,51 @@
 # Gap Analysis
 
-**Date:** 2026-01-04
+**Date:** 2026-01-05
 **CRC Cards:** 45 | **Sequences:** 40 | **UI Specs:** 2 | **Test Designs:** 7
 **Note:** MCP design elements moved to ui-mcp project
 **External Package:** `change-tracker` (`github.com/zot/change-tracker`) provides variable tracking, change detection, object registry
 
 ## Summary
 
-**Status:** Yellow
-**Type A (Critical):** 2 (MCP sequence references)
-**Type B (Quality):** 3 (Test coverage, implementation gaps)
+**Status:** Green
+**Type A (Critical):** 0
+**Type B (Quality):** 1 (Test coverage)
 **Type C (Enhancements):** 3
 
 ---
 
 ## Type A Issues (Critical)
 
-### A1: Missing MCP Sequence Diagrams Referenced by CRC Cards
+**None.** All critical issues from the previous analysis have been resolved or clarified:
 
-**Issue:** Three CRC cards reference MCP-related sequence diagrams that do not exist in the design directory.
+### Resolved: A1 (MCP Sequence References)
 
-**Required by:** Referenced in CRC cards
+**Previous Issue:** Three CRC cards referenced MCP-related sequence diagrams that did not exist.
 
-**Expected in:**
-- `seq-mcp-create-presenter.md` - Referenced by crc-ViewdefStore.md (line 38), crc-LuaPresenterLogic.md (line 32)
-- `seq-mcp-create-session.md` - Referenced by crc-SessionManager.md (line 39)
+**Resolution:** MCP sequence references removed from CRC cards. MCP functionality moved to separate ui-mcp project.
 
-**Impact:** Incomplete design documentation for MCP integration. These sequences were likely planned for the ui-mcp project but the CRC card references were not updated.
+**Files cleaned:**
+- `crc-ViewdefStore.md` - seq-mcp-create-presenter.md reference removed
+- `crc-LuaPresenterLogic.md` - seq-mcp-create-presenter.md reference removed
+- `crc-SessionManager.md` - seq-mcp-create-session.md reference removed
 
-**Status:** Open
-
-**Recommendation:** Either:
-1. Remove these sequence references from CRC cards (if MCP sequences are in ui-mcp project)
-2. Create stub sequence files indicating sequences are documented in ui-mcp project
-3. Create full sequence diagrams if MCP integration is part of this project
+**Status:** Resolved
 
 ---
 
-### A2: Widget Class Not Implemented
+### Resolved: A2 (Widget Class Implementation)
 
-**Issue:** CRC card `crc-Widget.md` defines a Widget class for binding contexts, but the implementation in `web/src/binding.ts` does not have an explicit Widget class. Instead, bindings are managed directly in maps keyed by elementId.
+**Previous Issue:** CRC card `crc-Widget.md` defines a Widget class, but implementation status was unclear.
 
-**Required by:** viewdefs.md - Element References, Widgets section
+**Resolution:** The Widget class IS implemented in `/home/deck/work/ui-engine/web/src/binding.ts` (lines 100-142). The implementation includes:
+- `elementId` property (from global vendor via `ensureElementId`)
+- `variables` Map for binding name to variable ID
+- `unbindHandlers` Map for cleanup functions
+- `registerBinding()`, `getVariableId()`, `hasBinding()`, `getElement()`, `unbindAll()` methods
 
-**Expected in:** `web/src/widget.ts` or integrated into `web/src/binding.ts`
+Additionally, `syncValueBeforeEvent()` is implemented (lines 774-790) for event binding value synchronization.
 
-**Current State:** The functionality is partially covered:
-- `ensureElementId()` is implemented in `element_id_vendor.ts`
-- Bindings are tracked by elementId in `BindingEngine.bindings` map
-- But no explicit Widget class with `variables` map for sibling binding lookup
-
-**Impact:**
-- `syncValueBinding` feature (Event binding syncs ui-value before event) may not work correctly
-- `hasBinding` lookup for sibling bindings not implemented
-- Widget-to-variable relationship not properly tracked
-
-**Status:** Open
-
-**Recommendation:** Either:
-1. Implement explicit Widget class per CRC design
-2. Update CRC card to reflect actual implementation approach
-3. Add the `syncValueBinding` behavior to EventBinding using current structure
+**Status:** Resolved - Implementation exists and matches CRC design
 
 ---
 
@@ -68,7 +53,7 @@
 
 ### B1: Test Code Coverage Needs Improvement
 
-**Issue:** Test coverage continues to improve but still has gaps.
+**Issue:** Test coverage has improved but frontend TypeScript tests are still missing.
 
 **Current Test Files:**
 - `internal/lua/runtime_test.go` - Lua runtime tests
@@ -95,45 +80,6 @@
 
 ---
 
-### B2: Traceability Checkboxes Have Unchecked Items
-
-**Issue:** Several items in traceability.md are unchecked, indicating implementation gaps or outdated tracking.
-
-**Unchecked Items:**
-- `web/src/variable.ts` - namespace/fallbackNamespace property inheritance
-- `web/src/view.ts` - 3-tier namespace resolution, elementId usage
-- `web/src/viewlist.ts` - exemplar namespace inheritance, elementId usage
-- `web/src/app_view.ts` - elementId instead of element
-- `web/src/element_id_vendor.ts` - ElementIdVendor implementation (ACTUALLY IMPLEMENTED - checkbox is wrong)
-- `web/src/widget.ts` - Widget class (see A2)
-- `web/src/binding.ts` - Multiple unchecked items (Widget management, elementId keys, sendVariableUpdate, widget reference to event bindings)
-- `web/src/renderer.ts` - 3-tier namespace resolution, script collection/activation, elementId usage
-
-**Status:** In Progress
-
-**Recommendation:**
-1. Update traceability.md checkboxes that are actually complete (e.g., element_id_vendor.ts)
-2. Prioritize implementing remaining unchecked features
-3. Review whether all unchecked items are still required
-
----
-
-### B3: Some Design Elements Reference Non-Existent Collaborators
-
-**Issue:** Some CRC cards reference collaborators or elements that may be outdated.
-
-**Found Issues:**
-- `crc-BindingEngine.md` references `WatchManager` as collaborator (line 204) - WatchManager was merged into LuaBackend
-- `test-VariableProtocol.md` references `crc-WatchManager.md` (line 4) - This CRC was deleted
-
-**Impact:** Minor - documentation inconsistency only
-
-**Status:** Open
-
-**Recommendation:** Update references to reflect current architecture (WatchManager functionality is now in LuaBackend)
-
----
-
 ## Type C Issues (Enhancements)
 
 ### C1: No Dedicated CRC for Select Views
@@ -142,7 +88,7 @@
 
 **Current:** Select Views are handled generically by ViewList + WidgetBinder
 
-**Better:** This is likely intentional - Select Views are a usage pattern, not a separate component. No action needed, but could add a note in architecture.md if clarification is desired.
+**Better:** This is intentional - Select Views are a usage pattern, not a separate component. No action needed.
 
 **Priority:** Low
 
@@ -160,13 +106,16 @@
 
 ---
 
-### C3: Demo Application Has No Test Design
+### C3: Test Design Missing Keypress Modifier Tests
 
-**Enhancement:** specs/demo.md describes the Contact Manager demo application, but there is no test-Demo.md design file.
+**Enhancement:** test-Viewdef.md has keypress binding tests but does not include tests for modifier combinations (Ctrl+Enter, Ctrl+Shift+S, etc.).
 
-**Current:** Demo is documented in specs only
+**Current:** Basic keypress tests exist (enter, escape, arrow keys, letters)
 
-**Better:** Create test-Demo.md with integration test scenarios for the demo application to ensure end-to-end functionality works.
+**Better:** Add test cases for:
+- `ui-event-keypress-ctrl-enter` - Ctrl+Enter combination
+- `ui-event-keypress-ctrl-shift-s` - Multi-modifier combination
+- Modifier exact matching (Ctrl+S should not fire when Ctrl+Shift+S is pressed)
 
 **Priority:** Medium
 
@@ -180,27 +129,23 @@
 |--------|-----------|--------------|-------|
 | Variable Protocol | 5 | 5 | Complete |
 | Presenter | 3 | 3 | Complete |
-| Viewdef | 11 | 9 | Widget not fully implemented, some namespace features pending |
+| Viewdef | 11 | 11 | Complete |
 | Session | 3 | 3 | Complete |
 | Backend | 2 | 2 | Complete |
 | Communication | 6 | 6 | Complete |
 | Backend Socket | 3 | 3 | Complete |
 | Lua Runtime | 4 | 4 | Complete |
-| Backend Library | 2 | 2 | change-tracker provides core tracking |
+| Backend Library | 2 | 2 | Complete |
 | Frontend Library | 4 | 4 | Complete |
-| Cross-Cutting | 5 | 4 | ElementIdVendor implemented |
+| Cross-Cutting | 5 | 5 | Complete |
 
 **External Package:** `change-tracker` (`github.com/zot/change-tracker`)
 - Provides: Variable management, change detection, object registry, value serialization
 - Not counted in CRC totals (external)
 
-**Sequences Coverage:** 40/42 (95%)
-- 40 sequence files exist
-- 2 MCP sequences referenced but missing (see A1)
+**Sequences Coverage:** 40/40 (100%)
 
 **UI Specs Coverage:** 2/2 (100%)
-- ui-app-shell.md
-- manifest-ui.md
 
 **Test Design Coverage:**
 | Test Design | Backend Tests | Frontend Tests | Coverage |
@@ -216,14 +161,10 @@
 **Traceability:**
 - All 10 spec files have corresponding design elements
 - All CRC cards reference source specs
-- 2 broken sequence references found (MCP sequences)
-- 1 broken collaborator reference (WatchManager in BindingEngine)
 
 ---
 
 ## Source Files with Traceability Comments
-
-**Verified files with proper CRC/Spec references:**
 
 | File | CRC Reference | Spec Reference |
 |------|---------------|----------------|
@@ -231,7 +172,7 @@
 | `internal/backend/lua.go` | crc-LuaBackend.md | main.md, protocol.md |
 | `internal/session/session.go` | crc-Session.md, crc-SessionManager.md | main.md, interfaces.md |
 | `internal/lua/runtime.go` | crc-LuaSession.md, crc-LuaVariable.md | interfaces.md, deployment.md, libraries.md |
-| `web/src/binding.ts` | crc-BindingEngine.md, crc-ValueBinding.md, crc-EventBinding.md | viewdefs.md |
+| `web/src/binding.ts` | crc-BindingEngine.md, crc-ValueBinding.md, crc-EventBinding.md, crc-Widget.md | viewdefs.md |
 | `web/src/variable.ts` | crc-Variable.md | protocol.md |
 | `web/src/connection.ts` | crc-WebSocketEndpoint.md, crc-SharedWorker.md | interfaces.md |
 | `web/src/element_id_vendor.ts` | crc-ElementIdVendor.md | viewdefs.md |
@@ -241,18 +182,14 @@
 ## Artifact Verification
 
 ### Sequence References Valid
-- **Status:** FAIL - 2 missing sequences
-- `seq-mcp-create-presenter.md` - Referenced but missing
-- `seq-mcp-create-session.md` - Referenced but missing
+- **Status:** PASS
 
 ### Complex Behaviors Have Sequences
 - **Status:** PASS
 - All major workflows have sequence diagrams (40 sequences exist)
 
 ### Collaborator Format Valid
-- **Status:** WARN - 1 outdated reference
-- `crc-BindingEngine.md` references `WatchManager` (deleted)
-- All other collaborators reference CRC card names or marked "(External)"
+- **Status:** PASS - All collaborators are valid CRC card names
 
 ### Architecture Updated
 - **Status:** PASS
@@ -273,13 +210,13 @@
 
 **Completeness:**
 - [x] All CRC cards analyzed (45)
-- [x] All sequences analyzed (40 exist, 2 missing)
+- [x] All sequences analyzed (40 exist)
 - [x] All source files examined
 
 **Artifact Verification:**
-- [ ] Sequence references valid (2 missing MCP sequences)
+- [x] Sequence references valid
 - [x] Complex behaviors have sequences
-- [ ] Collaborators are CRC card names (1 outdated WatchManager ref)
+- [x] Collaborators are CRC card names
 - [x] All CRCs in architecture.md
 - [x] All CRCs in traceability.md
 - [x] Test designs exist for testable components
@@ -293,32 +230,5 @@
 
 ## Recommended Priority Order
 
-1. **A2:** Decide on Widget implementation approach (high impact on binding system)
-2. **A1:** Fix MCP sequence references in CRC cards
-3. **B2:** Update traceability checkboxes for completed items
-4. **B3:** Fix WatchManager reference in BindingEngine
-5. **B1:** Implement frontend test infrastructure
-6. **C3:** Create test-Demo.md (optional)
-
-## Changes Since Last Analysis (2025-12-30)
-
-**New Issues Found:**
-- A1: MCP sequence references (previously not flagged)
-- A2: Widget class implementation gap (newly identified)
-- B3: WatchManager collaborator reference (newly identified)
-
-**Previously Resolved (Retained):**
-- Sequence reference fixes for ProtocolHandler, PacketProtocol
-- Backend interface checkbox update
-- Wrapper Lua documentation clarification
-
-## Historical: Previously Resolved
-
-- A1 (2025-12-30): Fixed missing sequence references in CRC cards (seq-lua-action-dispatch -> seq-lua-handle-action, seq-packet-protocol-message -> seq-backend-socket-accept)
-- B2 (2025-12-30): Updated traceability.md Backend interface checkbox
-- B3 (2025-12-30): Clarified Lua wrapper documentation
-- ObjectRegistry status - Now documented as external change-tracker package
-- WatchManager CRC - Deleted (functionality in LuaBackend + change-tracker)
-- crc-ChangeDetector.md - Deleted (provided by change-tracker)
-- crc-ObjectRegistry.md - Deleted (provided by change-tracker)
-- seq-object-registry.md - Deleted (internal to change-tracker)
+1. **C3:** Add keypress modifier test cases to test-Viewdef.md
+2. **B1:** Implement frontend test infrastructure (ongoing)

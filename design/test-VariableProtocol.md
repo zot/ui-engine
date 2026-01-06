@@ -1,7 +1,7 @@
 # Test Design: Variable Protocol
 
 **Source Specs**: protocol.md
-**CRC Cards**: crc-Variable.md, crc-VariableStore.md, crc-ProtocolHandler.md, crc-WatchManager.md
+**CRC Cards**: crc-Variable.md, crc-VariableStore.md, crc-ProtocolHandler.md, crc-LuaBackend.md
 **Sequences**: seq-create-variable.md, seq-update-variable.md, seq-watch-variable.md, seq-destroy-variable.md
 
 ## Overview
@@ -149,7 +149,7 @@ Tests for the core variable protocol system including variable creation, updates
 - watch(varId)
 
 **References**:
-- CRC: crc-WatchManager.md - "Does: watch"
+- CRC: crc-LuaBackend.md - "Does: watch"
 - Sequence: seq-watch-variable.md
 
 **Expected Results**:
@@ -169,7 +169,7 @@ Tests for the core variable protocol system including variable creation, updates
 - watch(varId) from frontend B
 
 **References**:
-- CRC: crc-WatchManager.md - "Does: shouldForwardWatch"
+- CRC: crc-LuaBackend.md - "Does: shouldForwardWatch"
 
 **Expected Results**:
 - First watch forwarded to backend
@@ -188,7 +188,7 @@ Tests for the core variable protocol system including variable creation, updates
 - unwatch(varId) from frontend B
 
 **References**:
-- CRC: crc-WatchManager.md - "Does: shouldForwardUnwatch"
+- CRC: crc-LuaBackend.md - "Does: shouldForwardUnwatch"
 
 **Expected Results**:
 - First unwatch NOT forwarded (tally still > 0)
@@ -206,7 +206,7 @@ Tests for the core variable protocol system including variable creation, updates
 - update(varId, value: "changed")
 
 **References**:
-- CRC: crc-WatchManager.md - "Does: isInactive"
+- CRC: crc-LuaBackend.md - "Does: isInactive"
 
 **Expected Results**:
 - Value updated in storage
@@ -297,7 +297,7 @@ Tests for the core variable protocol system including variable creation, updates
 - Variable: getValue, setValue, getProperty, setProperty, isObjectReference, isUnbound, isStandardVariable
 - VariableStore: create, get, getByName, update, destroy, registerStandardVariable, getChildren
 - ProtocolHandler: handleCreate, handleUpdate, handleWatch, handleUnwatch, handleDestroy, sendError, parsePropertyPriority
-- WatchManager: watch, unwatch, shouldForwardWatch, shouldForwardUnwatch, notifyWatchers, isInactive
+- LuaBackend: watch, unwatch, shouldForwardWatch, shouldForwardUnwatch, notifyWatchers, isInactive
 
 **Scenarios Covered:**
 - seq-create-variable.md: All paths

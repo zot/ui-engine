@@ -207,9 +207,9 @@
 **Implementation:**
 - [x] `internal/variable/variable.go` - Variable struct and methods
 - [x] `internal/variable/variable.go` - Add wrapper property, dual value architecture
-- [ ] `internal/variable/variable.go` - Add namespace/fallbackNamespace property handling
+- [x] `internal/variable/variable.go` - namespace/fallbackNamespace property handling (generic properties)
 - [x] `web/src/variable.ts` - Frontend variable representation
-- [ ] `web/src/variable.ts` - Add namespace/fallbackNamespace property inheritance
+- [x] `web/src/variable.ts` - namespace/fallbackNamespace property inheritance (via view.ts, viewlist.ts)
 
 ### crc-VariableStore.md
 **Source Spec:** protocol.md, data-models.md
@@ -272,18 +272,18 @@
 **Source Spec:** viewdefs.md
 **Implementation:**
 - [x] `web/src/view.ts` - View class for ui-view elements
-- [ ] `web/src/view.ts` - Add 3-tier namespace resolution (namespace -> fallbackNamespace -> DEFAULT)
-- [ ] `web/src/view.ts` - Add namespace property inheritance from parent variable
-- [ ] `web/src/view.ts` - Use elementId instead of element (no direct DOM reference)
+- [x] `web/src/view.ts` - 3-tier namespace resolution (namespace -> fallbackNamespace -> DEFAULT)
+- [x] `web/src/view.ts` - Namespace property inheritance from parent variable
+- [x] `web/src/view.ts` - Uses elementId (getElement via document.getElementById)
 
 ### crc-ViewList.md
 **Source Spec:** viewdefs.md, protocol.md
 **Implementation:**
 - [x] `web/src/viewlist.ts` - ViewList class for ui-viewlist elements (frontend)
-- [ ] `web/src/viewlist.ts` - Add exemplar namespace inheritance
-- [ ] `web/src/viewlist.ts` - Use elementId and viewIds instead of element/views (no direct DOM references)
+- [x] `web/src/viewlist.ts` - Exemplar namespace inheritance (fallbackNamespace)
+- [x] `web/src/viewlist.ts` - Uses elementId and viewIds (getElement via document.getElementById)
 - [x] `internal/lua/viewlist.go` - ViewList wrapper (backend)
-- [ ] `internal/lua/viewlist.go` - Set fallbackNamespace: "list-item" on variable
+- [x] `internal/lua/viewlist.go` - Sets fallbackNamespace:high to "list-item"
 
 ### crc-ViewListItem.md
 **Source Spec:** viewdefs.md
@@ -294,51 +294,53 @@
 **Source Spec:** viewdefs.md
 **Implementation:**
 - [x] `web/src/app_view.ts` - AppView class for ui-app element
-- [ ] `web/src/app_view.ts` - Use elementId instead of element (no direct DOM reference)
+- [x] `web/src/app_view.ts` - Uses elementId (getElement via document.getElementById)
 
 ### crc-ElementIdVendor.md
 **Source Spec:** viewdefs.md (Cross-Cutting: No Direct Element References)
 **Implementation:**
-- [ ] `web/src/element_id_vendor.ts` - Global ElementIdVendor singleton
-- [ ] `web/src/element_id_vendor.ts` - vendId() returns `ui-{counter}` format
+- [x] `web/src/element_id_vendor.ts` - Global ElementIdVendor singleton (ensureElementId function)
+- [x] `web/src/element_id_vendor.ts` - vendId() returns `ui-{counter}` format
 
 ### crc-Widget.md
 **Source Spec:** viewdefs.md
 **Implementation:**
-- [ ] `web/src/widget.ts` - Widget class (element ID, variable map, unbindHandlers map)
-- [ ] `web/src/widget.ts` - Use ElementIdVendor for element ID (format: ui-{counter})
-- [ ] `web/src/widget.ts` - Variable-to-Widget relationship via elementId property
-- [ ] `web/src/widget.ts` - hasBinding method for sibling binding lookup
-- [ ] `web/src/widget.ts` - addUnbindHandler(name, fn) method
-- [ ] `web/src/widget.ts` - unbindAll() method (calls all unbind handlers, clears map)
+- [x] `web/src/binding.ts` - Widget class (elementId, variables map, unbindHandlers map)
+- [x] `web/src/binding.ts` - Use ElementIdVendor for element ID (ensureElementId)
+- [x] `web/src/binding.ts` - Variable-to-Widget relationship via widget property on variable
+- [x] `web/src/binding.ts` - hasBinding method for sibling binding lookup
+- [x] `web/src/binding.ts` - registerBinding(name, varId, unbindHandler) method
+- [x] `web/src/binding.ts` - unbindAll() method (calls all unbind handlers, clears maps)
 
 ### crc-BindingEngine.md
 **Source Spec:** viewdefs.md, libraries.md
 **Implementation:**
 - [x] `web/src/binding.ts` - Binding engine with child variable architecture (all bindings create child variables for server-side path resolution)
-- [ ] `web/src/binding.ts` - Widget management (getOrCreateWidget, widgets map keyed by elementId)
-- [ ] `web/src/binding.ts` - Register unbind handlers with Widget for each binding
-- [ ] `web/src/binding.ts` - unbindElement calls widget.unbindAll() and removes Widget from map
-- [ ] `web/src/binding.ts` - sendVariableUpdate method (set local value, then send)
-- [ ] `web/src/binding.ts` - Pass widget reference to event bindings
-- [ ] `web/src/binding.ts` - shouldSuppressUpdate method (duplicate update suppression)
+- [x] `web/src/binding.ts` - Widget management (widgets map keyed by elementId)
+- [x] `web/src/binding.ts` - Register unbind handlers with Widget for each binding
+- [x] `web/src/binding.ts` - unbindElement calls widget.unbindAll() and removes Widget from map
+- [x] `web/src/binding.ts` - store.update sets local value then sends
+- [x] `web/src/binding.ts` - Pass widget reference to all bindings
+- [x] `web/src/binding.ts` - Duplicate update suppression in VariableStore.update()
 
 ### crc-ValueBinding.md
 **Source Spec:** viewdefs.md, libraries.md
 **Implementation:**
 - [x] `web/src/binding.ts` - Value bindings with child variable creation, event selection based on keypress property
-- [ ] `web/src/binding.ts` - ui-code extended scope (element, value, variable, store)
-- [ ] `web/src/binding.ts` - shouldSuppressUpdate for duplicate value detection
-- [ ] `web/src/binding.ts` - scrollOnOutput path property for auto-scroll on value update
+- [x] `web/src/binding.ts` - ui-code extended scope (element, value, variable, store)
+- [x] `web/src/binding.ts` - Duplicate update suppression in VariableStore.update()
+- [x] `web/src/binding.ts` - scrollOnOutput path property for auto-scroll on value update
+- [x] `web/src/binding.ts` - Closures use elementId lookup (no direct DOM references)
 
 ### crc-EventBinding.md
 **Source Spec:** viewdefs.md
 **Implementation:**
 - [x] `web/src/binding.ts` - Event bindings (combined with BindingEngine)
-- [ ] `web/src/binding.ts` - Use elementId instead of element for EventBinding (no direct DOM reference)
-- [ ] `web/src/binding.ts` - Add widget reference to EventBinding for sibling binding access
-- [ ] `web/src/binding.ts` - Implement syncValueBinding (check ui-value, compare, sync if changed with duplicate suppression)
-- [ ] `web/src/binding.ts` - Set local variable value before sending update to backend
+- [x] `web/src/binding.ts` - Closures use elementId lookup (no direct DOM reference)
+- [x] `web/src/binding.ts` - Widget reference for sibling binding access
+- [x] `web/src/binding.ts` - syncValueBeforeEvent (check ui-value, compare, sync if changed)
+- [x] `web/src/binding.ts` - Keypress modifier support (ctrl, shift, alt, meta)
+- [x] `web/src/binding.ts` - Exact modifier matching (matchesModifiers)
 
 ### crc-Session.md
 **Source Spec:** main.md (UI Server Architecture - Frontend Layer), interfaces.md
@@ -445,9 +447,9 @@
 **Source Spec:** viewdefs.md, libraries.md
 **Implementation:**
 - [x] `web/src/renderer.ts` - View renderer
-- [ ] `web/src/renderer.ts` - Update lookupViewdef for 3-tier namespace resolution
-- [ ] `web/src/renderer.ts` - Add script collection and activation (collectScripts, activateScripts)
-- [ ] `web/src/renderer.ts` - Use rootElementId and activeElementIds instead of element references (no direct DOM references)
+- [x] `web/src/renderer.ts` - 3-tier namespace resolution (namespace -> fallbackNamespace -> DEFAULT)
+- [x] `web/src/renderer.ts` - Script collection and activation (collectScripts, activateScripts from viewdef.ts)
+- [x] `web/src/renderer.ts` - Uses elementId references (no direct DOM storage)
 
 ### crc-WidgetBinder.md
 **Source Spec:** libraries.md, components.md
@@ -465,7 +467,7 @@
 **Implementation:**
 - [x] `internal/path/syntax.go` - Path parsing
 - [x] `web/src/binding.ts` - Frontend path parsing (properties without values default to true)
-- [ ] `web/src/binding.ts` - Parse `scrollOnOutput` path property
+- [x] `web/src/binding.ts` - Parse `scrollOnOutput` path property
 
 ### crc-BackendSocket.md
 **Source Spec:** deployment.md, interfaces.md

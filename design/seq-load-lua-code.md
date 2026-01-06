@@ -6,7 +6,7 @@
 ## Participants
 
 - LuaSession: Per-session Lua environment
-- WatchManager: Property watching
+- LuaBackend: Per-session watcher management
 - FileSystem: File system access
 
 ## Sequence: Session main.lua Loading
@@ -16,7 +16,7 @@ See seq-lua-session-init.md for initial main.lua loading when a session starts.
 ## Sequence: Dynamic Code Loading via lua Property
 
 ```
-     Frontend          ProtocolHandler           LuaSession          WatchManager          FileSystem
+     Frontend          ProtocolHandler           LuaSession           LuaBackend           FileSystem
         |                      |                      |                      |                      |
         |---update(1,--------->|                      |                      |                      |
         |    {lua:"code"})     |                      |                      |                      |

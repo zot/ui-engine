@@ -3,7 +3,7 @@
 ## Specs to Test Designs
 
 ### protocol.md
-**CRC Cards**: crc-Variable.md, crc-VariableStore.md, crc-ProtocolHandler.md, crc-WatchManager.md
+**CRC Cards**: crc-Variable.md, crc-VariableStore.md, crc-ProtocolHandler.md, crc-LuaBackend.md
 **Sequences**: seq-create-variable.md, seq-update-variable.md, seq-watch-variable.md, seq-destroy-variable.md
 **Test Designs**: test-VariableProtocol.md
 
