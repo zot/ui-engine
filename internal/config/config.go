@@ -36,6 +36,7 @@ type ServerConfig struct {
 type LuaConfig struct {
 	Enabled bool   `toml:"enabled"`
 	Path    string `toml:"path"`
+	Hotload bool   `toml:"hotload"` // Watch lua directory for changes
 }
 
 // SessionConfig holds session-related settings.
@@ -167,6 +168,7 @@ func Load(args []string) (*Config, error) {
 	// Lua flags
 	lua := fs.Bool("lua", true, "Enable Lua backend")
 	luaPath := fs.String("lua-path", "", "Lua scripts directory")
+	hotload := fs.Bool("hotload", false, "Watch lua directory for changes")
 
 	// Session flags
 	sessionTimeout := fs.Duration("session-timeout", 0, "Session expiration (0=never)")
@@ -207,6 +209,9 @@ func Load(args []string) (*Config, error) {
 	}
 	if *luaPath != "" {
 		cfg.Lua.Path = *luaPath
+	}
+	if *hotload {
+		cfg.Lua.Hotload = true
 	}
 	if *sessionTimeout != 0 {
 		cfg.Session.Timeout = Duration(*sessionTimeout)
@@ -249,6 +254,9 @@ func (c *Config) applyEnv() {
 	}
 	if v := os.Getenv("UI_LUA_PATH"); v != "" {
 		c.Lua.Path = v
+	}
+	if v := os.Getenv("UI_HOTLOAD"); v != "" {
+		c.Lua.Hotload = v == "true" || v == "1"
 	}
 	if v := os.Getenv("UI_SESSION_TIMEOUT"); v != "" {
 		if d, err := time.ParseDuration(v); err == nil {

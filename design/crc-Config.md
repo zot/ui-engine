@@ -20,6 +20,7 @@
 |-------------------|-----------------------------------------------|
 | EmbeddedSite      | Reads config.toml from embedded archive       |
 | LuaSession        | Provides Lua enabled flag and path            |
+| LuaHotLoader      | Provides lua.hotload flag for file watching   |
 | SessionManager    | Provides session timeout setting              |
 | WebSocketEndpoint | Logging delegate (connection events)          |
 | HTTPEndpoint      | Provides host and port settings               |
@@ -32,6 +33,7 @@
 | Option          | CLI                 | Env                  | TOML                | Default |
 |-----------------|---------------------|----------------------|---------------------|---------|
 | Lua enabled     | `--lua` / `--no-lua`| `UI_LUA`             | `lua.enabled`       | `true`  |
+| Lua hotload     | `--hotload`         | `UI_HOTLOAD`         | `lua.hotload`       | `false` |
 | Session timeout | `--session-timeout` | `UI_SESSION_TIMEOUT` | `session.timeout`   | `"24h"` |
 | Socket path     | `--socket`          | `UI_SOCKET`          | `backend.socket`    | platform-specific |
 | Verbosity       | `-v`, `-vv`, `-vvv` | `UI_VERBOSITY`       | `logging.verbosity` | `0`     |

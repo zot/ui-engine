@@ -60,12 +60,13 @@ type LuaSession struct {
 	viewdefManager  *viewdef.ViewdefManager
 
 	// Session identity and state
-	ID            string      // Vended session ID (e.g., "1", "2", "3")
-	sessionTable  *lua.LTable // The session object exposed to Lua
-	appVariableID int64       // Variable 1 for this session (set by Lua code)
-	appObject     *lua.LTable // Reference to the app Lua object
-	McpState      *lua.LTable // Logical state root for MCP (defaults to appObject)
-	McpStateID    int64       // Variable ID of mcpState (if tracked)
+	ID              string      // Vended session ID (e.g., "1", "2", "3")
+	sessionTable    *lua.LTable // The session object exposed to Lua
+	appVariableID   int64       // Variable 1 for this session (set by Lua code)
+	appObject       *lua.LTable // Reference to the app Lua object
+	McpState        *lua.LTable // Logical state root for MCP (defaults to appObject)
+	McpStateID      int64       // Variable ID of mcpState (if tracked)
+	mutationVersion int64       // Hot-loading mutation version for schema migrations
 }
 
 // Runtime is an alias for LuaSession during migration.
@@ -607,6 +608,51 @@ func (r *Runtime) addGoSessionMethods(L *lua.LState, session *lua.LTable, vended
 		}
 
 		return 0
+	}))
+
+	// newVersion - increment mutation version for hot-loading schema migrations
+	L.SetField(session, "newVersion", L.NewFunction(func(L *lua.LState) int {
+		luaSess, ok := r.GetLuaSession(vendedID)
+		if !ok {
+			L.Push(lua.LNumber(0))
+			return 1
+		}
+		luaSess.mutationVersion++
+		L.Push(lua.LNumber(luaSess.mutationVersion))
+		return 1
+	}))
+
+	// getVersion - get current mutation version
+	L.SetField(session, "getVersion", L.NewFunction(func(L *lua.LState) int {
+		luaSess, ok := r.GetLuaSession(vendedID)
+		if !ok {
+			L.Push(lua.LNumber(0))
+			return 1
+		}
+		L.Push(lua.LNumber(luaSess.mutationVersion))
+		return 1
+	}))
+
+	// needsMutation - check if object needs migration (obj._mutationVersion < session version)
+	L.SetField(session, "needsMutation", L.NewFunction(func(L *lua.LState) int {
+		obj := L.CheckTable(2)
+
+		luaSess, ok := r.GetLuaSession(vendedID)
+		if !ok {
+			L.Push(lua.LFalse)
+			return 1
+		}
+
+		// Get obj._mutationVersion (defaults to 0 if not set)
+		objVersion := L.GetField(obj, "_mutationVersion")
+		var objVersionNum int64
+		if num, ok := objVersion.(lua.LNumber); ok {
+			objVersionNum = int64(num)
+		}
+
+		// Return true if object version is less than session version
+		L.Push(lua.LBool(objVersionNum < luaSess.mutationVersion))
+		return 1
 	}))
 }
 

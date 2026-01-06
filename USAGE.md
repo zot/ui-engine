@@ -16,6 +16,43 @@ Build reactive web UIs using only backend code and declarative HTML templates.
 
 ## Philosophy
 
+### Where to Put Logic
+
+Behavior can exist in 2 places:
+
+| Location       | Use For                                           | Trade-offs                    |
+|----------------|---------------------------------------------------|-------------------------------|
+| **Lua**        | All behavior whenever possible                    | Simple, responsive, portable  |
+| **JavaScript** | Browser APIs, DOM tricks beyond ui-engine         | Last resort, harder to maintain |
+
+**Prefer Lua.** Lua methods execute instantly when users click buttons or type.
+
+```lua
+-- GOOD: Lua handles form validation instantly
+function ContactApp:save()
+    if self.name == "" then
+        self.error = "Name required"
+        return
+    end
+    table.insert(self.contacts, Contact:new({name = self.name, email = self.email}))
+    self:clearForm()
+end
+
+-- GOOD: Lua handles UI state changes instantly
+function ContactApp:toggleSection()
+    self.sectionExpanded = not self.sectionExpanded
+end
+```
+
+**Use JavaScript only for:**
+- Browser capabilities not in ui-engine (e.g., if `scrollOnOutput` didn't exist)
+- Custom DOM manipulation
+- Browser APIs (clipboard, notifications, downloads)
+
+**JavaScript is available via:**
+- `<script>` elements in viewdefs — static "library" code loaded once
+- `ui-code` attribute — dynamic injection as-needed (see ui-code bindings below)
+
 ### Domain vs Presenter Separation
 
 - **Domain objects** hold app data and core behavior (e.g., `Contact` with firstName, email)

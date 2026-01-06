@@ -9,6 +9,7 @@
 - Config: Configuration loader
 - EmbeddedSite: Bundled site archive
 - LuaSession: Per-session Lua environment (created per frontend session)
+- LuaHotLoader: File watcher for hot-loading (optional)
 - SessionManager: Session management
 - WebSocketEndpoint: WebSocket handler
 - HTTPEndpoint: HTTP handler
@@ -16,9 +17,9 @@
 ## Sequence
 
 ```
-     Main             Config         EmbeddedSite      LuaSession       SessionManager   WebSocketEndpoint    HTTPEndpoint
-        |                 |                 |                 |                 |                 |                 |
-        |--parseCLI()---->|                 |                 |                 |                 |                 |
+     Main             Config         EmbeddedSite      LuaSession       LuaHotLoader    SessionManager   WebSocketEndpoint    HTTPEndpoint
+        |                 |                 |                 |                 |                 |                 |                 |
+        |--parseCLI()---->|                 |                 |                 |                 |                 |                 |
         |                 |                 |                 |                 |                 |                 |                 |
         |--loadEnv()----->|                 |                 |                 |                 |                 |                 |
         |                 |                 |                 |                 |                 |                 |                 |
@@ -42,15 +43,25 @@
         |                 |                 |                 |                 |                 |                 |                 |
         |<--luaFactory-----------------------------------------------|                 |                 |                 |                 |
         |                 |                 |                 |                 |                 |                 |                 |
-        |--initSessionManager(luaFactory)---------------------------------------->|                 |                 |
+        |--[if lua.hotload]                 |                 |                 |                 |                 |                 |
+        |  NewLuaHotLoader(luaDir)---------------------------------------------->|                 |                 |                 |
         |                 |                 |                 |                 |                 |                 |                 |
-        |<--sessionManager------------------------------------------------------|                 |                 |
+        |                 |                 |                 |                 |--Start()------->|                 |                 |
+        |                 |                 |                 |                 |   [watch lua/]  |                 |                 |
+        |                 |                 |                 |                 |   [resolve      |                 |                 |
+        |                 |                 |                 |                 |    symlinks]    |                 |                 |
         |                 |                 |                 |                 |                 |                 |                 |
-        |--listen(host,port)-------------------------------------------------------------------------->|                 |
+        |<--hotLoader------------------------------------------------------|                 |                 |                 |
         |                 |                 |                 |                 |                 |                 |                 |
-        |--listen(host,port)------------------------------------------------------------------------------------------>|
+        |--initSessionManager(luaFactory)----------------------------------------------------------->|                 |                 |
         |                 |                 |                 |                 |                 |                 |                 |
-        |--[ready to accept connections]---                                                                            |
+        |<--sessionManager------------------------------------------------------------------------|                 |                 |
+        |                 |                 |                 |                 |                 |                 |                 |
+        |--listen(host,port)------------------------------------------------------------------------------------------>|                 |
+        |                 |                 |                 |                 |                 |                 |                 |
+        |--listen(host,port)---------------------------------------------------------------------------------------------------->|
+        |                 |                 |                 |                 |                 |                 |                 |
+        |--[ready to accept connections]---                                                                                      |
         |                 |                 |                 |                 |                 |                 |                 |
 ```
 
@@ -67,3 +78,6 @@
 - Server starts listening after all subsystems ready
 - Verbosity level (0-4) loaded from -v flags, UI_VERBOSITY, or logging.verbosity
 - Components receive Config for centralized logging (delegating log calls to Config)
+- **Hot-Loading**: If lua.hotload is enabled, LuaHotLoader starts watching lua directory
+- Hot-loader resolves symlinks and watches target directories for changes
+- Hot-loader is initialized after Lua factory but before SessionManager

@@ -137,6 +137,7 @@ The UI server reads configuration from an optional `config.toml` file:
 | Site directory  | `--dir`             | `UI_DIR`             | -                 | (embedded)  | Custom site directory            |
 | Lua enabled     | `--lua`             | `UI_LUA`             | `lua.enabled`     | `true`      | Enable Lua backend               |
 | Lua path        | `--lua-path`        | `UI_LUA_PATH`        | `lua.path`        | `"lua/"`    | Lua scripts directory            |
+| Lua hotload     | `--hotload`         | `UI_HOTLOAD`         | `lua.hotload`     | `false`     | Watch lua directory for changes  |
 | Session timeout | `--session-timeout` | `UI_SESSION_TIMEOUT` | `session.timeout` | `"24h"`     | Session expiration (`0` = never) |
 | Log level       | `--log-level`       | `UI_LOG_LEVEL`       | `logging.level`   | `"info"`    | `debug`, `info`, `warn`, `error` |
 | Verbosity       | `-v` to `-vvvv`     | `UI_VERBOSITY`       | `logging.verbosity` | `0`        | Debug output level (0-4)         |
@@ -172,6 +173,7 @@ Server Flags:
   --dir string               Serve from directory instead of embedded site
   --lua                      Enable Lua backend (default true)
   --lua-path string          Lua scripts directory (default "lua/")
+  --hotload                  Watch lua directory for changes (default false)
   --session-timeout duration Session expiration (default 24h, 0=never)
   --log-level string         Log level: debug, info, warn, error (default "info")
   -v                         Verbosity level 1: connection events
@@ -312,6 +314,7 @@ socket = "/tmp/ui.sock"   # backend API socket
 [lua]
 enabled = true
 path = "lua/"             # relative to --dir or embedded root
+hotload = false           # watch for file changes
 
 [session]
 timeout = "24h"           # session expiration (0 = never)
@@ -320,6 +323,50 @@ timeout = "24h"           # session expiration (0 = never)
 level = "info"            # "debug", "info", "warn", "error"
 verbosity = 0             # 0=none, 1=connections, 2=messages, 3=variables
 ```
+
+### Lua Hot-Loading
+
+When `--hotload` is enabled, the server watches the lua directory for file changes and automatically reloads modified files for all active sessions.
+
+**Watch behavior:**
+- Watches the configured lua path (default: `lua/`)
+- On file change, re-executes the modified file in each active session
+- Sessions maintain state between reloads (see conventions below)
+
+**Symlink handling:**
+- If a file in the lua directory is a symlink, the server also watches the real (target) directory
+- This supports development workflows where lua files are symlinked from another location
+- Changes to either the symlink or the target file trigger a reload
+- When a symlink is added, modified, or removed, the watched directories are updated accordingly
+
+**Example with symlinks:**
+```
+lua/
+├── main.lua              # regular file - watched directly
+├── app.lua -> ../apps/myapp/app.lua   # symlink - also watches ../apps/myapp/
+└── utils.lua -> /shared/utils.lua     # symlink - also watches /shared/
+```
+
+**Hot-loading conventions:**
+
+For hot-loading to preserve state, Lua code should follow these conventions:
+
+1. **Conditional prototype assignment** - preserve existing prototypes:
+   ```lua
+   MyApp = MyApp or {type = "MyApp"}
+   MyApp.__index = MyApp
+   ```
+
+2. **Check for existing app** - avoid recreating variable 1:
+   ```lua
+   if not session:getApp() then
+       session:createAppVariable(MyApp:new())
+   end
+   ```
+
+3. **Instance mutation** - use `session:newVersion()` and `session:needsMutation()` for schema migrations
+
+See `USAGE.md` for complete hot-loading documentation.
 
 ### Loading Behavior
 

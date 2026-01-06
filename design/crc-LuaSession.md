@@ -1,6 +1,6 @@
 # LuaSession
 
-**Source Spec:** libraries.md, interfaces.md, protocol.md
+**Source Spec:** libraries.md, interfaces.md, protocol.md, deployment.md
 
 ## Responsibilities
 
@@ -14,6 +14,7 @@
 - wrapperRegistry: Registry for wrapper factories
 - executorChan: Channel for thread-safe Lua execution
 - presenterTypes: Map of registered presenter types
+- mutationVersion: Hot-loading mutation version for schema migrations (int64)
 
 ### Does
 - CreateLuaSession(vendedID): Initialize session, create session table, load main.lua
@@ -28,6 +29,9 @@
 - ExecuteInSession: Execute function within session context (sets global 'session')
 - AfterBatch: Trigger change detection and return updates after message batch
 - Shutdown: Close executor channel, clean up Lua state
+- newVersion: Increment mutation version and return new value (for hot-loading)
+- getVersion: Get current mutation version
+- needsMutation(obj): Check if object needs migration (obj._mutationVersion < session version)
 
 ## Collaborators
 
@@ -35,12 +39,14 @@
 - LuaBackend: Per-session backend for watch management and change detection
 - luaTrackerAdapter: Implements VariableStore interface, routes to per-session tracker
 - WrapperRegistry: Provides wrapper factories for ui.registerWrapper
+- LuaHotLoader: Re-executes modified Lua files via LoadFileAbsolute()
 
 ## Sequences
 
 - seq-lua-session-init.md: Session creation and main.lua execution
 - seq-load-lua-code.md: Dynamic code loading via lua property on variable 1
 - seq-lua-handle-action.md: Action handling via path-based method dispatch
+- seq-lua-hotload.md: Hot-loading re-executes modified Lua files in this session
 
 ## Notes
 
@@ -52,3 +58,7 @@
 - **Vended IDs**: LuaSession.ID is the vended ID (e.g., "1") not the internal UUID; saves bandwidth in backend communication
 - **Server Owns Sessions**: Server maintains `luaSessions map[string]*LuaSession` and creates/destroys sessions via callbacks
 - **Implements PathVariableHandler**: Server routes HandleFrontendCreate/Update to per-session LuaSession
+- **Hot-Loading Support**: Session methods for migration versioning:
+  - `session:newVersion()` - increment version, returns new value
+  - `session:getVersion()` - get current version
+  - `session:needsMutation(obj)` - check if obj._mutationVersion < session version

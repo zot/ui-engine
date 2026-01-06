@@ -47,6 +47,7 @@ type Server struct {
 	wrapperRegistry *lua.WrapperRegistry
 	storeAdapter    *luaTrackerAdapter
 	viewdefManager  *viewdef.ViewdefManager
+	hotLoader       *lua.HotLoader // Lua hot-reloading (nil if disabled)
 }
 
 // luaSetupConfig holds shared configuration for creating Lua sessions.
@@ -222,6 +223,12 @@ func (s *Server) configureHTTP(port int) (*http.Server, net.Listener, string, er
 
 // Shutdown gracefully shuts down the server.
 func (s *Server) Shutdown(ctx context.Context) error {
+	// Stop hot loader first
+	if s.hotLoader != nil {
+		s.hotLoader.Stop()
+		s.hotLoader = nil
+	}
+
 	// Shutdown all Lua sessions
 	s.luaSessionsMu.Lock()
 	for vendedID, luaSession := range s.luaSessions {
@@ -384,7 +391,21 @@ func (s *Server) setupLua(cfg *config.Config) {
 		s.preloadMainLuaFromBundleToConfig()
 	}
 
-	s.config.Log(0, "Lua sessions enabled (dir: %s)", luaDir)
+	// Initialize hot loader if enabled
+	if cfg.Lua.Hotload {
+		hotLoader, err := lua.NewHotLoader(cfg, luaDir, s.getLuaSessions)
+		if err != nil {
+			s.config.Log(0, "HotLoader: failed to create: %v", err)
+		} else {
+			s.hotLoader = hotLoader
+			if err := hotLoader.Start(); err != nil {
+				s.config.Log(0, "HotLoader: failed to start: %v", err)
+				s.hotLoader = nil
+			}
+		}
+	}
+
+	s.config.Log(0, "Lua sessions enabled (dir: %s, hotload: %v)", luaDir, cfg.Lua.Hotload)
 }
 
 // CreateLuaBackendForSession creates a LuaBackend and LuaSession for a new frontend session.
@@ -573,6 +594,17 @@ func (s *Server) GetLuaSession(vendedID string) *lua.LuaSession {
 	s.luaSessionsMu.RLock()
 	defer s.luaSessionsMu.RUnlock()
 	return s.luaSessions[vendedID]
+}
+
+// getLuaSessions returns all active Lua sessions (used by HotLoader).
+func (s *Server) getLuaSessions() []*lua.LuaSession {
+	s.luaSessionsMu.RLock()
+	defer s.luaSessionsMu.RUnlock()
+	sessions := make([]*lua.LuaSession, 0, len(s.luaSessions))
+	for _, sess := range s.luaSessions {
+		sessions = append(sessions, sess)
+	}
+	return sessions
 }
 
 // HandleFrontendCreate implements PathVariableHandler.

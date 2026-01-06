@@ -109,11 +109,13 @@
 - crc-PacketProtocol.md
 - crc-PendingResponseQueue.md
 - crc-Config.md
+- crc-LuaHotLoader.md (Lua Hot-Loading section)
 
 **Sequence Diagrams:**
 - seq-backend-socket-accept.md
 - seq-poll-pending.md
 - seq-server-startup.md
+- seq-lua-hotload.md (Lua Hot-Loading section)
 
 ---
 
@@ -392,12 +394,14 @@
 - [x] `web/src/outgoing_batcher.ts` - Frontend outgoing message batching with 200ms throttle
 
 ### crc-LuaSession.md
-**Source Spec:** libraries.md, interfaces.md, protocol.md
+**Source Spec:** libraries.md, interfaces.md, protocol.md, deployment.md
 **Implementation:**
 - [x] `internal/lua/runtime.go` - LuaSession struct with per-session Lua VM state
 - [x] `internal/lua/runtime.go` - CreateLuaSession, GetLuaSession, ExecuteInSession
 - [x] `internal/lua/runtime.go` - HandleFrontendCreate, HandleFrontendUpdate (PathVariableHandler)
 - [x] `internal/lua/runtime.go` - AfterBatch for automatic change detection
+- [x] `internal/lua/runtime.go` - mutationVersion field for hot-loading
+- [x] `internal/lua/runtime.go` - newVersion, getVersion, needsMutation methods
 - [x] `internal/server/server.go` - Server.luaSessions map and CreateLuaBackendForSession
 - [x] `internal/server/server.go` - Server implements PathVariableHandler interface
 - [x] `internal/server/server.go` - luaTrackerAdapter with SetLuaSession/RemoveLuaSession
@@ -484,6 +488,16 @@
 **Source Spec:** deployment.md
 **Implementation:**
 - [x] `internal/config/config.go` - Configuration loading
+- [x] `internal/config/config.go` - lua.hotload config option
+
+### crc-LuaHotLoader.md
+**Source Spec:** deployment.md
+**Implementation:**
+- [x] `internal/lua/hotloader.go` - LuaHotLoader struct
+- [x] `internal/lua/hotloader.go` - Start/Stop file watcher
+- [x] `internal/lua/hotloader.go` - Symlink resolution and target watching
+- [x] `internal/lua/hotloader.go` - handleFileChange for reload in all sessions
+- [x] `internal/server/server.go` - Initialize hot-loader when lua.hotload enabled
 
 ### crc-Wrapper.md
 **Source Spec:** protocol.md

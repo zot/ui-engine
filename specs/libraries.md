@@ -65,6 +65,11 @@ session:destroyVariable(id)
 
 -- Log a message (delegates to Config.Log)
 session:log(level, message)
+
+-- Hot-loading support: mutation versioning
+session:newVersion()         -- Increment mutation version, returns new version
+session:getVersion()         -- Get current mutation version
+session:needsMutation(obj)   -- Returns true if obj._mutationVersion < session version
 ```
 
 **Built-in property watchers:**
