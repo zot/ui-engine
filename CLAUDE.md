@@ -28,6 +28,12 @@ The endpoint returns an HTML page with a tree view of all variables and their va
 - Create comprehensive **unit tests** for all components
 - code and specs are as MINIMAL as POSSIBLE
 
+## Techniques Reference
+
+Reusable patterns. Consult when:
+- In-place array filtering/compaction → fast-slow pointer technique
+- GC-friendly object tracking → `.claude/techniques/weak-refs.md`
+
 ## When committing
 1. Check git status and diff to analyze changes
 2. Ask about any new files to ensure test/temp files aren't added accidentally

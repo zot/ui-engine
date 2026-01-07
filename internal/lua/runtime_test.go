@@ -405,6 +405,814 @@ func TestLuaResolverArrayConversion(t *testing.T) {
 	t.Log("Lua array conversion test passed!")
 }
 
+// =============================================================================
+// Prototype Management Tests
+// Test Design: test-Lua.md (Prototype Management Tests section)
+// =============================================================================
+
+// TestPrototypeCreation verifies session:prototype creates prototypes with
+// type and __index set automatically
+func TestPrototypeCreation(t *testing.T) {
+	rt, err := NewRuntime(config.DefaultConfig(), "/tmp", nil)
+	if err != nil {
+		t.Fatalf("Failed to create runtime: %v", err)
+	}
+	defer rt.Shutdown()
+
+	store := newMockStore()
+	rt.SetVariableStore(store)
+
+	sess, err := rt.CreateLuaSession("1")
+	if err != nil {
+		t.Fatalf("Failed to create Lua session: %v", err)
+	}
+
+	_, err = rt.execute(func() (interface{}, error) {
+		L := rt.State
+		L.SetGlobal("session", sess.sessionTable)
+
+		code := `
+			Person = session:prototype("Person", {
+				name = "",
+				email = "",
+			})
+
+			-- Verify type is set
+			assert(Person.type == "Person", "Expected Person.type='Person', got " .. tostring(Person.type))
+
+			-- Verify __index is set to self
+			assert(Person.__index == Person, "Expected Person.__index == Person")
+
+			-- Verify init fields are on prototype
+			assert(Person.name == "", "Expected Person.name=''")
+			assert(Person.email == "", "Expected Person.email=''")
+		`
+		return nil, L.DoString(code)
+	})
+
+	if err != nil {
+		t.Fatalf("Lua execution error: %v", err)
+	}
+
+	// Verify prototype is registered
+	if sess.prototypeRegistry["Person"] == nil {
+		t.Error("Expected Person prototype to be registered")
+	}
+}
+
+// TestPrototypeDefaultNew verifies default :new() method is provided
+func TestPrototypeDefaultNew(t *testing.T) {
+	rt, err := NewRuntime(config.DefaultConfig(), "/tmp", nil)
+	if err != nil {
+		t.Fatalf("Failed to create runtime: %v", err)
+	}
+	defer rt.Shutdown()
+
+	store := newMockStore()
+	rt.SetVariableStore(store)
+
+	sess, err := rt.CreateLuaSession("1")
+	if err != nil {
+		t.Fatalf("Failed to create Lua session: %v", err)
+	}
+
+	_, err = rt.execute(func() (interface{}, error) {
+		L := rt.State
+		L.SetGlobal("session", sess.sessionTable)
+
+		code := `
+			Thing = session:prototype("Thing", { value = 0 })
+
+			-- Default :new() should exist
+			assert(Thing.new ~= nil, "Expected default :new() method")
+
+			-- Create instance using default :new()
+			local t = Thing:new({ value = 42 })
+
+			-- Verify instance is created correctly
+			assert(t.value == 42, "Expected t.value=42, got " .. tostring(t.value))
+			assert(getmetatable(t) == Thing, "Expected metatable to be Thing")
+			assert(t.type == "Thing", "Expected t.type='Thing' (inherited)")
+		`
+		return nil, L.DoString(code)
+	})
+
+	if err != nil {
+		t.Fatalf("Lua execution error: %v", err)
+	}
+}
+
+// TestPrototypeCustomNew verifies custom :new() is preserved
+func TestPrototypeCustomNew(t *testing.T) {
+	rt, err := NewRuntime(config.DefaultConfig(), "/tmp", nil)
+	if err != nil {
+		t.Fatalf("Failed to create runtime: %v", err)
+	}
+	defer rt.Shutdown()
+
+	store := newMockStore()
+	rt.SetVariableStore(store)
+
+	sess, err := rt.CreateLuaSession("1")
+	if err != nil {
+		t.Fatalf("Failed to create Lua session: %v", err)
+	}
+
+	_, err = rt.execute(func() (interface{}, error) {
+		L := rt.State
+		L.SetGlobal("session", sess.sessionTable)
+
+		code := `
+			Counter = session:prototype("Counter", { count = 0 })
+			Counter.nextId = Counter.nextId or 0
+
+			-- Custom :new() with ID assignment
+			function Counter:new(instance)
+				instance = session:create(Counter, instance)
+				instance.id = Counter.nextId
+				Counter.nextId = Counter.nextId + 1
+				return instance
+			end
+
+			local c1 = Counter:new()
+			local c2 = Counter:new()
+
+			-- Verify custom :new() is used
+			assert(c1.id == 0, "Expected c1.id=0, got " .. tostring(c1.id))
+			assert(c2.id == 1, "Expected c2.id=1, got " .. tostring(c2.id))
+			assert(Counter.nextId == 2, "Expected Counter.nextId=2")
+		`
+		return nil, L.DoString(code)
+	})
+
+	if err != nil {
+		t.Fatalf("Lua execution error: %v", err)
+	}
+}
+
+// TestEmptyMarker verifies EMPTY marks tracked nil fields
+func TestEmptyMarker(t *testing.T) {
+	rt, err := NewRuntime(config.DefaultConfig(), "/tmp", nil)
+	if err != nil {
+		t.Fatalf("Failed to create runtime: %v", err)
+	}
+	defer rt.Shutdown()
+
+	store := newMockStore()
+	rt.SetVariableStore(store)
+
+	sess, err := rt.CreateLuaSession("1")
+	if err != nil {
+		t.Fatalf("Failed to create Lua session: %v", err)
+	}
+
+	_, err = rt.execute(func() (interface{}, error) {
+		L := rt.State
+		L.SetGlobal("session", sess.sessionTable)
+
+		code := `
+			-- Verify EMPTY global exists
+			assert(EMPTY ~= nil, "Expected EMPTY global to exist")
+			assert(type(EMPTY) == "table", "Expected EMPTY to be a table")
+
+			User = session:prototype("User", {
+				name = "",
+				avatar = EMPTY,  -- starts nil, tracked for mutation
+			})
+
+			-- EMPTY should be removed from prototype (field is nil)
+			assert(User.avatar == nil, "Expected User.avatar=nil (EMPTY removed)")
+
+			-- Instance should also have nil avatar
+			local u = User:new()
+			assert(u.avatar == nil, "Expected u.avatar=nil")
+			assert(u.name == "", "Expected u.name='' (inherited)")
+		`
+		return nil, L.DoString(code)
+	})
+
+	if err != nil {
+		t.Fatalf("Lua execution error: %v", err)
+	}
+
+	// Verify prototype is registered
+	if sess.prototypeRegistry["User"] == nil {
+		t.Error("Expected User prototype to be registered")
+	}
+}
+
+// TestSessionCreate verifies session:create tracks instances
+func TestSessionCreate(t *testing.T) {
+	rt, err := NewRuntime(config.DefaultConfig(), "/tmp", nil)
+	if err != nil {
+		t.Fatalf("Failed to create runtime: %v", err)
+	}
+	defer rt.Shutdown()
+
+	store := newMockStore()
+	rt.SetVariableStore(store)
+
+	sess, err := rt.CreateLuaSession("1")
+	if err != nil {
+		t.Fatalf("Failed to create Lua session: %v", err)
+	}
+
+	_, err = rt.execute(func() (interface{}, error) {
+		L := rt.State
+		L.SetGlobal("session", sess.sessionTable)
+
+		code := `
+			Person = session:prototype("Person", { name = "" })
+
+			-- Direct use of session:create
+			local p = session:create(Person, { name = "Alice" })
+
+			assert(p.name == "Alice", "Expected p.name='Alice'")
+			assert(getmetatable(p) == Person, "Expected metatable to be Person")
+			assert(p.type == "Person", "Expected p.type='Person' (inherited)")
+		`
+		return nil, L.DoString(code)
+	})
+
+	if err != nil {
+		t.Fatalf("Lua execution error: %v", err)
+	}
+
+	// Verify instance is tracked
+	info := sess.prototypeRegistry["Person"]
+	if info == nil {
+		t.Fatal("Expected Person in prototype registry")
+	}
+	// Instance tracking is in instanceRegistry
+	if len(sess.instanceRegistry) == 0 {
+		t.Error("Expected at least one prototype in instance registry")
+	}
+}
+
+// TestSessionCreateNil verifies nil instance becomes empty table
+func TestSessionCreateNil(t *testing.T) {
+	rt, err := NewRuntime(config.DefaultConfig(), "/tmp", nil)
+	if err != nil {
+		t.Fatalf("Failed to create runtime: %v", err)
+	}
+	defer rt.Shutdown()
+
+	store := newMockStore()
+	rt.SetVariableStore(store)
+
+	sess, err := rt.CreateLuaSession("1")
+	if err != nil {
+		t.Fatalf("Failed to create Lua session: %v", err)
+	}
+
+	_, err = rt.execute(func() (interface{}, error) {
+		L := rt.State
+		L.SetGlobal("session", sess.sessionTable)
+
+		code := `
+			Person = session:prototype("Person", { name = "default" })
+
+			-- Create with nil (should create empty table)
+			local p = session:create(Person, nil)
+
+			assert(p ~= nil, "Expected p to be a table, not nil")
+			assert(type(p) == "table", "Expected p to be a table")
+			assert(getmetatable(p) == Person, "Expected metatable to be Person")
+			assert(p.name == "default", "Expected p.name='default' (inherited)")
+		`
+		return nil, L.DoString(code)
+	})
+
+	if err != nil {
+		t.Fatalf("Lua execution error: %v", err)
+	}
+}
+
+// TestPrototypeUpdateDetectsChange verifies init change detection
+func TestPrototypeUpdateDetectsChange(t *testing.T) {
+	rt, err := NewRuntime(config.DefaultConfig(), "/tmp", nil)
+	if err != nil {
+		t.Fatalf("Failed to create runtime: %v", err)
+	}
+	defer rt.Shutdown()
+
+	store := newMockStore()
+	rt.SetVariableStore(store)
+
+	sess, err := rt.CreateLuaSession("1")
+	if err != nil {
+		t.Fatalf("Failed to create Lua session: %v", err)
+	}
+
+	// Initial prototype
+	_, err = rt.execute(func() (interface{}, error) {
+		L := rt.State
+		L.SetGlobal("session", sess.sessionTable)
+
+		code := `
+			Person = session:prototype("Person", { name = "" })
+			local alice = Person:new({ name = "Alice" })
+		`
+		return nil, L.DoString(code)
+	})
+	if err != nil {
+		t.Fatalf("Initial Lua execution error: %v", err)
+	}
+
+	// Simulate hot-reload with new field
+	_, err = rt.execute(func() (interface{}, error) {
+		L := rt.State
+		L.SetGlobal("session", sess.sessionTable)
+
+		code := `
+			Person = session:prototype("Person", { name = "", email = "" })
+
+			-- Verify email field now exists on prototype
+			assert(Person.email == "", "Expected Person.email=''")
+		`
+		return nil, L.DoString(code)
+	})
+	if err != nil {
+		t.Fatalf("Reload Lua execution error: %v", err)
+	}
+
+	// Verify prototype was queued for mutation
+	// (queue is cleared after processMutationQueue, so check stored init instead)
+	info := sess.prototypeRegistry["Person"]
+	if info == nil {
+		t.Fatal("Expected Person in prototype registry")
+	}
+	if info.storedInit["email"] == nil {
+		t.Error("Expected stored init to have email field after update")
+	}
+}
+
+// TestPrototypeIdentityPreserved verifies existing instances keep working
+func TestPrototypeIdentityPreserved(t *testing.T) {
+	rt, err := NewRuntime(config.DefaultConfig(), "/tmp", nil)
+	if err != nil {
+		t.Fatalf("Failed to create runtime: %v", err)
+	}
+	defer rt.Shutdown()
+
+	store := newMockStore()
+	rt.SetVariableStore(store)
+
+	sess, err := rt.CreateLuaSession("1")
+	if err != nil {
+		t.Fatalf("Failed to create Lua session: %v", err)
+	}
+
+	_, err = rt.execute(func() (interface{}, error) {
+		L := rt.State
+		L.SetGlobal("session", sess.sessionTable)
+
+		code := `
+			Person = session:prototype("Person", { name = "" })
+			alice = Person:new({ name = "Alice" })
+			originalPerson = Person  -- save reference
+
+			-- Simulate hot-reload
+			Person = session:prototype("Person", { name = "", age = 0 })
+
+			-- Verify table identity preserved
+			assert(Person == originalPerson, "Expected Person table identity to be preserved")
+
+			-- Verify alice still valid
+			assert(getmetatable(alice) == Person, "Expected alice's metatable to still be Person")
+
+			-- Verify alice inherits new field
+			assert(alice.age == 0, "Expected alice.age=0 (inherited from updated prototype)")
+		`
+		return nil, L.DoString(code)
+	})
+
+	if err != nil {
+		t.Fatalf("Lua execution error: %v", err)
+	}
+}
+
+// TestDetectRemovedFields verifies removal detection for cleanup
+func TestDetectRemovedFields(t *testing.T) {
+	rt, err := NewRuntime(config.DefaultConfig(), "/tmp", nil)
+	if err != nil {
+		t.Fatalf("Failed to create runtime: %v", err)
+	}
+	defer rt.Shutdown()
+
+	store := newMockStore()
+	rt.SetVariableStore(store)
+
+	sess, err := rt.CreateLuaSession("1")
+	if err != nil {
+		t.Fatalf("Failed to create Lua session: %v", err)
+	}
+
+	_, err = rt.execute(func() (interface{}, error) {
+		L := rt.State
+		L.SetGlobal("session", sess.sessionTable)
+
+		code := `
+			-- Initial prototype with oldField
+			Person = session:prototype("Person", { name = "", oldField = "data" })
+			p = Person:new({ name = "Bob", oldField = "mydata" })
+
+			-- Verify initial state
+			assert(p.oldField == "mydata", "Expected p.oldField='mydata'")
+		`
+		return nil, L.DoString(code)
+	})
+	if err != nil {
+		t.Fatalf("Initial Lua execution error: %v", err)
+	}
+
+	// Reload with oldField removed - this should queue mutation and nil out field
+	_, err = sess.LoadCodeDirect("reload", `
+		-- Hot-reload with oldField removed
+		Person = session:prototype("Person", { name = "" })
+	`)
+	if err != nil {
+		t.Fatalf("Reload error: %v", err)
+	}
+
+	// Verify oldField was nil'd on instance
+	_, err = rt.execute(func() (interface{}, error) {
+		L := rt.State
+
+		code := `
+			-- Use rawget to verify the field was removed from instance (not checking metatable)
+			assert(rawget(p, "oldField") == nil, "Expected rawget(p, 'oldField')=nil after removal, got " .. tostring(rawget(p, "oldField")))
+		`
+		return nil, L.DoString(code)
+	})
+	if err != nil {
+		t.Fatalf("Verification error: %v", err)
+	}
+}
+
+// TestNoMutationWhenUnchanged verifies identical init doesn't queue
+func TestNoMutationWhenUnchanged(t *testing.T) {
+	rt, err := NewRuntime(config.DefaultConfig(), "/tmp", nil)
+	if err != nil {
+		t.Fatalf("Failed to create runtime: %v", err)
+	}
+	defer rt.Shutdown()
+
+	store := newMockStore()
+	rt.SetVariableStore(store)
+
+	sess, err := rt.CreateLuaSession("1")
+	if err != nil {
+		t.Fatalf("Failed to create Lua session: %v", err)
+	}
+
+	_, err = rt.execute(func() (interface{}, error) {
+		L := rt.State
+		L.SetGlobal("session", sess.sessionTable)
+
+		code := `
+			Person = session:prototype("Person", { name = "" })
+			mutateCount = 0
+
+			function Person:mutate()
+				mutateCount = mutateCount + 1
+			end
+		`
+		return nil, L.DoString(code)
+	})
+	if err != nil {
+		t.Fatalf("Initial Lua execution error: %v", err)
+	}
+
+	// Reload with identical init
+	_, err = sess.LoadCodeDirect("reload", `
+		Person = session:prototype("Person", { name = "" })
+	`)
+	if err != nil {
+		t.Fatalf("Reload error: %v", err)
+	}
+
+	// Verify mutate was not called (no change detected)
+	_, err = rt.execute(func() (interface{}, error) {
+		L := rt.State
+
+		code := `
+			assert(mutateCount == 0, "Expected mutateCount=0 (no change), got " .. tostring(mutateCount))
+		`
+		return nil, L.DoString(code)
+	})
+	if err != nil {
+		t.Fatalf("Verification error: %v", err)
+	}
+}
+
+// TestMutationQueueCallsMutate verifies :mutate() called on instances
+func TestMutationQueueCallsMutate(t *testing.T) {
+	rt, err := NewRuntime(config.DefaultConfig(), "/tmp", nil)
+	if err != nil {
+		t.Fatalf("Failed to create runtime: %v", err)
+	}
+	defer rt.Shutdown()
+
+	store := newMockStore()
+	rt.SetVariableStore(store)
+
+	sess, err := rt.CreateLuaSession("1")
+	if err != nil {
+		t.Fatalf("Failed to create Lua session: %v", err)
+	}
+
+	_, err = rt.execute(func() (interface{}, error) {
+		L := rt.State
+		L.SetGlobal("session", sess.sessionTable)
+
+		code := `
+			Person = session:prototype("Person", { name = "" })
+			alice = Person:new({ name = "Alice" })
+		`
+		return nil, L.DoString(code)
+	})
+	if err != nil {
+		t.Fatalf("Initial Lua execution error: %v", err)
+	}
+
+	// Reload with new field and mutate method
+	// Use a flag to verify mutate() was called (avoids or-pattern issues with empty strings)
+	_, err = sess.LoadCodeDirect("reload", `
+		Person = session:prototype("Person", { name = "", email = "" })
+		function Person:mutate()
+			self.mutated = true
+		end
+	`)
+	if err != nil {
+		t.Fatalf("Reload error: %v", err)
+	}
+
+	// Verify mutate was called
+	_, err = rt.execute(func() (interface{}, error) {
+		L := rt.State
+
+		code := `
+			assert(alice.mutated == true, "Expected alice.mutated=true (mutate was called), got " .. tostring(alice.mutated))
+		`
+		return nil, L.DoString(code)
+	})
+	if err != nil {
+		t.Fatalf("Verification error: %v", err)
+	}
+}
+
+// TestMutationQueueFIFOOrder verifies prototypes processed in declaration order
+func TestMutationQueueFIFOOrder(t *testing.T) {
+	rt, err := NewRuntime(config.DefaultConfig(), "/tmp", nil)
+	if err != nil {
+		t.Fatalf("Failed to create runtime: %v", err)
+	}
+	defer rt.Shutdown()
+
+	store := newMockStore()
+	rt.SetVariableStore(store)
+
+	sess, err := rt.CreateLuaSession("1")
+	if err != nil {
+		t.Fatalf("Failed to create Lua session: %v", err)
+	}
+
+	_, err = rt.execute(func() (interface{}, error) {
+		L := rt.State
+		L.SetGlobal("session", sess.sessionTable)
+
+		code := `
+			mutationOrder = {}
+
+			Address = session:prototype("Address", { city = "" })
+			Person = session:prototype("Person", { name = "" })
+
+			a = Address:new({ city = "NYC" })
+			p = Person:new({ name = "Bob" })
+		`
+		return nil, L.DoString(code)
+	})
+	if err != nil {
+		t.Fatalf("Initial Lua execution error: %v", err)
+	}
+
+	// Reload both with mutate methods that track order
+	_, err = sess.LoadCodeDirect("reload", `
+		Address = session:prototype("Address", { city = "", zip = "" })
+		function Address:mutate()
+			table.insert(mutationOrder, "Address")
+		end
+
+		Person = session:prototype("Person", { name = "", age = 0 })
+		function Person:mutate()
+			table.insert(mutationOrder, "Person")
+		end
+	`)
+	if err != nil {
+		t.Fatalf("Reload error: %v", err)
+	}
+
+	// Verify order
+	_, err = rt.execute(func() (interface{}, error) {
+		L := rt.State
+
+		code := `
+			assert(#mutationOrder == 2, "Expected 2 mutations, got " .. #mutationOrder)
+			assert(mutationOrder[1] == "Address", "Expected Address first, got " .. tostring(mutationOrder[1]))
+			assert(mutationOrder[2] == "Person", "Expected Person second, got " .. tostring(mutationOrder[2]))
+		`
+		return nil, L.DoString(code)
+	})
+	if err != nil {
+		t.Fatalf("Verification error: %v", err)
+	}
+}
+
+// TestMutateErrorsIsolated verifies one bad mutate doesn't break others
+func TestMutateErrorsIsolated(t *testing.T) {
+	rt, err := NewRuntime(config.DefaultConfig(), "/tmp", nil)
+	if err != nil {
+		t.Fatalf("Failed to create runtime: %v", err)
+	}
+	defer rt.Shutdown()
+
+	store := newMockStore()
+	rt.SetVariableStore(store)
+
+	sess, err := rt.CreateLuaSession("1")
+	if err != nil {
+		t.Fatalf("Failed to create Lua session: %v", err)
+	}
+
+	_, err = rt.execute(func() (interface{}, error) {
+		L := rt.State
+		L.SetGlobal("session", sess.sessionTable)
+
+		code := `
+			Bad = session:prototype("Bad", { x = 0 })
+			Good = session:prototype("Good", { y = 0 })
+
+			b = Bad:new()
+			g = Good:new()
+		`
+		return nil, L.DoString(code)
+	})
+	if err != nil {
+		t.Fatalf("Initial Lua execution error: %v", err)
+	}
+
+	// Reload with Bad.mutate that errors and Good.mutate that works
+	_, err = sess.LoadCodeDirect("reload", `
+		Bad = session:prototype("Bad", { x = 1 })
+		function Bad:mutate()
+			error("mutation failed!")
+		end
+
+		Good = session:prototype("Good", { y = 1 })
+		function Good:mutate()
+			self.y = 42
+		end
+	`)
+	// Note: reload should succeed despite mutation error (pcall isolation)
+	if err != nil {
+		t.Fatalf("Reload error: %v", err)
+	}
+
+	// Verify Good.mutate still ran
+	_, err = rt.execute(func() (interface{}, error) {
+		L := rt.State
+
+		code := `
+			assert(g.y == 42, "Expected g.y=42, got " .. tostring(g.y))
+		`
+		return nil, L.DoString(code)
+	})
+	if err != nil {
+		t.Fatalf("Verification error: %v", err)
+	}
+}
+
+// TestRemovedFieldsNildAfterMutate verifies field removal happens after migration
+func TestRemovedFieldsNildAfterMutate(t *testing.T) {
+	rt, err := NewRuntime(config.DefaultConfig(), "/tmp", nil)
+	if err != nil {
+		t.Fatalf("Failed to create runtime: %v", err)
+	}
+	defer rt.Shutdown()
+
+	store := newMockStore()
+	rt.SetVariableStore(store)
+
+	sess, err := rt.CreateLuaSession("1")
+	if err != nil {
+		t.Fatalf("Failed to create Lua session: %v", err)
+	}
+
+	_, err = rt.execute(func() (interface{}, error) {
+		L := rt.State
+		L.SetGlobal("session", sess.sessionTable)
+
+		code := `
+			Person = session:prototype("Person", { name = "", fullName = "" })
+			p = Person:new({ fullName = "Alice Smith" })
+		`
+		return nil, L.DoString(code)
+	})
+	if err != nil {
+		t.Fatalf("Initial Lua execution error: %v", err)
+	}
+
+	// Reload: rename fullName to name
+	_, err = sess.LoadCodeDirect("reload", `
+		Person = session:prototype("Person", { name = "" })
+		function Person:mutate()
+			-- Migration: copy fullName to name before fullName is removed
+			-- Use rawget to check for field on instance directly (not metatable)
+			local instanceFullName = rawget(self, "fullName")
+			if instanceFullName and instanceFullName ~= "" then
+				self.name = instanceFullName
+			end
+		end
+	`)
+	if err != nil {
+		t.Fatalf("Reload error: %v", err)
+	}
+
+	// Verify migration worked and field was removed
+	_, err = rt.execute(func() (interface{}, error) {
+		L := rt.State
+
+		code := `
+			assert(p.name == "Alice Smith", "Expected p.name='Alice Smith', got " .. tostring(p.name))
+			-- Check rawget for fullName (removed fields are nil'd on instance)
+			assert(rawget(p, "fullName") == nil, "Expected rawget(p, 'fullName')=nil (removed), got " .. tostring(rawget(p, "fullName")))
+		`
+		return nil, L.DoString(code)
+	})
+	if err != nil {
+		t.Fatalf("Verification error: %v", err)
+	}
+}
+
+// TestPrototypeSharedStatePreserved verifies non-init fields preserved on reload
+func TestPrototypeSharedStatePreserved(t *testing.T) {
+	rt, err := NewRuntime(config.DefaultConfig(), "/tmp", nil)
+	if err != nil {
+		t.Fatalf("Failed to create runtime: %v", err)
+	}
+	defer rt.Shutdown()
+
+	store := newMockStore()
+	rt.SetVariableStore(store)
+
+	sess, err := rt.CreateLuaSession("1")
+	if err != nil {
+		t.Fatalf("Failed to create Lua session: %v", err)
+	}
+
+	_, err = rt.execute(func() (interface{}, error) {
+		L := rt.State
+		L.SetGlobal("session", sess.sessionTable)
+
+		code := `
+			Counter = session:prototype("Counter", { count = 0 })
+			Counter.nextId = Counter.nextId or 0
+			Counter.nextId = Counter.nextId + 1  -- nextId = 1
+		`
+		return nil, L.DoString(code)
+	})
+	if err != nil {
+		t.Fatalf("Initial Lua execution error: %v", err)
+	}
+
+	// Reload with same pattern
+	_, err = sess.LoadCodeDirect("reload", `
+		Counter = session:prototype("Counter", { count = 0 })
+		Counter.nextId = Counter.nextId or 0  -- should stay 1
+	`)
+	if err != nil {
+		t.Fatalf("Reload error: %v", err)
+	}
+
+	// Verify nextId preserved
+	_, err = rt.execute(func() (interface{}, error) {
+		L := rt.State
+
+		code := `
+			assert(Counter.nextId == 1, "Expected Counter.nextId=1 (preserved), got " .. tostring(Counter.nextId))
+		`
+		return nil, L.DoString(code)
+	})
+	if err != nil {
+		t.Fatalf("Verification error: %v", err)
+	}
+}
+
+// =============================================================================
+// Original Tests
+// =============================================================================
+
 // TestUILog verifies ui.log works with 1 or 2 arguments
 func TestUILog(t *testing.T) {
 	rt, err := NewRuntime(config.DefaultConfig(), "/tmp", nil)

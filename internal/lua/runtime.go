@@ -18,6 +18,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"weak"
 
 	lua "github.com/yuin/gopher-lua"
 	changetracker "github.com/zot/change-tracker"
@@ -66,7 +67,30 @@ type LuaSession struct {
 	appObject       *lua.LTable // Reference to the app Lua object
 	McpState        *lua.LTable // Logical state root for MCP (defaults to appObject)
 	McpStateID      int64       // Variable ID of mcpState (if tracked)
-	mutationVersion int64       // Hot-loading mutation version for schema migrations
+	mutationVersion int64       // Hot-loading mutation version for schema migrations (deprecated)
+
+	// Prototype management for hot-loading
+	prototypeRegistry map[string]*prototypeInfo    // name -> stored init copy for change detection
+	instanceRegistry  map[*lua.LTable][]weakInstance // prototype -> weak list of instances
+	mutationQueue     []mutationEntry              // FIFO queue of prototypes pending mutation
+}
+
+// prototypeInfo stores information about a registered prototype for change detection.
+type prototypeInfo struct {
+	prototype  *lua.LTable           // The prototype table
+	storedInit map[string]lua.LValue // Shallow copy of init for change detection
+}
+
+// weakInstance holds a weak reference to a Lua table instance.
+// The weak reference allows the instance to be garbage collected.
+type weakInstance struct {
+	ptr weak.Pointer[lua.LTable]
+}
+
+// mutationEntry represents a prototype queued for mutation processing.
+type mutationEntry struct {
+	prototype   *lua.LTable
+	removedKeys []string
 }
 
 // Runtime is an alias for LuaSession during migration.
@@ -105,14 +129,16 @@ func NewRuntime(cfg *config.Config, luaDir string, vdm *viewdef.ViewdefManager) 
 	L := lua.NewState()
 
 	s := &LuaSession{
-		config:         cfg,
-		State:          L,
-		loadedModules:  make(map[string]bool),
-		presenterTypes: make(map[string]*PresenterType),
-		luaDir:         luaDir,
-		executorChan:   make(chan WorkItem, 100),
-		done:           make(chan struct{}),
-		viewdefManager: vdm,
+		config:            cfg,
+		State:             L,
+		loadedModules:     make(map[string]bool),
+		presenterTypes:    make(map[string]*PresenterType),
+		luaDir:            luaDir,
+		executorChan:      make(chan WorkItem, 100),
+		done:              make(chan struct{}),
+		viewdefManager:    vdm,
+		prototypeRegistry: make(map[string]*prototypeInfo),
+		instanceRegistry:  make(map[*lua.LTable][]weakInstance),
 	}
 
 	// Load standard libraries
@@ -127,6 +153,9 @@ func NewRuntime(cfg *config.Config, luaDir string, vdm *viewdef.ViewdefManager) 
 
 	// Register UI module
 	s.registerUIModule()
+
+	// Register EMPTY global for declaring nil fields tracked for mutation
+	s.registerEmptyGlobal()
 
 	// Try to load session module (lib/lua/session.lua) - optional for testing
 	s.loadSessionModule()
@@ -152,6 +181,14 @@ func (r *Runtime) loadSessionModule() {
 	if L.GetGlobal("_SessionModule") == lua.LNil {
 		r.Log(2, "LuaRuntime: session module returned nil")
 	}
+}
+
+// registerEmptyGlobal creates the EMPTY global used for declaring nil fields tracked for mutation.
+// EMPTY is an empty table that acts as a marker in prototype init tables.
+func (r *Runtime) registerEmptyGlobal() {
+	L := r.State
+	empty := L.NewTable()
+	L.SetGlobal("EMPTY", empty)
 }
 
 // Log logs a message via the config.
@@ -634,6 +671,7 @@ func (r *Runtime) addGoSessionMethods(L *lua.LState, session *lua.LTable, vended
 	}))
 
 	// needsMutation - check if object needs migration (obj._mutationVersion < session version)
+	// DEPRECATED: Use session:prototype() for automatic mutation instead
 	L.SetField(session, "needsMutation", L.NewFunction(func(L *lua.LState) int {
 		obj := L.CheckTable(2)
 
@@ -654,6 +692,320 @@ func (r *Runtime) addGoSessionMethods(L *lua.LState, session *lua.LTable, vended
 		L.Push(lua.LBool(objVersionNum < luaSess.mutationVersion))
 		return 1
 	}))
+
+	// prototype - declare/update a prototype with instance field tracking
+	// session:prototype(name, init) -> prototype table
+	L.SetField(session, "prototype", L.NewFunction(func(L *lua.LState) int {
+		name := L.CheckString(2)
+		var init *lua.LTable
+		if L.GetTop() >= 3 && L.Get(3) != lua.LNil {
+			init = L.CheckTable(3)
+		}
+
+		luaSess, ok := r.GetLuaSession(vendedID)
+		if !ok {
+			L.Push(lua.LNil)
+			return 1
+		}
+
+		prototype := luaSess.prototypeImpl(L, name, init)
+		L.Push(prototype)
+		return 1
+	}))
+
+	// create - create a tracked instance with weak reference
+	// session:create(prototype, instance) -> instance table
+	L.SetField(session, "create", L.NewFunction(func(L *lua.LState) int {
+		prototype := L.CheckTable(2)
+		var instance *lua.LTable
+		if L.GetTop() >= 3 && L.Get(3) != lua.LNil {
+			instance = L.CheckTable(3)
+		} else {
+			instance = L.NewTable()
+		}
+
+		luaSess, ok := r.GetLuaSession(vendedID)
+		if !ok {
+			L.Push(instance)
+			return 1
+		}
+
+		luaSess.createInstance(L, prototype, instance)
+		L.Push(instance)
+		return 1
+	}))
+}
+
+// prototypeImpl implements session:prototype(name, init).
+// Creates or updates a prototype with automatic change detection and mutation queueing.
+func (r *Runtime) prototypeImpl(L *lua.LState, name string, init *lua.LTable) *lua.LTable {
+	existing := L.GetGlobal(name)
+	empty := L.GetGlobal("EMPTY")
+
+	if existing == lua.LNil {
+		// Create new prototype
+		var prototype *lua.LTable
+		if init != nil {
+			prototype = init
+		} else {
+			prototype = L.NewTable()
+		}
+
+		// Set type and __index
+		L.SetField(prototype, "type", lua.LString(name))
+		L.SetField(prototype, "__index", prototype)
+
+		// Add default new method if not defined
+		if L.GetField(prototype, "new") == lua.LNil {
+			L.SetField(prototype, "new", L.NewFunction(func(L *lua.LState) int {
+				var instance *lua.LTable
+				if L.GetTop() >= 2 && L.Get(2) != lua.LNil {
+					instance = L.CheckTable(2)
+				} else {
+					instance = L.NewTable()
+				}
+				r.createInstance(L, prototype, instance)
+				L.Push(instance)
+				return 1
+			}))
+		}
+
+		// Store shallow copy of init for change detection
+		storedInit := r.copyInitTable(L, init, empty)
+
+		// Remove EMPTY values from prototype (they should default to nil)
+		r.removeEmptyValues(L, prototype, empty)
+
+		// Register prototype
+		r.prototypeRegistry[name] = &prototypeInfo{
+			prototype:  prototype,
+			storedInit: storedInit,
+		}
+
+		// Initialize instance tracking for this prototype
+		r.instanceRegistry[prototype] = nil
+
+		// Set global
+		L.SetGlobal(name, prototype)
+		return prototype
+	}
+
+	// Prototype already exists
+	prototype, ok := existing.(*lua.LTable)
+	if !ok {
+		r.Log(1, "LuaRuntime: prototype %s exists but is not a table", name)
+		return nil
+	}
+
+	// If init is nil, just return existing prototype (no update)
+	if init == nil {
+		return prototype
+	}
+
+	// Compare init with stored copy
+	info := r.prototypeRegistry[name]
+	if info == nil {
+		// Prototype exists but wasn't registered via session:prototype
+		// Register it now
+		storedInit := r.copyInitTable(L, init, empty)
+		r.prototypeRegistry[name] = &prototypeInfo{
+			prototype:  prototype,
+			storedInit: storedInit,
+		}
+		if r.instanceRegistry[prototype] == nil {
+			r.instanceRegistry[prototype] = nil
+		}
+		return prototype
+	}
+
+	// Check if init differs from stored copy
+	newInit := r.copyInitTable(L, init, empty)
+	if r.initTablesEqual(info.storedInit, newInit) {
+		return prototype
+	}
+
+	// Init changed - compute removed keys
+	removedKeys := r.computeRemovedKeys(info.storedInit, newInit)
+
+	// Update prototype with new init values
+	r.updatePrototype(L, prototype, init, empty)
+
+	// Store new init copy
+	info.storedInit = newInit
+
+	// Queue for mutation
+	r.mutationQueue = append(r.mutationQueue, mutationEntry{
+		prototype:   prototype,
+		removedKeys: removedKeys,
+	})
+
+	return prototype
+}
+
+// createInstance implements session:create(prototype, instance).
+// Sets metatable and registers instance for tracking with weak reference.
+func (r *Runtime) createInstance(L *lua.LState, prototype, instance *lua.LTable) {
+	// Set metatable to prototype
+	L.SetMetatable(instance, prototype)
+
+	// Register instance for tracking with weak reference
+	weakInst := weakInstance{ptr: weak.Make(instance)}
+	r.instanceRegistry[prototype] = append(r.instanceRegistry[prototype], weakInst)
+}
+
+// copyInitTable creates a shallow copy of init table for change detection.
+// Preserves EMPTY markers in the copy.
+func (r *Runtime) copyInitTable(L *lua.LState, init *lua.LTable, empty lua.LValue) map[string]lua.LValue {
+	result := make(map[string]lua.LValue)
+	if init == nil {
+		return result
+	}
+
+	init.ForEach(func(key, value lua.LValue) {
+		if keyStr, ok := key.(lua.LString); ok {
+			keyName := string(keyStr)
+			// Skip special fields
+			if keyName == "type" || keyName == "__index" || keyName == "new" {
+				return
+			}
+			result[keyName] = value
+		}
+	})
+	return result
+}
+
+// removeEmptyValues removes EMPTY marker values from a table (they should default to nil).
+func (r *Runtime) removeEmptyValues(L *lua.LState, tbl *lua.LTable, empty lua.LValue) {
+	var keysToRemove []lua.LValue
+	tbl.ForEach(func(key, value lua.LValue) {
+		if value == empty {
+			keysToRemove = append(keysToRemove, key)
+		}
+	})
+	for _, key := range keysToRemove {
+		L.SetTable(tbl, key, lua.LNil)
+	}
+}
+
+// initTablesEqual compares two init table copies for equality.
+func (r *Runtime) initTablesEqual(a, b map[string]lua.LValue) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for key, valA := range a {
+		valB, exists := b[key]
+		if !exists {
+			return false
+		}
+		// Compare by identity for tables, by value for primitives
+		if valA != valB {
+			return false
+		}
+	}
+	return true
+}
+
+// computeRemovedKeys returns keys present in old but not in new.
+func (r *Runtime) computeRemovedKeys(old, new map[string]lua.LValue) []string {
+	var removed []string
+	for key := range old {
+		if _, exists := new[key]; !exists {
+			removed = append(removed, key)
+		}
+	}
+	return removed
+}
+
+// updatePrototype updates an existing prototype with new init values.
+func (r *Runtime) updatePrototype(L *lua.LState, prototype, init *lua.LTable, empty lua.LValue) {
+	init.ForEach(func(key, value lua.LValue) {
+		if keyStr, ok := key.(lua.LString); ok {
+			keyName := string(keyStr)
+			// Skip special fields
+			if keyName == "type" || keyName == "__index" || keyName == "new" {
+				return
+			}
+			// Set value (or nil if EMPTY)
+			if value == empty {
+				L.SetField(prototype, keyName, lua.LNil)
+			} else {
+				L.SetField(prototype, keyName, value)
+			}
+		}
+	})
+}
+
+// ProcessMutationQueue processes queued prototypes after file load.
+// Called after LoadCode completes. Uses executor for thread safety.
+func (r *Runtime) ProcessMutationQueue() {
+	if len(r.mutationQueue) == 0 {
+		return
+	}
+
+	r.execute(func() (interface{}, error) {
+		r.processMutationQueueDirect()
+		return nil, nil
+	})
+}
+
+// processMutationQueueDirect processes mutations without executor wrapping.
+// MUST only be called from within an execute() context.
+func (r *Runtime) processMutationQueueDirect() {
+	if len(r.mutationQueue) == 0 {
+		return
+	}
+
+	L := r.State
+
+	for _, entry := range r.mutationQueue {
+		r.processMutationEntry(L, entry)
+	}
+
+	// Clear the queue
+	r.mutationQueue = nil
+}
+
+// processMutationEntry processes a single mutation entry.
+func (r *Runtime) processMutationEntry(L *lua.LState, entry mutationEntry) {
+	prototype := entry.prototype
+	removedKeys := entry.removedKeys
+
+	// Get instances and filter out dead weak refs (tortoise and hare compaction)
+	weakInstances := r.instanceRegistry[prototype]
+	n := 0
+	for i := range weakInstances {
+		if weakInstances[i].ptr.Value() != nil {
+			weakInstances[n] = weakInstances[i]
+			n++
+		}
+	}
+	weakInstances = weakInstances[:n]
+	r.instanceRegistry[prototype] = weakInstances
+
+	// Check if prototype has a mutate method
+	mutateMethod := L.GetField(prototype, "mutate")
+	hasMutate := mutateMethod != lua.LNil && mutateMethod.Type() == lua.LTFunction
+
+	// Process each live instance
+	for i := range weakInstances {
+		instance := weakInstances[i].ptr.Value()
+		// Call mutate method if exists (wrapped in pcall for error isolation)
+		if hasMutate {
+			err := L.CallByParam(lua.P{
+				Fn:      mutateMethod,
+				NRet:    0,
+				Protect: true,
+			}, instance)
+			if err != nil {
+				r.Log(1, "LuaRuntime: mutate error for %v: %v", GetType(L, prototype), err)
+			}
+		}
+
+		// Nil out removed fields
+		for _, key := range removedKeys {
+			L.SetField(instance, key, lua.LNil)
+		}
+	}
 }
 
 // extractTypeProperty extracts type from metatable or direct field (frictionless convention).
@@ -1202,8 +1554,9 @@ func (r *Runtime) LoadFileAbsolute(path string) error {
 
 // LoadCode loads and executes Lua code string via executor.
 // It returns the result of the execution (if any).
-// Spec: mcp.md
-// CRC: crc-LuaRuntime.md
+// After execution, processes any queued prototype mutations.
+// Spec: mcp.md, libraries.md
+// CRC: crc-LuaRuntime.md, crc-LuaSession.md
 func (r *Runtime) LoadCode(name, code string) (interface{}, error) {
 	return r.execute(func() (interface{}, error) {
 		// Load the string into a function
@@ -1224,6 +1577,9 @@ func (r *Runtime) LoadCode(name, code string) (interface{}, error) {
 		ret := r.State.Get(-1) // Get top
 		r.State.Pop(1)         // Pop it
 
+		// Process mutation queue after code execution
+		r.processMutationQueueDirect()
+
 		if ret == lua.LNil {
 			return nil, nil
 		}
@@ -1235,6 +1591,7 @@ func (r *Runtime) LoadCode(name, code string) (interface{}, error) {
 
 // LoadCodeDirect executes Lua code without executor wrapping.
 // Use this when already inside ExecuteInSession to avoid deadlock.
+// After execution, processes any queued prototype mutations.
 // MUST only be called from within an execute() context.
 func (r *Runtime) LoadCodeDirect(name, code string) (interface{}, error) {
 	// Load the string into a function
@@ -1254,6 +1611,9 @@ func (r *Runtime) LoadCodeDirect(name, code string) (interface{}, error) {
 	// Get result
 	ret := r.State.Get(-1) // Get top
 	r.State.Pop(1)         // Pop it
+
+	// Process mutation queue after code execution
+	r.processMutationQueueDirect()
 
 	if ret == lua.LNil {
 		return nil, nil

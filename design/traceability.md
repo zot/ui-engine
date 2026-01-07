@@ -174,7 +174,7 @@
 - crc-BindingEngine.md (input update behavior)
 - crc-ValueBinding.md (input event selection)
 - crc-MessageRelay.md
-- crc-LuaSession.md
+- crc-LuaSession.md (Prototype Management section)
 - crc-LuaVariable.md
 
 **Sequence Diagrams:**
@@ -183,6 +183,7 @@
 - seq-lua-session-init.md
 - seq-backend-refresh.md
 - seq-input-value-binding.md
+- seq-prototype-mutation.md (Prototype Management, Post-load mutation processing)
 
 **Notes:**
 - BackendConnection used by external Go backends (connected backend mode)
@@ -190,6 +191,8 @@
 - Path properties without values default to `true` (e.g., `?keypress` equals `?keypress=true`)
 - Input elements use blur-based events by default; `keypress` property switches to keystroke events
 - `scrollOnOutput` path property auto-scrolls element to bottom on value update (for log viewers, chat windows)
+- **Prototype Management**: `session:prototype(name, init)` and `session:create(prototype, instance)` for hot-loading support
+- EMPTY global marks fields that start nil but are tracked for mutation
 
 ---
 
@@ -400,11 +403,20 @@
 - [x] `internal/lua/runtime.go` - CreateLuaSession, GetLuaSession, ExecuteInSession
 - [x] `internal/lua/runtime.go` - HandleFrontendCreate, HandleFrontendUpdate (PathVariableHandler)
 - [x] `internal/lua/runtime.go` - AfterBatch for automatic change detection
-- [x] `internal/lua/runtime.go` - mutationVersion field for hot-loading
-- [x] `internal/lua/runtime.go` - newVersion, getVersion, needsMutation methods
+- [ ] `internal/lua/runtime.go` - prototypeRegistry map for init change detection
+- [ ] `internal/lua/runtime.go` - instanceRegistry map with weak sets per prototype
+- [ ] `internal/lua/runtime.go` - mutationQueue FIFO for post-load processing
+- [ ] `internal/lua/runtime.go` - prototype(name, init) method
+- [ ] `internal/lua/runtime.go` - create(prototype, instance) method
+- [ ] `internal/lua/runtime.go` - processMutationQueue() method
+- [ ] `internal/lua/runtime.go` - EMPTY global sentinel
 - [x] `internal/server/server.go` - Server.luaSessions map and CreateLuaBackendForSession
 - [x] `internal/server/server.go` - Server implements PathVariableHandler interface
 - [x] `internal/server/server.go` - luaTrackerAdapter with SetLuaSession/RemoveLuaSession
+
+**Deprecated (to be removed):**
+- [x] `internal/lua/runtime.go` - mutationVersion field (replaced by prototype queuing)
+- [x] `internal/lua/runtime.go` - newVersion, getVersion, needsMutation methods (deprecated)
 
 ### crc-LuaVariable.md
 **Source Spec:** libraries.md

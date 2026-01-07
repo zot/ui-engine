@@ -14,7 +14,9 @@
 - wrapperRegistry: Registry for wrapper factories
 - executorChan: Channel for thread-safe Lua execution
 - presenterTypes: Map of registered presenter types
-- mutationVersion: Hot-loading mutation version for schema migrations (int64)
+- prototypeRegistry: Map of prototype name to stored init copy (for change detection)
+- instanceRegistry: Map of prototype to weak set of instances (for mutation)
+- mutationQueue: FIFO queue of (prototype, removedKeys) pairs pending mutation
 
 ### Does
 - CreateLuaSession(vendedID): Initialize session, create session table, load main.lua
@@ -29,9 +31,29 @@
 - ExecuteInSession: Execute function within session context (sets global 'session')
 - AfterBatch: Trigger change detection and return updates after message batch
 - Shutdown: Close executor channel, clean up Lua state
-- newVersion: Increment mutation version and return new value (for hot-loading)
-- getVersion: Get current mutation version
-- needsMutation(obj): Check if object needs migration (obj._mutationVersion < session version)
+- prototype(name, init): Declare/update prototype with instance field tracking (see below)
+- create(prototype, instance): Create tracked instance with weak reference (see below)
+- processMutationQueue: Process queued prototypes after file load (see seq-prototype-mutation.md)
+
+**Prototype Management (Hot-Loading Support):**
+
+`session:prototype(name, init)`:
+- If global `name` is nil: creates new prototype with `type = name`, `__index` set, default `:new()` method
+- Stores shallow copy of `init` for change detection (preserves EMPTY markers)
+- Creates instance tracking for this prototype (weak set)
+- If global `name` exists and `init` differs from stored copy: updates prototype in place, computes removed fields, queues for mutation
+- EMPTY global (`{}`) marks fields that start nil but are tracked for mutation
+
+`session:create(prototype, instance)`:
+- If `instance` is nil, creates empty table
+- Sets metatable to prototype
+- Registers instance in prototype's weak set for tracking
+- Returns the instance
+
+**Deprecated Methods (replaced by automatic prototype mutation):**
+- ~~newVersion~~: No longer needed - prototype queuing handles versioning
+- ~~getVersion~~: No longer needed
+- ~~needsMutation(obj)~~: No longer needed - mutation is automatic
 
 ## Collaborators
 
@@ -46,7 +68,8 @@
 - seq-lua-session-init.md: Session creation and main.lua execution
 - seq-load-lua-code.md: Dynamic code loading via lua property on variable 1
 - seq-lua-handle-action.md: Action handling via path-based method dispatch
-- seq-lua-hotload.md: Hot-loading re-executes modified Lua files in this session
+- seq-lua-hotload.md: Hot-loading re-executes modified Lua files with prototype management
+- seq-prototype-mutation.md: Post-load mutation processing for schema migrations
 
 ## Notes
 
@@ -58,7 +81,8 @@
 - **Vended IDs**: LuaSession.ID is the vended ID (e.g., "1") not the internal UUID; saves bandwidth in backend communication
 - **Server Owns Sessions**: Server maintains `luaSessions map[string]*LuaSession` and creates/destroys sessions via callbacks
 - **Implements PathVariableHandler**: Server routes HandleFrontendCreate/Update to per-session LuaSession
-- **Hot-Loading Support**: Session methods for migration versioning:
-  - `session:newVersion()` - increment version, returns new value
-  - `session:getVersion()` - get current version
-  - `session:needsMutation(obj)` - check if obj._mutationVersion < session version
+- **Hot-Loading Support**: Automatic prototype and instance management:
+  - `session:prototype(name, init)` - declare/update prototype with instance field tracking
+  - `session:create(prototype, instance)` - create tracked instance with weak reference
+  - `Prototype:mutate()` - optional migration method called automatically on instances
+  - Post-load processing iterates mutation queue, calls mutate(), nils removed fields

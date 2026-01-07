@@ -160,7 +160,8 @@ Each session has an associated Backend that handles variable management. Two imp
 - seq-lua-execute.md
 - seq-load-lua-code.md
 - seq-lua-handle-action.md
-- seq-lua-hotload.md (hot-loading flow)
+- seq-lua-hotload.md (hot-loading flow with prototype management)
+- seq-prototype-mutation.md (post-load mutation processing)
 
 **Notes**:
 - **Per-Session Isolation**: Server owns `luaSessions map[string]*LuaSession`
@@ -170,6 +171,7 @@ Each session has an associated Backend that handles variable management. Two imp
 - **Hot-Loading**: When `--hotload` enabled, LuaHotLoader watches lua directory
 - Modified files are re-executed in all active sessions
 - Symlink targets are also watched for changes
+- **Prototype Management**: `session:prototype()` and `session:create()` enable automatic instance tracking and schema migration during hot-reload
 
 ### Backend Library System
 

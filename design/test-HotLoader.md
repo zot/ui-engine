@@ -1,12 +1,12 @@
 # Test Design: LuaHotLoader
 
-**Source Specs**: deployment.md (Lua Hot-Loading section)
-**CRC Cards**: crc-LuaHotLoader.md
-**Sequences**: seq-lua-hotload.md, seq-server-startup.md
+**Source Specs**: deployment.md (Lua Hot-Loading section), libraries.md (Prototype Management)
+**CRC Cards**: crc-LuaHotLoader.md, crc-LuaSession.md
+**Sequences**: seq-lua-hotload.md, seq-server-startup.md, seq-prototype-mutation.md
 
 ## Overview
 
-Tests for the Lua hot-loading component that watches lua directory for file changes and reloads modified files in all active sessions.
+Tests for the Lua hot-loading component that watches lua directory for file changes and reloads modified files in all active sessions, including prototype mutation processing.
 
 ## Test Cases
 
@@ -451,19 +451,131 @@ Tests for the Lua hot-loading component that watches lua directory for file chan
 
 ---
 
+## Prototype Mutation Integration Tests
+
+### Test: Process mutation queue after file reload
+
+**Purpose**: Verify mutation queue processed after LoadFileAbsolute
+
+**Input**:
+```lua
+-- Initial app.lua
+Person = session:prototype("Person", { name = "" })
+local p = Person:new({ name = "Alice" })
+```
+- Modify app.lua to add email field
+- Hot-reload triggered
+
+**References**:
+- CRC: crc-LuaHotLoader.md - "Does: reloadFile"
+- CRC: crc-LuaSession.md - "Does: processMutationQueue"
+- Sequence: seq-lua-hotload.md
+
+**Expected Results**:
+- LoadFileAbsolute called
+- session:prototype queues Person for mutation
+- processMutationQueue called after file execution
+- Instance p updated
+
+---
+
+### Test: Multiple prototypes mutated in order
+
+**Purpose**: Verify FIFO order across hot-reload
+
+**Input**:
+```lua
+-- app.lua declares Address then Person
+Address = session:prototype("Address", { city = "" })
+Person = session:prototype("Person", { name = "" })
+```
+- Hot-reload adds fields to both
+
+**References**:
+- Sequence: seq-lua-hotload.md
+- Sequence: seq-prototype-mutation.md
+
+**Expected Results**:
+- Address processed before Person
+- Dependency order maintained
+- All instances updated
+
+---
+
+### Test: Mutation errors don't break reload
+
+**Purpose**: Verify reload completes despite mutation errors
+
+**Input**:
+```lua
+Bad = session:prototype("Bad", { x = 0 })
+function Bad:mutate() error("fail") end
+local b = Bad:new()
+```
+- Hot-reload modifies Bad
+
+**References**:
+- Sequence: seq-lua-hotload.md
+- Sequence: seq-prototype-mutation.md
+
+**Expected Results**:
+- Error logged
+- Reload considered successful
+- Other sessions not affected
+
+---
+
+### Test: Empty mutation queue after reload
+
+**Purpose**: Verify queue cleared even when empty
+
+**Input**:
+- Hot-reload file with no prototype changes
+
+**References**:
+- CRC: crc-LuaSession.md - "Does: processMutationQueue"
+
+**Expected Results**:
+- processMutationQueue called
+- No-op when queue empty
+- No error
+
+---
+
+### Test: Multiple files hot-reloaded sequentially
+
+**Purpose**: Verify each file gets its own mutation processing
+
+**Input**:
+- Modify models.lua (defines Person)
+- Modify views.lua (defines PersonView)
+- Both reloaded in sequence
+
+**References**:
+- Sequence: seq-lua-hotload.md
+
+**Expected Results**:
+- models.lua loaded, mutation queue processed
+- views.lua loaded, mutation queue processed
+- Queue cleared between files
+
+---
+
 ## Coverage Summary
 
 **Responsibilities Covered:**
 - LuaHotLoader Knows: luaDir, watcher, symlinkTargets, watchedDirs
 - LuaHotLoader Does: Start, Stop, handleFileChange, resolveSymlinks, updateSymlinkWatches, reloadFile
+- LuaSession: processMutationQueue integration
 
 **Scenarios Covered:**
-- seq-lua-hotload.md: File change detection, debouncing, all-session reload
+- seq-lua-hotload.md: File change detection, debouncing, all-session reload, prototype management
 - seq-lua-hotload.md (Symlink Resolution): Symlink tracking, target watching
+- seq-prototype-mutation.md: Post-load processing integration
 
 **Collaborators Tested:**
 - Server: GetLuaSessions() integration
-- LuaSession: LoadCode() calls
+- LuaSession: LoadCode() calls, processMutationQueue() calls
 - Config: lua.hotload setting, verbosity logging
 - fsnotify: Event handling, error handling
 

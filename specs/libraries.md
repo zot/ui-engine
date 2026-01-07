@@ -66,11 +66,73 @@ session:destroyVariable(id)
 -- Log a message (delegates to Config.Log)
 session:log(level, message)
 
--- Hot-loading support: mutation versioning
-session:newVersion()         -- Increment mutation version, returns new version
-session:getVersion()         -- Get current mutation version
-session:needsMutation(obj)   -- Returns true if obj._mutationVersion < session version
+-- Prototype management (hot-loading support)
+session:prototype(name, init) -- Declare/update a prototype (see below)
+session:create(prototype, instance) -- Create a tracked instance (see below)
 ```
+
+**Prototype Management:**
+
+The session provides automatic prototype and instance management for hot-loading support:
+
+```lua
+-- Declare a prototype (assign to global for LSP support)
+-- init declares instance fields — only these are tracked for mutation
+Person = session:prototype("Person", {
+    name = "",
+    email = "",
+    avatar = EMPTY,  -- starts nil, but tracked for mutation
+})
+
+-- Prototype variables assigned separately (shared state, not instance fields)
+Person.nextId = Person.nextId or 0
+
+-- Override :new() only when custom initialization is needed
+-- (default :new() just calls session:create)
+function Person:new(instance)
+    instance = session:create(Person, instance)
+    instance.id = Person.nextId
+    Person.nextId = Person.nextId + 1
+    return instance
+end
+
+-- Optional: migration method called automatically when prototype changes
+function Person:mutate()
+    -- Must be idempotent
+    if self.fullName then
+        self.name = self.name or self.fullName
+        self.fullName = nil
+    end
+end
+```
+
+**`session:prototype(name, init)` behavior:**
+- `init` **declares instance fields** with their default values — only fields in `init` are tracked for mutation
+- The `EMPTY` global (an empty table `{}`) declares a field that starts as nil but is tracked for mutation
+  - `session:prototype` removes `EMPTY` values from init after copying, so the field defaults to nil
+  - Useful for optional fields that may be added/removed during hot-reload
+- If global `name` is nil: creates new prototype with `type = name` and `__index` set
+- Adds default `new` method if not already defined: `function(self, instance) return session:create(self, instance) end`
+- Stores a shallow copy of `init` for change detection (with `EMPTY` markers preserved for tracking)
+- If global `name` exists: compares new `init` to stored copy
+  - If different: updates prototype with new init values, stores new copy, computes removed fields, queues for mutation
+- **Prototype variables** (shared state like `nextId`) should be assigned separately with guards: `Proto.nextId = Proto.nextId or 0`
+- Methods defined via `function Proto:method()` go on the prototype directly, not in init
+
+**`session:create(prototype, instance)` behavior:**
+- If `instance` is nil, creates empty table
+- Sets metatable to prototype
+- Registers instance with weak reference for tracking
+- Returns the instance
+
+**Post-load mutation processing:**
+After loading a Lua file, the framework processes the mutation queue (FIFO order):
+1. For each queued prototype, iterate live instances
+2. Call `prototype:mutate(instance)` if method exists (wrapped in pcall)
+3. Nil out removed fields on each instance
+4. Clear the mutation queue
+
+This enables automatic schema migrations during hot-reload without manual `mutate()` calls in methods.
 
 **Built-in property watchers:**
 
@@ -82,55 +144,46 @@ The Lua runtime automatically watches the `lua` property on variable 1. When upd
 
 Lua types follow a convention that enables frictionless development:
 
-1. **Type field in metatable**: Each type defines a `type` field in its metatable table
-2. **`new(tbl)` constructor**: Use `Type:new(tbl)` where `tbl` is an optional table for the instance
+1. **Use `session:prototype()`**: Declares instance fields, handles `type`, `__index`, and default `:new()` automatically
+2. **Override `:new()` only when needed**: Default `:new()` calls `session:create()` for instance tracking
 3. **Auto-extraction**: `createAppVariable` and `createVariable` automatically extract the type from the object's `type` field
 
 ```lua
--- Define a type with metatable pattern
-local Item = {type = "Item"}  -- type field in metatable
-Item.__index = Item
+-- Simple type: default :new() is sufficient
+Item = session:prototype("Item", {
+  name = "",
+  description = EMPTY,  -- optional field, starts nil
+})
 
-function Item:new(tbl)
-  tbl = tbl or {}
-  setmetatable(tbl, self)  -- tbl inherits type from metatable
-  tbl.name = tbl.name or ""
-  return tbl
-end
+-- App type with custom initialization
+App = session:prototype("App", {
+  title = "My Application",
+  items = {},
+})
 
--- Define the app type
-local App = {type = "App"}
-App.__index = App
-
-function App:new(tbl)
-  tbl = tbl or {}
-  setmetatable(tbl, self)
-  tbl.title = tbl.title or "My Application"
-  tbl.items = tbl.items or {}  -- array of Item objects
-  return tbl
+-- Override :new() because we need to ensure items array exists on each instance
+function App:new(instance)
+  instance = session:create(App, instance)
+  instance.items = instance.items or {}
+  return instance
 end
 
 -- Methods callable via ui-action paths
 -- Just modify self directly - changes are auto-detected
 function App:addItem(name)
-  local item = Item:new({name = name})
-  session:createVariable(self, item)  -- creates child variable for item
-  table.insert(self.items, item)      -- add to items array
-  -- No update() call needed - framework detects the change
+  table.insert(self.items, Item:new({name = name}))
 end
 
 function App:deleteItem(index)
-  local item = self.items[index]
-  if item then
-    session:destroyVariable(item)     -- destroy the child variable
-    table.remove(self.items, index)   -- remove from array
-    -- No update() call needed - framework detects the change
+  if self.items[index] then
+    table.remove(self.items, index)
   end
 end
 
--- Create app and register as app variable
-local app = App:new({title = "My Application"})
-session:createAppVariable(app)
+-- Guard app creation for hot-reload support
+if not session:getApp() then
+  session:createAppVariable(App:new())
+end
 ```
 
 **Key points:**

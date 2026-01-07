@@ -84,23 +84,20 @@ Variable values are **object references** (`{"obj": 1}`), not actual data. All p
 ## Defining Types (Lua)
 
 ```lua
-local Contact = {type = "Contact"}
-Contact.__index = Contact
-
-function Contact:new(tbl)
-  tbl = tbl or {}
-  setmetatable(tbl, self)
-  return tbl
-end
+Contact = session:prototype("Contact", {
+  firstName = "",
+  lastName = "",
+  email = "",
+})
 
 function Contact:fullName()
   return self.firstName .. " " .. self.lastName
 end
 ```
 
-- `type` field in metatable enables viewdef resolution
-- `new(tbl)` pattern for instantiation
+- `session:prototype()` handles `type`, `__index`, and default `:new()` automatically
 - Methods callable via `ui-action` paths
+- Fields prefixed with `_` (e.g., `_cache`) are private — not serialized to frontend
 
 ## Value Bindings
 
@@ -251,10 +248,33 @@ The `wrapper` property enables value transformation at the backend.
 <span ui-value="items?wrapper=CountDisplay"/>  <!-- shows "3 items" -->
 ```
 
+**Creating a Wrapper:**
+
+```lua
+MyWrapper = session:prototype("MyWrapper", {
+  variable = EMPTY,  -- the Variable object
+  value = EMPTY,     -- convenience: variable's current value
+})
+
+function MyWrapper:new(variable)
+  -- Check for existing wrapper to preserve state across value changes
+  local existing = variable:getWrapper()
+  if existing then
+    existing.value = variable:getValue()
+    return existing
+  end
+
+  local wrapper = session:create(MyWrapper)
+  wrapper.variable = variable
+  wrapper.value = variable:getValue()
+  return wrapper
+end
+```
+
 The wrapper:
 - Receives the **variable** (not just value), enabling it to watch for changes
-- Computes the outgoing JSON value sent to frontend
-- Can create/manage additional objects (like presenters)
+- Should check `variable:getWrapper()` to reuse existing wrapper and preserve state
+- Child variable paths navigate from the wrapper object
 
 ViewList is a built-in wrapper that handles arrays automatically.
 
@@ -272,9 +292,96 @@ Viewdefs reload automatically during development:
 2. Edit viewdef HTML in your editor
 3. Save → see changes instantly
 
-**Lua code reloading:**
-- Lua's evaluation model allows code redefinition
-- Extensions can provide hot-reload hooks (e.g., ui-mcp)
+### Hot-Reloading Lua Code
+
+With `--hotload` enabled, Lua files reload automatically when saved. Use `session:prototype()` and `session:create()` for automatic state preservation.
+
+**Basic Pattern:**
+
+```lua
+-- 1. Declare prototypes (assign for LSP support)
+-- Prototypes get a default :new(instance) method automatically
+-- init declares instance fields — only these are tracked for mutation
+Person = session:prototype("Person", {
+    name = "",
+    email = "",
+    avatar = EMPTY,  -- EMPTY: starts nil, but tracked for mutation
+})
+
+-- Prototype variables are assigned separately (not in init)
+-- These are shared across instances, not per-instance defaults
+Person.nextId = Person.nextId or 0
+
+-- 2. Override :new() when you need custom initialization
+function Person:new(instance)
+    instance = session:create(Person, instance)
+    instance.id = Person.nextId
+    Person.nextId = Person.nextId + 1
+    return instance
+end
+
+-- 3. Guard app creation
+if not session:getApp() then
+    session:createAppVariable(App:new())
+end
+```
+
+Use `EMPTY` to declare optional fields that start nil but are tracked for mutation. When you remove a field from init, it's nil'd out on all instances.
+
+Save the file → instances get new methods immediately.
+
+**Adding Fields:**
+
+Add to the prototype. Existing instances inherit via metatable:
+
+```lua
+Person = session:prototype("Person", {
+    name = "",
+    email = "",
+    avatar = EMPTY,
+    phone = "",  -- NEW: inherited automatically
+})
+```
+
+If instances need computed values, add a `mutate` method (called automatically after reload):
+
+```lua
+function Person:mutate()
+    self.phone = self.phone or "unknown"
+end
+```
+
+**Removing Fields:**
+
+Remove from prototype. Framework nils out the field on all instances automatically.
+
+**Renaming/Migrating Fields:**
+
+```lua
+function Person:mutate()
+    if self.fullName then
+        self.name = self.name or self.fullName
+        self.fullName = nil
+    end
+end
+```
+
+**Rules:**
+1. **Always use `session:prototype()`** — not `X = X or {}`
+2. **Override `:new()` only when needed** — default calls `session:create()` automatically
+3. **Guard app creation** — `if not session:getApp() then`
+4. **`mutate()` must be idempotent** — safe to call multiple times
+5. **Prototype order matters** — declare dependencies first
+
+**What hot-loading enables:**
+- Add/modify methods — immediately available on existing instances
+- Fix bugs — corrections take effect without restart
+- Schema migrations — automatic via `mutate()`
+
+**What hot-loading cannot do:**
+- Change metatable identity — instances keep same metatable reference (which is the point)
+
+See `HOT-LOADING.md` for design details and implementation notes.
 
 ## Complete Example: Contact Manager
 
