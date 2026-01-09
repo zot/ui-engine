@@ -14,17 +14,17 @@
 ### Does
 - Start: Initialize file watcher on lua directory
 - Stop: Clean up watcher resources
-- handleFileChange(path): Re-execute modified Lua file in all active sessions
+- handleFileChange(path): Re-execute modified Lua file in sessions that have loaded it
 - resolveSymlinks: Scan lua directory for symlinks, resolve and watch target directories
 - updateSymlinkWatches: When symlinks change, update watched directories accordingly
-- reloadFile(path, session): Execute modified file in a specific LuaSession
+- reloadFile(path, session): Check IsFileLoaded(), set reloading flag, reload via RequireLuaFile()
 - triggerSessionRefresh(session): Execute empty function via ws.ExecuteInSession to run AfterBatch (pushes viewdef/variable changes)
 - recoverPanic: Wrap Lua execution in panic recovery, log errors instead of crashing server
 
 ## Collaborators
 
 - Server: Provides access to active LuaSessions via GetLuaSessions()
-- LuaSession: Receives re-executed Lua code via LoadFileAbsolute()
+- LuaSession: Provides IsFileLoaded() check, RequireLuaFile() for reload, reloading flag
 - WebSocketEndpoint: Provides ExecuteInSession() for triggering AfterBatch
 - Config: Provides lua.hotload setting and verbosity for logging
 - fsnotify: File system notification library
@@ -38,7 +38,8 @@
 
 - Only active when `--hotload` is enabled (lua.hotload = true)
 - Watches the lua directory (default: `lua/` or `<dir>/lua/`)
-- On file change, re-executes the modified file in ALL active sessions
+- **Only reloads files already loaded by session**: Checks `IsFileLoaded()` before reloading (ignores new files)
+- **reloading flag**: Sets `session.reloading = true` before reload, `false` after (Lua code can detect)
 - **Symlink handling**: Also watches real (target) directories of symlinked files
 - **Dynamic watch updates**: When symlinks are added/modified/removed, updates watched directories
 - Sessions maintain state between reloads (Lua code should use hot-loading conventions)

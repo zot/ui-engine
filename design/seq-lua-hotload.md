@@ -27,7 +27,13 @@
         |                   |                   |                   |                   |
         |                   |--[for each session, with panic recovery]                  |
         |                   |                   |                   |                   |
-        |                   |--LoadFileAbsolute(path)---------------------------------->|
+        |                   |--IsFileLoaded(filename)-------------------------------------->|
+        |                   |                   |                   |                   |
+        |                   |<--bool (skip if false)----------------------------------------|
+        |                   |                   |                   |                   |
+        |                   |--[set session.reloading = true]----------------------------->|
+        |                   |                   |                   |                   |
+        |                   |--RequireLuaFile(filename)------------------------------------>|
         |                   |                   |                   |                   |
         |                   |                   |                   |   [execute Lua    |
         |                   |                   |                   |    in session]    |
@@ -37,6 +43,8 @@
         |                   |                   |                   |    prototypes]    |
         |                   |                   |                   |                   |
         |                   |<--ok/error-------------------------------------------------|
+        |                   |                   |                   |                   |
+        |                   |--[set session.reloading = false]---------------------------->|
         |                   |                   |                   |                   |
         |                   |--processMutationQueue()---------------------------------->|
         |                   |                   |                   |                   |
@@ -121,7 +129,8 @@ MyApp = MyApp or {type = "MyApp"}
 ## Notes
 
 - **Debouncing**: File changes are debounced (100ms) to handle editors that write files in multiple steps
-- **All Sessions**: Modified file is re-executed in ALL active sessions (not just one)
+- **Only loaded files**: Checks `IsFileLoaded()` - skips files not yet loaded by session (new files ignored)
+- **reloading flag**: `session.reloading` set `true` before reload, `false` after - Lua code can detect hot-reload
 - **Symlink Transparency**: Changes to symlink targets reload as if the symlink file changed
 - **Panic Recovery**: All Lua execution wrapped in recover() - panics logged as errors, server continues
 - **Session Refresh**: After reload, ExecuteInSession(empty func) triggers AfterBatch which pushes viewdef/variable changes to browser

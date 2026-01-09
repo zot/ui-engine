@@ -17,6 +17,8 @@
 - prototypeRegistry: Map of prototype name to stored init copy (for change detection)
 - instanceRegistry: Map of prototype to weak set of instances (for mutation)
 - mutationQueue: FIFO queue of (prototype, removedKeys) pairs pending mutation
+- loadedModules: Lua table tracking loaded files (shared by require() and RequireLuaFile)
+- reloading: Boolean flag (on sessionTable) - true during hot-reload, false otherwise
 
 ### Does
 - CreateLuaSession(vendedID): Initialize session, create session table, load main.lua
@@ -34,6 +36,9 @@
 - prototype(name, init): Declare/update prototype with instance field tracking (see below)
 - create(prototype, instance): Create tracked instance with weak reference (see below)
 - processMutationQueue: Process queued prototypes after file load (see seq-prototype-mutation.md)
+- RequireLuaFile(filename): Load Lua file using unified load tracker (skips if already loaded)
+- IsFileLoaded(filename): Check if a file has been loaded (used by hot-loader)
+- registerRequire: Set up custom require() using loadedModules table with circularity handling
 
 **Prototype Management (Hot-Loading Support):**
 
@@ -61,7 +66,7 @@
 - LuaBackend: Per-session backend for watch management and change detection
 - luaTrackerAdapter: Implements VariableStore interface, routes to per-session tracker
 - WrapperRegistry: Provides wrapper factories for ui.registerWrapper
-- LuaHotLoader: Re-executes modified Lua files via LoadFileAbsolute()
+- LuaHotLoader: Re-executes modified Lua files via RequireLuaFile(), checks IsFileLoaded()
 
 ## Sequences
 
@@ -86,3 +91,7 @@
   - `session:create(prototype, instance)` - create tracked instance with weak reference
   - `Prototype:mutate()` - optional migration method called automatically on instances
   - Post-load processing iterates mutation queue, calls mutate(), nils removed fields
+- **Unified Load Tracking**: `loadedModules` Lua table shared by `require()` and `RequireLuaFile()`:
+  - Circularity handling: mark loaded before execute, unmark on error
+  - `session.reloading` flag: true during reload, false after (Lua code can detect hot-reload)
+  - `IsFileLoaded(filename)` lets hot-loader skip files not yet loaded by session

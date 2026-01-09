@@ -295,13 +295,25 @@ func (h *HotLoader) reloadFile(filePath string) {
 }
 
 // reloadInSession reloads code in a single session with panic recovery.
+// Only reloads files that have already been loaded by the session.
+// Sets session.reloading flag during reload.
 func (h *HotLoader) reloadInSession(sess *LuaSession, codeName, content string) {
+	// Check if file has been loaded by this session (skip if not)
+	if !sess.IsFileLoaded(codeName) {
+		h.config.Log(2, "HotLoader: skipping %s in session %s (not loaded)", codeName, sess.ID)
+		return
+	}
+
 	// Panic recovery to prevent crashing the server
 	defer func() {
 		if r := recover(); r != nil {
 			h.config.Log(0, "HotLoader: PANIC reloading %s in session %s: %v", codeName, sess.ID, r)
 		}
 	}()
+
+	// Set reloading flag before reload
+	sess.SetReloading(true)
+	defer sess.SetReloading(false)
 
 	_, err := sess.LoadCode(codeName, content)
 	if err != nil {

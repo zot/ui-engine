@@ -45,7 +45,7 @@ type WorkResult struct {
 type LuaSession struct {
 	// Lua VM state and execution
 	State          *lua.LState
-	loadedModules  map[string]bool
+	loadedModules  *lua.LTable // Unified load tracker (shared by require() and hot-loader)
 	presenterTypes map[string]*PresenterType
 	luaDir         string
 	executorChan   chan WorkItem
@@ -131,7 +131,7 @@ func NewRuntime(cfg *config.Config, luaDir string, vdm *viewdef.ViewdefManager) 
 	s := &LuaSession{
 		config:            cfg,
 		State:             L,
-		loadedModules:     make(map[string]bool),
+		loadedModules:     L.NewTable(), // Unified load tracker for require() and hot-loader
 		presenterTypes:    make(map[string]*PresenterType),
 		luaDir:            luaDir,
 		executorChan:      make(chan WorkItem, 100),
@@ -274,10 +274,14 @@ func (s *LuaSession) CreateLuaSession(vendedID string) (*LuaSession, error) {
 }
 
 // loadMainLua loads main.lua from filesystem or cached bundle code.
+// Registers the file in loadedModules for hot-reload tracking.
 func (r *Runtime) loadMainLua(L *lua.LState) error {
 	// Try cached bundle code first
 	if r.mainLuaCode != "" {
+		// Mark as loaded for hot-reload tracking
+		L.SetField(r.loadedModules, "main.lua", lua.LTrue)
 		if err := L.DoString(r.mainLuaCode); err != nil {
+			L.SetField(r.loadedModules, "main.lua", lua.LNil) // Unmark on error
 			return fmt.Errorf("failed to execute main.lua: %w", err)
 		}
 		return nil
@@ -286,7 +290,10 @@ func (r *Runtime) loadMainLua(L *lua.LState) error {
 	// Try filesystem
 	mainPath := filepath.Join(r.luaDir, "main.lua")
 	if _, err := os.Stat(mainPath); err == nil {
+		// Mark as loaded for hot-reload tracking
+		L.SetField(r.loadedModules, "main.lua", lua.LTrue)
 		if err := L.DoFile(mainPath); err != nil {
+			L.SetField(r.loadedModules, "main.lua", lua.LNil) // Unmark on error
 			return fmt.Errorf("failed to load main.lua: %w", err)
 		}
 		return nil
@@ -342,6 +349,9 @@ func (r *Runtime) createSessionTable(L *lua.LState, vendedID string) *lua.LTable
 
 	// Store session ID
 	L.SetField(session, "_sessionID", lua.LString(vendedID))
+
+	// Initialize reloading flag (used by hot-loader)
+	L.SetField(session, "reloading", lua.LFalse)
 
 	// Inject Go functions (only if module-based session)
 	if sessionModule != lua.LNil {
@@ -1368,16 +1378,16 @@ func (r *Runtime) HandleFrontendUpdate(sessionID string, varID int64, value json
 
 // registerRequire adds a custom require() function that works with both
 // filesystem (--dir mode) and embedded bundle.
+// Uses unified loadedModules table shared with hot-loader.
+// Handles circular dependencies by marking as loaded before executing.
 func (r *Runtime) registerRequire() {
 	L := r.State
-
-	// Table to cache loaded modules (like package.loaded)
-	loaded := L.NewTable()
+	loaded := r.loadedModules // Use unified load tracker
 
 	requireFn := L.NewFunction(func(L *lua.LState) int {
 		modName := L.CheckString(1)
 
-		// Check if already loaded
+		// Check if already loaded (handles circularity - returns early if in-progress)
 		if cached := L.GetField(loaded, modName); cached != lua.LNil {
 			L.Push(cached)
 			return 1
@@ -1406,19 +1416,24 @@ func (r *Runtime) registerRequire() {
 			}
 		}
 
+		// Mark as loaded BEFORE executing (handles circular dependencies)
+		L.SetField(loaded, modName, lua.LTrue)
+
 		// Execute the module code
 		if err := L.DoString(code); err != nil {
+			// Unmark on error (allows retry)
+			L.SetField(loaded, modName, lua.LNil)
 			L.RaiseError("error loading module '%s': %v", modName, err)
 			return 0
 		}
 
-		// Get the return value (module table) or true if nothing returned
+		// Get the return value (module table) or keep the true marker
 		result := L.Get(-1)
 		if result == lua.LNil {
 			result = lua.LTrue
 		}
 
-		// Cache and return
+		// Update cache with actual result
 		L.SetField(loaded, modName, result)
 		L.Push(result)
 		return 1
@@ -1530,29 +1545,104 @@ func (r *Runtime) registerUIModule() {
 }
 
 // LoadFile loads and executes a Lua file via executor (relative to luaDir).
+// Deprecated: Use RequireLuaFile for hot-reload compatible loading.
 func (r *Runtime) LoadFile(filename string) error {
 	path := filepath.Join(r.luaDir, filename)
 	return r.LoadFileAbsolute(path)
 }
 
 // LoadFileAbsolute loads and executes a Lua file via executor (absolute path).
+// Deprecated: Use RequireLuaFile for hot-reload compatible loading.
 func (r *Runtime) LoadFileAbsolute(path string) error {
 	_, err := r.execute(func() (interface{}, error) {
-		r.mu.Lock()
-		defer r.mu.Unlock()
+		return nil, r.loadFileInternal(path)
+	})
+	return err
+}
 
-		if r.loadedModules[path] {
+// loadFileInternal is the non-executor version used internally.
+// Uses unified load tracker with circularity handling.
+func (r *Runtime) loadFileInternal(path string) error {
+	L := r.State
+	loaded := r.loadedModules
+
+	// Check if already loaded
+	if L.GetField(loaded, path) != lua.LNil {
+		return nil // Already loaded
+	}
+
+	// Mark as loaded BEFORE executing (handles circular dependencies)
+	L.SetField(loaded, path, lua.LTrue)
+
+	// Execute the file
+	if err := L.DoFile(path); err != nil {
+		// Unmark on error (allows retry)
+		L.SetField(loaded, path, lua.LNil)
+		return fmt.Errorf("failed to load %s: %w", path, err)
+	}
+
+	return nil
+}
+
+// IsFileLoaded checks if a file has been loaded by this session.
+// Used by hot-loader to skip files not yet loaded.
+func (r *Runtime) IsFileLoaded(filename string) bool {
+	var loaded bool
+	r.execute(func() (interface{}, error) {
+		loaded = r.State.GetField(r.loadedModules, filename) != lua.LNil
+		return nil, nil
+	})
+	return loaded
+}
+
+// RequireLuaFile loads a Lua file using the unified load tracker.
+// Skips if already loaded (like require()). Returns error if file not found or execution fails.
+// This is the preferred method for hot-reload compatible file loading.
+func (r *Runtime) RequireLuaFile(filename string) error {
+	_, err := r.execute(func() (interface{}, error) {
+		L := r.State
+		loaded := r.loadedModules
+
+		// Check if already loaded
+		if L.GetField(loaded, filename) != lua.LNil {
 			return nil, nil // Already loaded
 		}
 
-		if err := r.State.DoFile(path); err != nil {
-			return nil, fmt.Errorf("failed to load %s: %w", path, err)
+		// Read file content
+		filePath := filepath.Join(r.luaDir, filename)
+		content, err := os.ReadFile(filePath)
+		if err != nil {
+			return nil, fmt.Errorf("file not found: %s", filePath)
 		}
 
-		r.loadedModules[path] = true
+		// Mark as loaded BEFORE executing (handles circular dependencies)
+		L.SetField(loaded, filename, lua.LTrue)
+
+		// Execute the code
+		if err := L.DoString(string(content)); err != nil {
+			// Unmark on error (allows retry)
+			L.SetField(loaded, filename, lua.LNil)
+			return nil, fmt.Errorf("failed to load %s: %w", filename, err)
+		}
+
 		return nil, nil
 	})
 	return err
+}
+
+// SetReloading sets the session.reloading flag.
+// Called by hot-loader before/after reloading files.
+func (r *Runtime) SetReloading(reloading bool) {
+	r.execute(func() (interface{}, error) {
+		if r.sessionTable != nil {
+			if reloading {
+				r.State.SetField(r.sessionTable, "reloading", lua.LTrue)
+			} else {
+				r.State.SetField(r.sessionTable, "reloading", lua.LFalse)
+			}
+		}
+		return nil, nil
+	})
 }
 
 // LoadCode loads and executes Lua code string via executor.

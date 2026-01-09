@@ -296,6 +296,10 @@ Viewdefs reload automatically during development:
 
 With `--hotload` enabled, Lua files reload automatically when saved. Use `session:prototype()` and `session:create()` for automatic state preservation.
 
+**Key behavior:**
+- Only files already loaded by the session are reloaded (new files are ignored until `require`d)
+- `session.reloading` is `true` during reload, `false` otherwise — use this to detect hot-reloads in your code
+
 **Basic Pattern:**
 
 ```lua

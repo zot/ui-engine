@@ -4,6 +4,35 @@
 
 ## How It Works
 
+### File Watching and Reloading
+
+When `--hotload` is enabled:
+1. Server watches the lua directory for file changes
+2. On change, checks if file has been loaded by session via unified load tracker
+3. Skips files not yet loaded (new files are ignored until explicitly `require`d)
+4. Sets `session.reloading = true` before executing file
+5. Executes the modified file
+6. Sets `session.reloading = false` after execution
+7. Triggers session refresh to push changes to browser
+
+**Detecting hot-reload in Lua:**
+```lua
+if session.reloading then
+    -- Code is being hot-reloaded, not initial load
+end
+```
+
+### Module Load Tracking
+
+A unified load tracker is shared by `require()` and the hot-loader. This handles circular dependencies safely:
+
+1. Mark module as "loaded" **before** executing
+2. Execute module code, catching errors
+3. If error, unmark as loaded (allows retry)
+4. If success, keep marked
+
+This prevents infinite loops when A requires B which requires A.
+
 ### Prototype Declaration: `session:prototype(name, init)`
 
 ```
@@ -131,9 +160,10 @@ Post-load processing:
 
 ## API Summary
 
-| Function | Purpose |
-|----------|---------|
+| Function / Property | Purpose |
+|---------------------|---------|
 | `session:prototype(name, init)` | Declare/update prototype with default fields and `:new()` |
 | `session:create(prototype, instance)` | Create tracked instance |
+| `session.reloading` | `true` during hot-reload, `false` otherwise |
 | `Prototype:new(instance)` | Default provided; override for custom init |
 | `Prototype:mutate()` | Optional migration method, called automatically |

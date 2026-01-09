@@ -330,7 +330,9 @@ When `--hotload` is enabled, the server watches the lua directory for file chang
 
 **Watch behavior:**
 - Watches the configured lua path (default: `lua/`)
+- Only reloads files that have already been loaded by the session (ignores new files until they're explicitly required)
 - On file change, re-executes the modified file in each active session
+- Sets `session.reloading = true` before reloading, `false` after reload completes
 - Sessions maintain state between reloads (see conventions below)
 
 **Symlink handling:**
@@ -346,6 +348,20 @@ lua/
 ├── app.lua -> ../apps/myapp/app.lua   # symlink - also watches ../apps/myapp/
 └── utils.lua -> /shared/utils.lua     # symlink - also watches /shared/
 ```
+
+**Module load tracking:**
+
+A unified load tracker is used by both `require()` and hot-loading to track which files have been loaded. This enables hot-loading to only reload files that have already been loaded by the session.
+
+The tracker handles circular dependencies safely:
+1. Mark the module as "loaded" **before** executing it
+2. Execute the module code, catching any errors
+3. If an error occurred, unmark it as loaded (allowing retry)
+4. If successful, keep it marked
+
+This prevents infinite loops when module A requires module B which requires module A - the second `require("A")` sees it's already marked and returns early.
+
+A Go function `RequireLuaFile(filename)` loads a Lua file using the same require mechanism - it skips loading if already loaded, allowing Go code to load files with proper tracking for hot-reload support.
 
 **Session refresh after hotload:**
 

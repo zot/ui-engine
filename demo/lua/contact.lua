@@ -19,7 +19,7 @@ function Contact:fullName()
     if first ~= "" and last ~= "" then
        result = first .. " " .. last
     end
-    return result .. " V"
+    return result
 end
 
 -- ContactPresenter - wraps Contact for UI interactions
