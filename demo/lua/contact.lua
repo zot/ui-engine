@@ -3,39 +3,37 @@
 -- CRC: crc-LuaSession.md
 -- Uses automatic change detection - no manual update() calls needed
 
-local app
-
 -- Contact type for individual contacts
-Contact = {type = "Contact"}
-Contact.__index = Contact
-
-function Contact:new(tbl)
-   tbl = tbl or {}
-   setmetatable(tbl, self)
-   print("LUA: made Contact", tbl, "type", tbl.type, "metatable", getmetatable(tbl))
-   return tbl
-end
+Contact = session:prototype("Contact", {
+                               firstName = "",
+                               lastName = "",
+                               email = "",
+                               phone = "",
+                               notes = "",
+})
 
 function Contact:fullName()
     local first = self.firstName or ""
     local last = self.lastName or ""
+    local result = first .. last
     if first ~= "" and last ~= "" then
-        return first .. " " .. last
+       result = first .. " " .. last
     end
-    return first .. last
+    return result .. " V"
 end
 
 -- ContactPresenter - wraps Contact for UI interactions
 -- Constructed by ViewList with viewItem: {baseItem, list, index}
-ContactPresenter = {type = "ContactPresenter"}
-ContactPresenter.__index = ContactPresenter
+ContactPresenter = session:prototype("ContactPresenter", {
+                                        viewItem = EMPTY,
+                                        contact = EMPTY,
+})
 
 function ContactPresenter:new(listItem)
-   local tbl = {
+   local tbl = session:create(ContactPresenter, {
       viewItem = listItem,
       contact = listItem.baseItem  -- the domain Contact
-   }
-   setmetatable(tbl, self)
+   })
    local i = listItem.baseItem
    print("LUA: ContactPresenter on ", i, " type ", i.type, "metatable", getmetatable(i))
    return tbl
@@ -47,19 +45,36 @@ end
 
 -- UI actions (app is accessible as upvalue from module scope)
 function ContactPresenter:edit()
-    app:editContact(self.contact)
+    contactApp:editContact(self.contact)
 end
 
 function ContactPresenter:delete()
-    app:deleteContact(self.contact)
+    contactApp:deleteContact(self.contact)
 end
 
 -- ContactApp presenter - all view state is inline
-ContactApp = {type = "ContactApp"}
-ContactApp.__index = ContactApp
+ContactApp = session:prototype("ContactApp", {
+                                  title = "",
+                                  _allContacts = EMPTY,
+                                  searchQuery = "",
+                                  -- View state
+                                  isEditView = false,
+                                  isListView = false,
+                                  formTitle = "",
+                                  error = nil,
+                                  -- Edit form fields
+                                  editFirstName = "",
+                                  editLastName = "",
+                                  editEmail = "",
+                                  editPhone = "",
+                                  editNotes = "",
+                                  -- Currently editing contact (nil = creating new)
+                                  _editingContact = nil,
+
+})
 
 function ContactApp:new(tbl)
-    tbl = tbl or {}
+    tbl = session:create(ContactApp, tbl or {})
     setmetatable(tbl, self)
     tbl.title = tbl.title or "Contact Manager"
     tbl._allContacts = tbl._allContacts or {}  -- Master list
@@ -205,30 +220,32 @@ function ContactApp:selectFirstContact()
     end
 end
 
-print("LUA: initialized. Contact", Contact, "ContactPresenter", ContactPresenter, "ContactApp", ContactApp)
 
--- Create the app instance
-app = ContactApp:new({
-    title = "Contact Manager"
-})
-
--- Register as app variable (the ONLY variable backend creates)
-session:createAppVariable(app)
-
--- Add sample contacts to master list
-table.insert(app._allContacts, Contact:new({
-    firstName = "Alice", lastName = "Smith",
-    email = "alice@example.com", phone = "555-0101",
-    notes = "Met at conference"
-}))
-table.insert(app._allContacts, Contact:new({
-    firstName = "Bob", lastName = "Johnson",
-    email = "bob@example.com", phone = "555-0102"
-}))
-table.insert(app._allContacts, Contact:new({
-    firstName = "Carol", lastName = "Williams",
-    email = "carol@example.com", phone = "555-0103",
-    notes = "Project lead"
-}))
-
-ui.log("Contact Manager initialized for session")
+if not contactApp then
+   print("LUA: initialized. Contact", Contact, "ContactPresenter", ContactPresenter, "ContactApp", ContactApp)
+   -- Create the app instance
+   contactApp = ContactApp:new({
+         title = "Contact Manager"
+   })
+   
+   -- Register as app variable (the ONLY variable backend creates)
+   session:createAppVariable(contactApp)
+   
+   -- Add sample contacts to master list
+   table.insert(contactApp._allContacts, Contact:new({
+                      firstName = "Alice", lastName = "Smith",
+                      email = "alice@example.com", phone = "555-0101",
+                      notes = "Met at conference"
+   }))
+   table.insert(contactApp._allContacts, Contact:new({
+                      firstName = "Bob", lastName = "Johnson",
+                      email = "bob@example.com", phone = "555-0102"
+   }))
+   table.insert(contactApp._allContacts, Contact:new({
+                      firstName = "Carol", lastName = "Williams",
+                      email = "carol@example.com", phone = "555-0103",
+                      notes = "Project lead"
+   }))
+   
+   ui.log("Contact Manager initialized for session")
+end

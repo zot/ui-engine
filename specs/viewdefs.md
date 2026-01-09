@@ -39,10 +39,24 @@ The frontend parses viewdefs by placing them in a scratch div's innerHTML, then 
 **Hot-reloading:**
 
 Viewdefs support hot-reloading for iterative development:
-- The server tracks file modification times for viewdefs loaded from disk
-- When a viewdef file is modified, the updated content is sent to connected sessions on the next update cycle
+
+**Backend behavior:**
+- File watcher monitors the viewdef directory for changes (like Lua hot-loading)
+- When a viewdef file is modified:
+  1. Reload the file content
+  2. For each session that has received this viewdef, queue a re-push via variable 1's `viewdefs` property
+  3. This triggers `ws.afterBatch` on connected clients, causing immediate UI refresh
 - On-demand loading: when a new `type` is encountered, the server automatically loads matching `TYPE.*.html` files from the viewdef directory
 - This enables editing viewdefs without restarting the server
+
+**Frontend behavior:**
+- Views are marked with a `data-ui-viewdef` attribute containing the viewdef key (e.g., `data-ui-viewdef="Contact.COMPACT"`)
+- Widgets store a reference to their containing view's element ID (if any)
+- When new viewdefs arrive via variable 1:
+  1. Store the updated viewdefs
+  2. For each updated viewdef key, find all views with matching `data-ui-viewdef`
+  3. Re-render each matching view using the updated viewdef
+  4. Re-binding occurs automatically as part of the render process
 
 ## Element References (Cross-Cutting Requirement)
 
@@ -82,11 +96,13 @@ A **Widget** is the binding context for an element with `ui-*` bindings. Each el
 - `elementId` - Element ID (from global vendor if element has no ID)
 - `variables` - Map of binding name to variable ID for all bindings on this element
 - `unbindHandlers` - Map of binding name to cleanup function
+- `viewElementId` - (optional) Element ID of the containing view, if any
 
 **Widget responsibilities:**
 - Tracks all bindings and their variable IDs for the element
 - Provides cleanup via `unbindAll()` which calls all unbind handlers
 - Enables bindings to look up sibling bindings (e.g., event binding finding ui-value variable)
+- Tracks containing view element ID for hot-reload support (widgets can find their view)
 
 **Element ID assignment:**
 - If an element doesn't have an ID, the Widget uses the global ID vendor to assign one
@@ -294,6 +310,7 @@ The `address` view inherits `COMPACT` from the intermediate `<div>`, not from th
 **View properties:**
 - Unique HTML `id` (vended by the frontend)
 - Manages a container element (e.g., `<div>`, `<sl-option>`)
+- `data-ui-viewdef` attribute on the container element containing the viewdef key (e.g., `Contact.COMPACT`) for hot-reload targeting
 
 **Example:**
 ```html
@@ -323,12 +340,13 @@ The frontend maintains a `render(element, variable, namespace)` function:
    - If variable has `namespace` property and `TYPE.{namespace}` exists, use it
    - Else if variable has `fallbackNamespace` property and `TYPE.{fallbackNamespace}` exists, use it
    - Else use `TYPE.DEFAULT`
-2. Clear the element's children
-3. Deep clone the template's contents (returns DocumentFragment, not yet in DOM)
-4. Collect all `<script>` elements from the cloned content (store for later activation)
-5. Append cloned nodes to the element (nodes are now in DOM)
-6. Bind the cloned elements to the variable
-7. Activate script elements (scripts are now DOM-connected):
+2. Set `data-ui-viewdef` attribute on the container element to the resolved viewdef key (e.g., `Contact.COMPACT`)
+3. Clear the element's children (unbinding existing widgets)
+4. Deep clone the template's contents (returns DocumentFragment, not yet in DOM)
+5. Collect all `<script>` elements from the cloned content (store for later activation)
+6. Append cloned nodes to the element (nodes are now in DOM)
+7. Bind the cloned elements to the variable (widgets receive the view element ID)
+8. Activate script elements (scripts are now DOM-connected):
    - For each collected script element:
      - Create a new `<script>` element via `document.createElement('script')`
      - Set `type` to `text/javascript`
@@ -342,6 +360,15 @@ If a view cannot render (missing `type` or viewdef), it's added to a pending vie
 2. Iterate pending views, calling `render()` on each
 3. Remove views that return `true` (successfully rendered)
 4. Views that return `false` remain pending
+
+**Hot-reload re-rendering:**
+
+When updated viewdefs arrive (viewdefs that were already sent):
+1. For each updated viewdef key (e.g., `Contact.COMPACT`):
+   - Query `document.querySelectorAll('[data-ui-viewdef="Contact.COMPACT"]')`
+   - For each matching view element, re-render using the updated viewdef
+2. Re-rendering reuses the same variable and container element
+3. Widgets within the view are unbound and recreated during re-render
 
 ## ViewLists
 
@@ -439,6 +466,7 @@ Developers can specify a custom `ui-namespace` on the ViewList to use a differen
 
 The frontend ViewList widget:
 - Has an **exemplar element** that gets cloned for each ViewListItem (default: `<div>`)
+- Each cloned element is rendered as a View using standard `render()` (gets `data-ui-viewdef` attribute, supports hot-reload)
 - Maintains a parallel array of View elements for the ViewListItems
 - When ViewListItems are added/removed, updates the DOM accordingly
 

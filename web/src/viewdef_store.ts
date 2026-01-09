@@ -3,6 +3,7 @@
 // Spec: viewdefs.md
 
 import { Viewdef, createViewdef, buildKey } from './viewdef';
+import { ViewLike } from './binding';
 
 // Interface for views waiting to render
 export interface PendingView {
@@ -10,14 +11,24 @@ export interface PendingView {
   render: () => boolean; // Returns true if rendered successfully
 }
 
+// Function to look up a View by element ID (via widget.view)
+export type ViewLookup = (elementId: string) => ViewLike | undefined;
+
 export class ViewdefStore {
   private viewdefs: Map<string, Viewdef> = new Map();
   private pendingViews: Map<string, PendingView> = new Map();
   private errorHandler?: (key: string, error: string) => void;
+  private viewLookup?: ViewLookup;  // Set by BindingEngine for hot-reload
 
   // Set error handler for validation failures
   setErrorHandler(handler: (key: string, error: string) => void): void {
     this.errorHandler = handler;
+  }
+
+  // Set view lookup function (for hot-reload)
+  // Called by BindingEngine to enable widget → view lookup
+  setViewLookup(lookup: ViewLookup): void {
+    this.viewLookup = lookup;
   }
 
   // Store a viewdef by key, validating the content
@@ -37,13 +48,60 @@ export class ViewdefStore {
 
   // Process viewdefs from variable 1's viewdefs property
   // viewdefs is { "TYPE.NAMESPACE": "HTML content", ... }
+  // Spec: viewdefs.md - Hot-reloading
+  // CRC: crc-ViewdefStore.md - processViewdefs
   processViewdefs(viewdefs: Record<string, string>): void {
+    const updatedKeys: string[] = [];
+
     for (const [key, content] of Object.entries(viewdefs)) {
-      this.store(key, content);
+      // Track if this is an update (viewdef already existed)
+      const isUpdate = this.viewdefs.has(key);
+
+      if (this.store(key, content) && isUpdate) {
+        updatedKeys.push(key);
+      }
     }
 
     // Try to render pending views
     this.processPendingViews();
+
+    // Re-render views for updated viewdefs (hot-reload)
+    // Spec: viewdefs.md - Hot-reload re-rendering
+    for (const key of updatedKeys) {
+      this.rerenderViewsForKey(key);
+    }
+  }
+
+  // Re-render all views using a specific viewdef key
+  // Queries DOM for elements with data-ui-viewdef attribute matching the key
+  // Uses widget.view.forceRender() to trigger re-render
+  // Spec: viewdefs.md - Hot-reload re-rendering
+  // CRC: crc-ViewdefStore.md - rerenderViewsForKey
+  rerenderViewsForKey(key: string): void {
+    if (!this.viewLookup) {
+      console.warn('[ViewdefStore] Hot-reload: viewLookup not set, cannot re-render');
+      return;
+    }
+
+    const selector = `[data-ui-viewdef="${key}"]`;
+    const elements = document.querySelectorAll(selector);
+
+    console.log(`[ViewdefStore] Hot-reload: re-rendering ${elements.length} views for ${key}`);
+
+    for (const element of elements) {
+      if (element instanceof HTMLElement && element.id) {
+        const view = this.viewLookup(element.id);
+        if (view) {
+          try {
+            view.forceRender();
+          } catch (err) {
+            console.error(`[ViewdefStore] Hot-reload: error re-rendering view ${element.id}:`, err);
+          }
+        } else {
+          console.warn(`[ViewdefStore] Hot-reload: no view found for element ${element.id}`);
+        }
+      }
+    }
   }
 
   // Get viewdef by TYPE.NAMESPACE with 3-tier resolution:

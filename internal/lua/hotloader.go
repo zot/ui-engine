@@ -17,10 +17,11 @@ import (
 
 // HotLoader watches the lua directory for file changes and reloads modified files.
 type HotLoader struct {
-	config     *config.Config
-	luaDir     string
-	watcher    *fsnotify.Watcher
-	getSessions func() []*LuaSession // Callback to get active sessions
+	config         *config.Config
+	luaDir         string
+	watcher        *fsnotify.Watcher
+	getSessions    func() []*LuaSession       // Callback to get active sessions
+	triggerRefresh func(sessionID string)     // Callback to trigger session refresh (runs AfterBatch)
 
 	// Symlink tracking
 	symlinkTargets map[string]string // lua file path -> resolved target dir
@@ -36,7 +37,8 @@ type HotLoader struct {
 }
 
 // NewHotLoader creates a new hot loader for the given lua directory.
-func NewHotLoader(cfg *config.Config, luaDir string, getSessions func() []*LuaSession) (*HotLoader, error) {
+// triggerRefresh is called after successful reload to run AfterBatch and push changes to browser.
+func NewHotLoader(cfg *config.Config, luaDir string, getSessions func() []*LuaSession, triggerRefresh func(sessionID string)) (*HotLoader, error) {
 	watcher, err := fsnotify.NewWatcher()
 	if err != nil {
 		return nil, err
@@ -47,6 +49,7 @@ func NewHotLoader(cfg *config.Config, luaDir string, getSessions func() []*LuaSe
 		luaDir:         luaDir,
 		watcher:        watcher,
 		getSessions:    getSessions,
+		triggerRefresh: triggerRefresh,
 		symlinkTargets: make(map[string]string),
 		watchedDirs:    make(map[string]int),
 		pendingReloads: make(map[string]time.Time),
@@ -263,6 +266,8 @@ func (h *HotLoader) processPendingReloads() {
 }
 
 // reloadFile reloads a Lua file in all active sessions.
+// Wraps execution in panic recovery to prevent crashing the server.
+// Triggers session refresh after reload to push viewdef/variable changes.
 func (h *HotLoader) reloadFile(filePath string) {
 	// Resolve the actual file to reload
 	reloadPath := h.resolveReloadPath(filePath)
@@ -282,15 +287,36 @@ func (h *HotLoader) reloadFile(filePath string) {
 	// Get the filename for the code name
 	codeName := filepath.Base(reloadPath)
 
-	// Reload in all active sessions
+	// Reload in all active sessions with panic recovery
 	sessions := h.getSessions()
 	for _, sess := range sessions {
-		_, err := sess.LoadCode(codeName, string(content))
-		if err != nil {
-			h.config.Log(1, "HotLoader: error reloading %s in session %s: %v", codeName, sess.ID, err)
-		} else {
-			h.config.Log(2, "HotLoader: reloaded %s in session %s", codeName, sess.ID)
+		h.reloadInSession(sess, codeName, string(content))
+	}
+}
+
+// reloadInSession reloads code in a single session with panic recovery.
+func (h *HotLoader) reloadInSession(sess *LuaSession, codeName, content string) {
+	// Panic recovery to prevent crashing the server
+	defer func() {
+		if r := recover(); r != nil {
+			h.config.Log(0, "HotLoader: PANIC reloading %s in session %s: %v", codeName, sess.ID, r)
 		}
+	}()
+
+	_, err := sess.LoadCode(codeName, content)
+	if err != nil {
+		h.config.Log(1, "HotLoader: error reloading %s in session %s: %v", codeName, sess.ID, err)
+		return
+	}
+
+	h.config.Log(2, "HotLoader: reloaded %s in session %s", codeName, sess.ID)
+
+	// Trigger session refresh to run AfterBatch and push changes to browser
+	if h.triggerRefresh != nil {
+		h.config.Log(1, "HotLoader: triggering refresh for session %s", sess.ID)
+		h.triggerRefresh(sess.ID)
+	} else {
+		h.config.Log(1, "HotLoader: triggerRefresh is nil, cannot refresh session %s", sess.ID)
 	}
 }
 

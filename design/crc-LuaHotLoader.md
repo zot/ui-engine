@@ -18,11 +18,14 @@
 - resolveSymlinks: Scan lua directory for symlinks, resolve and watch target directories
 - updateSymlinkWatches: When symlinks change, update watched directories accordingly
 - reloadFile(path, session): Execute modified file in a specific LuaSession
+- triggerSessionRefresh(session): Execute empty function via ws.ExecuteInSession to run AfterBatch (pushes viewdef/variable changes)
+- recoverPanic: Wrap Lua execution in panic recovery, log errors instead of crashing server
 
 ## Collaborators
 
 - Server: Provides access to active LuaSessions via GetLuaSessions()
 - LuaSession: Receives re-executed Lua code via LoadFileAbsolute()
+- WebSocketEndpoint: Provides ExecuteInSession() for triggering AfterBatch
 - Config: Provides lua.hotload setting and verbosity for logging
 - fsnotify: File system notification library
 
@@ -41,3 +44,5 @@
 - Sessions maintain state between reloads (Lua code should use hot-loading conventions)
 - Uses fsnotify for cross-platform file watching
 - Debounces rapid file changes to avoid multiple reloads
+- **Session refresh**: After reload, triggers AfterBatch via ws.ExecuteInSession to push changes to browser
+- **Panic recovery**: All Lua execution wrapped in recover() - panics logged as errors, server continues

@@ -22,6 +22,10 @@ export class UIApp {
     this.store = new VariableStore(this.connection);
     this.viewdefStore = new ViewdefStore();
     this.binding = new BindingEngine(this.store);
+
+    // Wire up viewdef hot-reload: ViewdefStore can look up Views via BindingEngine
+    // Spec: viewdefs.md - Hot-reload re-rendering
+    this.viewdefStore.setViewLookup((elementId) => this.binding.getView(elementId));
   }
 
   private extractSessionId(): string {
@@ -61,7 +65,7 @@ export class UIApp {
       this.appView = createAppView(
         this.viewdefStore,
         this.store,
-        (el, varId) => this.binding.bindElement(el, varId)
+        this.binding
       );
     }
   }

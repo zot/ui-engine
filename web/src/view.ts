@@ -6,8 +6,25 @@ import { ViewdefStore } from './viewdef_store';
 import { cloneViewdefContent, collectScripts, activateScripts } from './viewdef';
 import { VariableStore } from './connection';
 import { ViewList, createViewList } from './viewlist';
-import { parsePath } from './binding';
+import { parsePath, BindingEngine } from './binding';
 import { ensureElementId } from './element_id_vendor';
+
+// Inject CSS for flash-free hot-reload re-rendering
+// The marker and everything after it is hidden until the swap completes
+const RENDER_MARKER_STYLE = `
+.ui-render-marker,
+.ui-render-marker ~ * {
+  display: none !important;
+}
+`;
+
+(function injectRenderMarkerStyle() {
+  if (document.getElementById('ui-render-marker-style')) return;
+  const style = document.createElement('style');
+  style.id = 'ui-render-marker-style';
+  style.textContent = RENDER_MARKER_STYLE;
+  document.head.appendChild(style);
+})();
 
 export class View {
   readonly elementId: string;
@@ -18,7 +35,7 @@ export class View {
   private viewdefStore: ViewdefStore;
   private variableStore: VariableStore;
   private unwatch: (() => void) | null = null;
-  private bindCallback?: (element: HTMLElement, variableId: number) => void;
+  private binding?: BindingEngine;
   private viewLists: ViewList[] = [];
   private childViews: View[] = [];
 
@@ -26,20 +43,13 @@ export class View {
     element: HTMLElement,
     viewdefStore: ViewdefStore,
     variableStore: VariableStore,
-    bindCallback?: (element: HTMLElement, variableId: number) => void
+    binding?: BindingEngine
   ) {
     this.elementId = ensureElementId(element);
 
     this.viewdefStore = viewdefStore;
     this.variableStore = variableStore;
-    this.bindCallback = bindCallback;
-
-    // Get path from ui-view attribute
-    const path = element.getAttribute('ui-view');
-    if (path) {
-      // Path creates a variable reference - not implemented yet
-      // For now, we expect variable to be set directly
-    }
+    this.binding = binding;
   }
 
   // Get the element by ID lookup (no stored reference)
@@ -119,8 +129,24 @@ export class View {
     //}
   }
 
+  // Get the resolved viewdef key for this view
+  getViewdefKey(): string | undefined {
+    if (this.variableId === null) return undefined;
+    const data = this.variableStore.get(this.variableId);
+    if (!data) return undefined;
+    const type = data.properties['type'];
+    if (!type) return undefined;
+
+    const namespace = this.getNamespace();
+    const fallbackNamespace = this.getFallbackNamespace();
+    const viewdef = this.viewdefStore.get(type, namespace, fallbackNamespace);
+    return viewdef?.key;
+  }
+
   // Render the view using TYPE.NAMESPACE viewdef
   // Returns true if rendered successfully
+  // Spec: viewdefs.md - Render process
+  // CRC: crc-View.md
   render(): boolean {
     console.log('1')
     if (this.variableId === null) {
@@ -154,16 +180,7 @@ export class View {
       return false
     }
 
-    // Clear and render
-    this.clear();
-
     console.log('RENDER VIEW', this)
-
-    // Clone template content (returns DocumentFragment, not yet in DOM)
-    const fragment = cloneViewdefContent(viewdef);
-
-    // Collect scripts before appending (store for later activation)
-    const scripts = collectScripts(fragment);
 
     // Get element by ID lookup
     const element = this.getElement();
@@ -172,7 +189,33 @@ export class View {
       return false;
     }
 
-    // Append to element (nodes are now in DOM)
+    // Flash-free re-render: use marker to hide new content until swap completes
+    // Only needed when re-rendering (element already has children)
+    const hasExistingContent = element.childNodes.length > 0;
+    let marker: HTMLElement | null = null;
+
+    if (hasExistingContent) {
+      // Insert marker - CSS hides marker and everything after it
+      marker = document.createElement('div');
+      marker.className = 'ui-render-marker';
+      element.appendChild(marker);
+    } else {
+      // Initial render - just clear any stale state
+      this.clear();
+    }
+
+    // Clone template content (returns DocumentFragment, not yet in DOM)
+    const fragment = cloneViewdefContent(viewdef);
+
+    // Collect scripts before appending (store for later activation)
+    const scripts = collectScripts(fragment);
+
+    // Set data-ui-viewdef attribute for hot-reload targeting
+    // Spec: viewdefs.md - Hot-reloading
+    // CRC: crc-View.md - viewdefKey
+    element.setAttribute('data-ui-viewdef', viewdef.key);
+
+    // Append to element (after marker if present, so hidden by CSS)
     element.appendChild(fragment);
 
     // Process ui-viewlist elements before binding
@@ -183,20 +226,43 @@ export class View {
     // Process ui-view elements before binding
     this.processChildViews(element, this.variableId!);
 
-    // Apply bindings to cloned content
-    if (this.bindCallback) {
+    // Apply bindings to cloned content (only bind new content after marker)
+    if (this.binding) {
+      let pastMarker = !marker;
       for (const child of element.children) {
-        if (child instanceof HTMLElement) {
-          this.bindCallback(child, this.variableId!);
+        if (child === marker) {
+          pastMarker = true;
+          continue;
+        }
+        if (pastMarker && child instanceof HTMLElement) {
+          this.binding.bindElement(child, this.variableId!);
         }
       }
     }
 
-    // Activate scripts (scripts are now DOM-connected)
+    // Swap: remove old content (before marker) and marker itself
+    if (marker) {
+      // Destroy old child views/viewlists (but don't clear DOM - we handle that below)
+      this.clearChildren();
+      // Remove everything before the marker
+      while (element.firstChild !== marker) {
+        element.removeChild(element.firstChild!);
+      }
+      // Remove the marker - new content now visible
+      element.removeChild(marker);
+    }
+
+    // Activate scripts (after content is visible)
     activateScripts(scripts);
 
     this.rendered = true;
     this.valueType = type;
+
+    // Register view with widget for hot-reload
+    // Spec: viewdefs.md - Hot-reload re-rendering
+    if (this.binding) {
+      this.binding.setViewForElement(this.elementId, this);
+    }
 
     // Remove from pending if we were pending
     this.removePending();
@@ -222,7 +288,7 @@ export class View {
       element,
       this.viewdefStore,
       this.variableStore,
-      this.bindCallback
+      this.binding
     );
 
     // Get path and create child variable for backend path resolution
@@ -292,7 +358,7 @@ export class View {
       element,
       this.viewdefStore,
       this.variableStore,
-      this.bindCallback
+      this.binding
     );
 
     // Get path and create child variable for backend path resolution
@@ -356,19 +422,23 @@ export class View {
     this.childViews.push(view);
   }
 
-  // Clear rendered content
-  clear(): void {
-    // Destroy viewLists
+  // Destroy child views and viewlists without clearing DOM
+  // Used during hot-reload swap where DOM cleanup is handled separately
+  private clearChildren(): void {
     for (const viewList of this.viewLists) {
       viewList.destroy();
     }
     this.viewLists = [];
 
-    // Destroy child views
     for (const view of this.childViews) {
       view.destroy();
     }
     this.childViews = [];
+  }
+
+  // Clear rendered content (destroys children AND clears DOM)
+  clear(): void {
+    this.clearChildren();
 
     // Clear DOM
     const element = this.getElement();
@@ -398,6 +468,16 @@ export class View {
     return this.rendered;
   }
 
+  // Force a re-render (for hot-reload)
+  // Clears rendered state and re-renders with current variable
+  // Spec: viewdefs.md - Hot-reload re-rendering
+  // CRC: crc-View.md - rerender
+  forceRender(): void {
+    this.rendered = false;
+    this.valueType = '';
+    this.render();
+  }
+
   // Get the variable ID
   getVariableId(): number | null {
     return this.variableId;
@@ -419,7 +499,7 @@ export function createView(
   element: HTMLElement,
   viewdefStore: ViewdefStore,
   variableStore: VariableStore,
-  bindCallback?: (element: HTMLElement, variableId: number) => void
+  binding?: BindingEngine
 ): View {
-  return new View(element, viewdefStore, variableStore, bindCallback);
+  return new View(element, viewdefStore, variableStore, binding);
 }

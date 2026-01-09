@@ -61,7 +61,7 @@ func TestNewHotLoader(t *testing.T) {
 	sessions := []*LuaSession{}
 	getSessions := func() []*LuaSession { return sessions }
 
-	h, err := NewHotLoader(cfg, luaDir, getSessions)
+	h, err := NewHotLoader(cfg, luaDir, getSessions, nil)
 	if err != nil {
 		t.Fatalf("NewHotLoader failed: %v", err)
 	}
@@ -83,7 +83,7 @@ func TestHotLoaderStart(t *testing.T) {
 	defer os.RemoveAll(luaDir)
 
 	cfg := testConfig()
-	h, err := NewHotLoader(cfg, luaDir, func() []*LuaSession { return nil })
+	h, err := NewHotLoader(cfg, luaDir, func() []*LuaSession { return nil }, nil)
 	if err != nil {
 		t.Fatalf("NewHotLoader failed: %v", err)
 	}
@@ -119,7 +119,7 @@ func TestDetectLuaFileModification(t *testing.T) {
 	h, _ := NewHotLoader(cfg, luaDir, func() []*LuaSession {
 		reloadCount.Add(1)
 		return []*LuaSession{{ID: mock.ID}}
-	})
+	}, nil)
 	// Patch LoadCode to use mock
 	origReloadFile := h.reloadFile
 	_ = origReloadFile // suppress unused warning
@@ -152,7 +152,7 @@ func TestIgnoreNonLuaFiles(t *testing.T) {
 	h, _ := NewHotLoader(cfg, luaDir, func() []*LuaSession {
 		reloadCount.Add(1)
 		return nil
-	})
+	}, nil)
 	h.Start()
 	defer h.Stop()
 
@@ -191,7 +191,7 @@ func TestScanExistingSymlinks(t *testing.T) {
 	}
 
 	cfg := testConfig()
-	h, _ := NewHotLoader(cfg, luaDir, func() []*LuaSession { return nil })
+	h, _ := NewHotLoader(cfg, luaDir, func() []*LuaSession { return nil }, nil)
 	h.Start()
 	defer h.Stop()
 
@@ -228,7 +228,7 @@ func TestReferenceCountingForSharedTargets(t *testing.T) {
 	os.Symlink(filepath.Join(targetDir, "b.lua"), symlinkB)
 
 	cfg := testConfig()
-	h, _ := NewHotLoader(cfg, luaDir, func() []*LuaSession { return nil })
+	h, _ := NewHotLoader(cfg, luaDir, func() []*LuaSession { return nil }, nil)
 	h.Start()
 	defer h.Stop()
 
@@ -269,7 +269,7 @@ func TestDebounceRapidChanges(t *testing.T) {
 	h, _ := NewHotLoader(cfg, luaDir, func() []*LuaSession {
 		reloadCount.Add(1)
 		return nil
-	})
+	}, nil)
 	h.Start()
 	defer h.Stop()
 
@@ -306,7 +306,7 @@ func TestDebouncePerFile(t *testing.T) {
 	h, _ := NewHotLoader(cfg, luaDir, func() []*LuaSession {
 		reloadCount.Add(1)
 		return nil
-	})
+	}, nil)
 	h.Start()
 	defer h.Stop()
 
@@ -339,7 +339,7 @@ func TestReloadWithNoSessions(t *testing.T) {
 	cfg := testConfig()
 	h, _ := NewHotLoader(cfg, luaDir, func() []*LuaSession {
 		return []*LuaSession{} // Empty
-	})
+	}, nil)
 	h.Start()
 	defer h.Stop()
 
@@ -359,7 +359,7 @@ func TestGracefulShutdown(t *testing.T) {
 	defer os.RemoveAll(luaDir)
 
 	cfg := testConfig()
-	h, _ := NewHotLoader(cfg, luaDir, func() []*LuaSession { return nil })
+	h, _ := NewHotLoader(cfg, luaDir, func() []*LuaSession { return nil }, nil)
 	h.Start()
 
 	// Stop should not block or panic
@@ -385,7 +385,7 @@ func TestShutdownWithPendingReloads(t *testing.T) {
 	os.WriteFile(luaFile, []byte("-- initial"), 0644)
 
 	cfg := testConfig()
-	h, _ := NewHotLoader(cfg, luaDir, func() []*LuaSession { return nil })
+	h, _ := NewHotLoader(cfg, luaDir, func() []*LuaSession { return nil }, nil)
 	h.Start()
 
 	time.Sleep(50 * time.Millisecond)
@@ -411,7 +411,7 @@ func TestHandleDeletedFile(t *testing.T) {
 	os.WriteFile(luaFile, []byte("-- initial"), 0644)
 
 	cfg := testConfig()
-	h, _ := NewHotLoader(cfg, luaDir, func() []*LuaSession { return nil })
+	h, _ := NewHotLoader(cfg, luaDir, func() []*LuaSession { return nil }, nil)
 	h.Start()
 	defer h.Stop()
 
@@ -434,7 +434,7 @@ func TestResolveReloadPathDirect(t *testing.T) {
 	os.WriteFile(luaFile, []byte("-- test"), 0644)
 
 	cfg := testConfig()
-	h, _ := NewHotLoader(cfg, luaDir, func() []*LuaSession { return nil })
+	h, _ := NewHotLoader(cfg, luaDir, func() []*LuaSession { return nil }, nil)
 	h.Start()
 	defer h.Stop()
 
@@ -460,7 +460,7 @@ func TestResolveReloadPathSymlinkTarget(t *testing.T) {
 	}
 
 	cfg := testConfig()
-	h, _ := NewHotLoader(cfg, luaDir, func() []*LuaSession { return nil })
+	h, _ := NewHotLoader(cfg, luaDir, func() []*LuaSession { return nil }, nil)
 	h.Start()
 	defer h.Stop()
 

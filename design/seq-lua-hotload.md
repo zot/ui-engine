@@ -9,42 +9,53 @@
 - LuaHotLoader: File watcher component
 - Server: Main server (owns luaSessions map)
 - LuaSession: Per-session Lua environment
+- WebSocketEndpoint: Session executor (triggers AfterBatch)
 
 ## Sequence
 
 ```
-     FileSystem        LuaHotLoader            Server            LuaSession(s)
-        |                   |                   |                   |
-        |---modify--------->|                   |                   |
-        |   lua/app.lua     |                   |                   |
-        |                   |                   |                   |
-        |                   |--[debounce 100ms]-|                   |
-        |                   |                   |                   |
-        |                   |--GetLuaSessions()->|                   |
-        |                   |                   |                   |
-        |                   |<--[]*LuaSession----|                   |
-        |                   |                   |                   |
-        |                   |--[for each session]                   |
-        |                   |                   |                   |
-        |                   |--LoadFileAbsolute(path)-------------->|
-        |                   |                   |                   |
-        |                   |                   |   [execute Lua    |
-        |                   |                   |    in session]    |
-        |                   |                   |                   |
-        |                   |                   |   [prototype()    |
-        |                   |                   |    queues changed |
-        |                   |                   |    prototypes]    |
-        |                   |                   |                   |
-        |                   |<--ok/error-------------------------|
-        |                   |                   |                   |
-        |                   |--processMutationQueue()-------------->|
-        |                   |                   |                   |
-        |                   |                   |   [see seq-       |
-        |                   |                   |    prototype-     |
-        |                   |                   |    mutation.md]   |
-        |                   |                   |                   |
-        |                   |--[log reload result]                  |
-        |                   |                   |                   |
+     FileSystem        LuaHotLoader            Server         WebSocketEndpoint    LuaSession(s)
+        |                   |                   |                   |                   |
+        |---modify--------->|                   |                   |                   |
+        |   lua/app.lua     |                   |                   |                   |
+        |                   |                   |                   |                   |
+        |                   |--[debounce 100ms]-|                   |                   |
+        |                   |                   |                   |                   |
+        |                   |--GetLuaSessions()->|                   |                   |
+        |                   |                   |                   |                   |
+        |                   |<--[]*LuaSession----|                   |                   |
+        |                   |                   |                   |                   |
+        |                   |--[for each session, with panic recovery]                  |
+        |                   |                   |                   |                   |
+        |                   |--LoadFileAbsolute(path)---------------------------------->|
+        |                   |                   |                   |                   |
+        |                   |                   |                   |   [execute Lua    |
+        |                   |                   |                   |    in session]    |
+        |                   |                   |                   |                   |
+        |                   |                   |                   |   [prototype()    |
+        |                   |                   |                   |    queues changed |
+        |                   |                   |                   |    prototypes]    |
+        |                   |                   |                   |                   |
+        |                   |<--ok/error-------------------------------------------------|
+        |                   |                   |                   |                   |
+        |                   |--processMutationQueue()---------------------------------->|
+        |                   |                   |                   |                   |
+        |                   |                   |                   |   [see seq-       |
+        |                   |                   |                   |    prototype-     |
+        |                   |                   |                   |    mutation.md]   |
+        |                   |                   |                   |                   |
+        |                   |--ExecuteInSession(empty func)-------->|                   |
+        |                   |                   |                   |                   |
+        |                   |                   |                   |---[AfterBatch]--->|
+        |                   |                   |                   |                   |
+        |                   |                   |                   |   [detects and    |
+        |                   |                   |                   |    pushes viewdef |
+        |                   |                   |                   |    /var changes]  |
+        |                   |                   |                   |                   |
+        |                   |--[on panic: log error, continue]      |                   |
+        |                   |                   |                   |                   |
+        |                   |--[log reload result]                  |                   |
+        |                   |                   |                   |                   |
 ```
 
 ## Symlink Resolution Sequence
@@ -112,7 +123,8 @@ MyApp = MyApp or {type = "MyApp"}
 - **Debouncing**: File changes are debounced (100ms) to handle editors that write files in multiple steps
 - **All Sessions**: Modified file is re-executed in ALL active sessions (not just one)
 - **Symlink Transparency**: Changes to symlink targets reload as if the symlink file changed
-- **Error Handling**: Errors in re-executed code are logged but don't crash the session
+- **Panic Recovery**: All Lua execution wrapped in recover() - panics logged as errors, server continues
+- **Session Refresh**: After reload, ExecuteInSession(empty func) triggers AfterBatch which pushes viewdef/variable changes to browser
 - **Prototype Management**: `session:prototype()` automatically:
   - Preserves prototype table identity (instances keep working)
   - Detects schema changes by comparing init to stored copy

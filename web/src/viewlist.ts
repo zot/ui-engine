@@ -6,6 +6,7 @@
 import { View } from './view';
 import { ViewdefStore } from './viewdef_store';
 import { VariableStore } from './connection';
+import { BindingEngine } from './binding';
 import { ensureElementId } from './element_id_vendor';
 
 // Parsed path with optional URL parameters
@@ -45,8 +46,7 @@ export class ViewList {
   private viewdefStore: ViewdefStore;
   private variableStore: VariableStore;
   private unwatch: (() => void) | null = null;
-  //private delegate: ViewListDelegate | null = null;
-  private bindCallback?: (element: HTMLElement, variableId: number) => void;
+  private binding?: BindingEngine;
 
   // Path properties for wrapper configuration
   private pathConfig: ParsedViewListPath | null = null;
@@ -55,13 +55,13 @@ export class ViewList {
     element: HTMLElement,
     viewdefStore: ViewdefStore,
     variableStore: VariableStore,
-    bindCallback?: (element: HTMLElement, variableId: number) => void
+    binding?: BindingEngine
   ) {
     this.elementId = ensureElementId(element);
     this.itemWrapper = element.getAttribute('ui-item-wrapper') || undefined;
     this.viewdefStore = viewdefStore;
     this.variableStore = variableStore;
-    this.bindCallback = bindCallback;
+    this.binding = binding;
 
     // Check for exemplar in element (first child element)
     const firstChild = element.firstElementChild;
@@ -262,7 +262,7 @@ export class ViewList {
       element,
       this.viewdefStore,
       this.variableStore,
-      this.bindCallback
+      this.binding
     );
     return view;
   }
@@ -318,9 +318,9 @@ export function createViewList(
   element: HTMLElement,
   viewdefStore: ViewdefStore,
   variableStore: VariableStore,
-  bindCallback?: (element: HTMLElement, variableId: number) => void
+  binding?: BindingEngine
 ): ViewList {
-  const viewList = new ViewList(element, viewdefStore, variableStore, bindCallback);
+  const viewList = new ViewList(element, viewdefStore, variableStore, binding);
 
   // Parse path config from ui-viewlist attribute
   const path = element.getAttribute('ui-viewlist');

@@ -97,10 +97,16 @@ export function pathOptionsToProperties(
 // Widget: Binding context for an element with ui-* bindings
 // CRC: crc-Widget.md
 // Spec: viewdefs.md - Widgets
+// Forward declaration for View type (avoid circular import)
+export interface ViewLike {
+  forceRender(): void;
+}
+
 export class Widget {
   readonly elementId: string
   private variables: Map<string, number> = new Map()  // binding name → variable ID
   private unbindHandlers: Map<string, () => void> = new Map()  // binding name → cleanup fn
+  view?: ViewLike  // Optional reference to containing View (for hot-reload)
 
   constructor(element: Element) {
     // Vend ID if element doesn't have one
@@ -173,6 +179,27 @@ export class BindingEngine {
   // Get widget for an element (for external access if needed)
   getWidget(elementId: string): Widget | undefined {
     return this.widgets.get(elementId)
+  }
+
+  // Get view for an element (via widget.view, for hot-reload)
+  // Spec: viewdefs.md - Hot-reload re-rendering
+  getView(elementId: string): ViewLike | undefined {
+    const widget = this.widgets.get(elementId)
+    return widget?.view
+  }
+
+  // Set view for a widget (creating widget if needed)
+  // Used by View to register itself for hot-reload
+  // Spec: viewdefs.md - Hot-reload re-rendering
+  setViewForElement(elementId: string, view: ViewLike): void {
+    let widget = this.widgets.get(elementId)
+    if (!widget) {
+      const element = document.getElementById(elementId)
+      if (!element) return
+      widget = new Widget(element)
+      this.widgets.set(elementId, widget)
+    }
+    widget.view = view
   }
 
   // Bind all ui-* attributes on an element

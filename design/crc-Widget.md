@@ -9,6 +9,7 @@
 - variables: Map of binding name to variable ID for all bindings on this element
 - unbindHandlers: Map of binding name to cleanup function (`Map<string, () => void>`)
 - autoVendedId: Boolean indicating if ID was auto-assigned (for cleanup)
+- viewElementId: (optional) Element ID of the containing view for hot-reload support
 
 ### Does
 - create: Create a Widget for an element with ui-* bindings
@@ -61,6 +62,7 @@ Widget is the sole owner of all bindings for an element. There is no separate Bi
 - ElementIdVendor: Global vendor for unique element IDs
 - BindingEngine: Creates Widgets when processing ui-* attributes, registers unbind handlers
 - Variable: Stores elementId reference to Widget (not direct DOM reference)
+- View: Widgets track their containing view for hot-reload targeting
 
 ## Sequences
 

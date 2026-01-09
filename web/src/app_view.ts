@@ -5,6 +5,7 @@
 import { View } from './view';
 import { ViewdefStore } from './viewdef_store';
 import { VariableStore } from './connection';
+import { BindingEngine } from './binding';
 import { ensureElementId } from './element_id_vendor';
 
 // Root app variable ID is always 1
@@ -19,19 +20,19 @@ export class AppView {
   private viewdefStore: ViewdefStore;
   private variableStore: VariableStore;
   private unwatch: (() => void) | null = null;
-  private bindCallback?: (element: HTMLElement, variableId: number) => void;
+  private binding?: BindingEngine;
 
   constructor(
     element: HTMLElement,
     viewdefStore: ViewdefStore,
     variableStore: VariableStore,
-    bindCallback?: (element: HTMLElement, variableId: number) => void
+    binding?: BindingEngine
   ) {
     this.elementId = ensureElementId(element);
     this.namespace = element.getAttribute('ui-namespace') || 'DEFAULT';
     this.viewdefStore = viewdefStore;
     this.variableStore = variableStore;
-    this.bindCallback = bindCallback;
+    this.binding = binding;
   }
 
   // Get the element by ID lookup (no stored reference)
@@ -53,7 +54,7 @@ export class AppView {
       element,
       this.viewdefStore,
       this.variableStore,
-      this.bindCallback
+      this.binding
     );
 
     // Set the variable to 1 (root app variable)
@@ -123,14 +124,14 @@ export function findAppElement(): HTMLElement | null {
 export function createAppView(
   viewdefStore: ViewdefStore,
   variableStore: VariableStore,
-  bindCallback?: (element: HTMLElement, variableId: number) => void
+  binding?: BindingEngine
 ): AppView | null {
   const element = findAppElement();
   if (!element) {
     return null;
   }
 
-  const appView = new AppView(element, viewdefStore, variableStore, bindCallback);
+  const appView = new AppView(element, viewdefStore, variableStore, binding);
   appView.initialize();
   return appView;
 }

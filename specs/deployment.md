@@ -347,6 +347,10 @@ lua/
 └── utils.lua -> /shared/utils.lua     # symlink - also watches /shared/
 ```
 
+**Session refresh after hotload:**
+
+After reloading Lua code, the server triggers a session refresh by executing an empty function via `ws.ExecuteInSession`. This causes the session's `AfterBatch` to run, which detects and pushes any viewdef or variable changes to the browser. The execution is wrapped in panic recovery to prevent a misbehaving Lua script from crashing the server - panics are logged as errors instead.
+
 **Hot-loading conventions:**
 
 For hot-loading to preserve state, Lua code should follow these conventions:

@@ -1192,7 +1192,11 @@ func (r *Runtime) AfterBatch(vendedID string) []VariableUpdate {
 		r.batchTriggered = false
 	}
 	changes := r.variableStore.GetChanges(vendedID)
-	if len(changes) == 0 {
+
+	// Check for viewdef changes even if no variable changes (e.g., hot-reload)
+	// NOTE: GetChangedViewdefsForSession marks viewdefs as sent, so only call once
+	defs := r.viewdefManager.GetChangedViewdefsForSession(vendedID)
+	if len(changes) == 0 && len(defs) == 0 {
 		return nil
 	}
 
@@ -1215,8 +1219,7 @@ func (r *Runtime) AfterBatch(vendedID string) []VariableUpdate {
 		}
 	}
 
-	// Get all viewdefs that need to be sent (new or modified on disk)
-	defs := r.viewdefManager.GetChangedViewdefsForSession(vendedID)
+	// Handle viewdef changes (defs already loaded above)
 	if len(defs) > 0 {
 		if defBytes, err := json.Marshal(defs); err != nil {
 			r.Log(0, "Error serializing viewdefs: %s", err.Error())

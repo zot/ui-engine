@@ -348,3 +348,59 @@ func (m *ViewdefManager) Count() int {
 	defer m.mu.RUnlock()
 	return len(m.viewdefs)
 }
+
+// updateViewdef updates a viewdef entry (used by HotLoader).
+// This bypasses the normal loading mechanism to update in-place.
+func (m *ViewdefManager) updateViewdef(key, content, filePath string, modTime time.Time) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	m.viewdefs[key] = &viewdefEntry{
+		content:  content,
+		filePath: filePath,
+		modTime:  modTime,
+	}
+}
+
+// hasSessionReceivedViewdef checks if a session has received a specific viewdef.
+func (m *ViewdefManager) hasSessionReceivedViewdef(sessionID, key string) bool {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	sentTimes, ok := m.sentViewdefs[sessionID]
+	if !ok {
+		return false
+	}
+	_, received := sentTimes[key]
+	return received
+}
+
+// GetSessionsForViewdef returns all session IDs that have received a viewdef.
+func (m *ViewdefManager) GetSessionsForViewdef(key string) []string {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	var sessions []string
+	for sessionID, sentTimes := range m.sentViewdefs {
+		if _, ok := sentTimes[key]; ok {
+			sessions = append(sessions, sessionID)
+		}
+	}
+	return sessions
+}
+
+// MarkViewdefSent marks a viewdef as sent for a session.
+// Used when pushing viewdefs outside of normal flow (e.g., hot-reload).
+func (m *ViewdefManager) MarkViewdefSent(sessionID, key string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if m.sentViewdefs[sessionID] == nil {
+		m.sentViewdefs[sessionID] = make(map[string]time.Time)
+	}
+
+	entry, ok := m.viewdefs[key]
+	if ok {
+		m.sentViewdefs[sessionID][key] = entry.modTime
+	}
+}

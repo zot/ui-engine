@@ -3,6 +3,7 @@
 // Spec: viewdefs.md
 
 export interface Viewdef {
+  key: string;  // TYPE.NAMESPACE key for hot-reload targeting
   type: string;
   namespace: string;
   template: HTMLTemplateElement;
@@ -61,6 +62,7 @@ export function createViewdef(
   }
 
   return {
+    key,
     type: parsed.type,
     namespace: parsed.namespace,
     template,

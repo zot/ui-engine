@@ -129,7 +129,7 @@ export class ViewRenderer {
       element,
       this.viewdefStore,
       this.variableStore,
-      (el, varId) => this.bindElement(el, varId)
+      this.bindingEngine
     );
 
     // Get path and create child variable for backend path resolution
@@ -187,7 +187,7 @@ export class ViewRenderer {
       element,
       this.viewdefStore,
       this.variableStore,
-      (el, varId) => this.bindElement(el, varId)
+      this.bindingEngine
     );
 
     // Get path and create child variable for backend path resolution
@@ -243,11 +243,6 @@ export class ViewRenderer {
 
     // Use element ID for tracking (ensured by ViewList constructor)
     this.viewLists.set(viewList.elementId, viewList);
-  }
-
-  // Bind an element and its children
-  private bindElement(element: HTMLElement, variableId: number): void {
-    this.bindingEngine.bindElement(element, variableId);
   }
 
   // Clear current view content

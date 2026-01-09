@@ -46,8 +46,9 @@ type Server struct {
 	luaConfig       *luaSetupConfig // Shared config for creating new sessions
 	wrapperRegistry *lua.WrapperRegistry
 	storeAdapter    *luaTrackerAdapter
-	viewdefManager  *viewdef.ViewdefManager
-	hotLoader       *lua.HotLoader // Lua hot-reloading (nil if disabled)
+	viewdefManager    *viewdef.ViewdefManager
+	hotLoader         *lua.HotLoader         // Lua hot-reloading (nil if disabled)
+	viewdefHotLoader  *viewdef.HotLoader     // Viewdef hot-reloading (nil if disabled)
 }
 
 // luaSetupConfig holds shared configuration for creating Lua sessions.
@@ -315,6 +316,12 @@ func (s *Server) setupViewdefs(cfg *config.Config) {
 		} else {
 			s.config.Log(0, "Loaded %d viewdefs from directory: %s", s.viewdefManager.Count(), viewdefsDir)
 		}
+
+		// Initialize viewdef hot-loader if Lua hot-loading is enabled
+		// (reuse the same config flag for viewdefs)
+		if cfg.Lua.Hotload {
+			s.setupViewdefHotLoader(cfg, viewdefsDir)
+		}
 		return
 	}
 
@@ -324,6 +331,70 @@ func (s *Server) setupViewdefs(cfg *config.Config) {
 	} else if s.viewdefManager.Count() > 0 {
 		s.config.Log(0, "Loaded %d viewdefs from bundle", s.viewdefManager.Count())
 	}
+}
+
+// setupViewdefHotLoader initializes the viewdef hot-loader.
+// CRC: crc-ViewdefStore.md
+// Sequence: seq-viewdef-hotload.md
+func (s *Server) setupViewdefHotLoader(cfg *config.Config, viewdefsDir string) {
+	hotLoader, err := viewdef.NewHotLoader(
+		cfg,
+		viewdefsDir,
+		s.viewdefManager,
+		s, // Server implements viewdef.SessionPusher
+	)
+	if err != nil {
+		s.config.Log(0, "ViewdefHotLoader: failed to create: %v", err)
+		return
+	}
+
+	s.viewdefHotLoader = hotLoader
+	if err := hotLoader.Start(); err != nil {
+		s.config.Log(0, "ViewdefHotLoader: failed to start: %v", err)
+		s.viewdefHotLoader = nil
+		return
+	}
+
+	s.config.Log(0, "ViewdefHotLoader: watching %s for changes", viewdefsDir)
+}
+
+// GetSessionIDs returns all active vended session IDs.
+// Implements viewdef.SessionPusher.
+func (s *Server) GetSessionIDs() []string {
+	s.luaSessionsMu.RLock()
+	defer s.luaSessionsMu.RUnlock()
+
+	ids := make([]string, 0, len(s.luaSessions))
+	for vendedID := range s.luaSessions {
+		ids = append(ids, vendedID)
+	}
+	return ids
+}
+
+// PushViewdefs pushes updated viewdefs to a session.
+// This triggers AfterBatch to detect and send the changes.
+// Implements viewdef.SessionPusher.
+// CRC: crc-ViewdefStore.md
+// Sequence: seq-viewdef-hotload.md
+func (s *Server) PushViewdefs(vendedID string, viewdefs map[string]string) {
+	// Execute in session to trigger AfterBatch
+	// The viewdef manager already has the updated content, so AfterBatch will pick it up
+	s.ExecuteInSession(vendedID, func() (interface{}, error) {
+		// No-op - just trigger AfterBatch which will detect the changed viewdef
+		return nil, nil
+	})
+}
+
+// triggerSessionRefresh triggers AfterBatch for a session to push pending changes.
+// Used by Lua hot-loader after reloading code.
+// CRC: crc-LuaHotLoader.md
+// Sequence: seq-lua-hotload.md
+func (s *Server) triggerSessionRefresh(vendedID string) {
+	s.config.Log(1, "triggerSessionRefresh: triggering refresh for session %s", vendedID)
+	s.ExecuteInSession(vendedID, func() (interface{}, error) {
+		// No-op - just trigger AfterBatch which will detect any changes
+		return nil, nil
+	})
 }
 
 // SetSiteFS sets a custom filesystem for serving static files.
@@ -393,7 +464,7 @@ func (s *Server) setupLua(cfg *config.Config) {
 
 	// Initialize hot loader if enabled
 	if cfg.Lua.Hotload {
-		hotLoader, err := lua.NewHotLoader(cfg, luaDir, s.getLuaSessions)
+		hotLoader, err := lua.NewHotLoader(cfg, luaDir, s.getLuaSessions, s.triggerSessionRefresh)
 		if err != nil {
 			s.config.Log(0, "HotLoader: failed to create: %v", err)
 		} else {
