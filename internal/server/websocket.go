@@ -104,14 +104,16 @@ func (ws *WebSocketEndpoint) cleanupSessionSvc(sessionID string) {
 
 // ExecuteInSession executes a function within a session's executor.
 // This serializes the execution with WebSocket message processing for the session.
-// AfterBatch is called after execution to detect and push any changes.
+// AfterBatch is called after execution to detect and push any changes,
+// but only if there are active browser connections to receive the updates.
 // Returns the result and any error from the function.
 func (ws *WebSocketEndpoint) ExecuteInSession(sessionID string, fn func() (interface{}, error)) (interface{}, error) {
 	svc := ws.getOrCreateSvc(sessionID)
 	return SvcSync(svc, func() (interface{}, error) {
 		result, err := fn()
-		// Trigger change detection after execution
-		if ws.afterBatch != nil {
+		// Trigger change detection after execution, but only if there are connections
+		// This prevents marking viewdefs as "sent" before any browser is connected
+		if ws.afterBatch != nil && ws.HasConnectionsForSession(sessionID) {
 			ws.afterBatch(sessionID)
 		}
 		return result, err
@@ -341,6 +343,18 @@ func (ws *WebSocketEndpoint) GetSessionIDForConnection(connectionID string) stri
 	ws.mu.RLock()
 	defer ws.mu.RUnlock()
 	return ws.sessionBindings[connectionID]
+}
+
+// HasConnectionsForSession returns true if the session has any active connections.
+func (ws *WebSocketEndpoint) HasConnectionsForSession(sessionID string) bool {
+	ws.mu.RLock()
+	defer ws.mu.RUnlock()
+	for _, sessID := range ws.sessionBindings {
+		if sessID == sessionID {
+			return true
+		}
+	}
+	return false
 }
 
 // IsSessionReconnectable checks if a session can be rejoined.

@@ -221,7 +221,7 @@ function ContactApp:selectFirstContact()
 end
 
 
-if not contactApp then
+if not session.reloading then
    print("LUA: initialized. Contact", Contact, "ContactPresenter", ContactPresenter, "ContactApp", ContactApp)
    -- Create the app instance
    contactApp = ContactApp:new({

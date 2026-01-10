@@ -70,9 +70,9 @@ type LuaSession struct {
 	mutationVersion int64       // Hot-loading mutation version for schema migrations (deprecated)
 
 	// Prototype management for hot-loading
-	prototypeRegistry map[string]*prototypeInfo    // name -> stored init copy for change detection
+	prototypeRegistry map[string]*prototypeInfo      // name -> stored init copy for change detection
 	instanceRegistry  map[*lua.LTable][]weakInstance // prototype -> weak list of instances
-	mutationQueue     []mutationEntry              // FIFO queue of prototypes pending mutation
+	mutationQueue     []mutationEntry                // FIFO queue of prototypes pending mutation
 }
 
 // prototypeInfo stores information about a registered prototype for change detection.
@@ -1125,6 +1125,7 @@ func (r *Runtime) ExecuteInSession(sessionID string, fn func() (interface{}, err
 		return fn()
 	})
 }
+
 // RedirectOutput redirects Lua's print function and standard streams to log files.
 // It is used by the MCP server in Configured state.
 // Spec: mcp.md
@@ -1142,7 +1143,7 @@ func (r *Runtime) RedirectOutput(logPath, errPath string) error {
 		return fmt.Errorf("failed to open error log file: %v", err)
 	}
 	// Keep file open for the process duration
-	_ = errFile 
+	_ = errFile
 
 	// We don't close these files here; they remain open for the process lifetime
 	// or until reconfigured. In a robust system we might want to manage them better.
@@ -1162,7 +1163,7 @@ func (r *Runtime) RedirectOutput(logPath, errPath string) error {
 			}
 			logFile.WriteString("\n")
 			// Sync/Flush to ensure output is visible immediately (e.g. to tail -f)
-			logFile.Sync() 
+			logFile.Sync()
 			return 0
 		}))
 
@@ -1599,35 +1600,39 @@ func (r *Runtime) IsFileLoaded(filename string) bool {
 // Skips if already loaded (like require()). Returns error if file not found or execution fails.
 // This is the preferred method for hot-reload compatible file loading.
 func (r *Runtime) RequireLuaFile(filename string) error {
-	_, err := r.execute(func() (interface{}, error) {
-		L := r.State
-		loaded := r.loadedModules
-
-		// Check if already loaded
-		if L.GetField(loaded, filename) != lua.LNil {
-			return nil, nil // Already loaded
-		}
-
-		// Read file content
-		filePath := filepath.Join(r.luaDir, filename)
-		content, err := os.ReadFile(filePath)
-		if err != nil {
-			return nil, fmt.Errorf("file not found: %s", filePath)
-		}
-
-		// Mark as loaded BEFORE executing (handles circular dependencies)
-		L.SetField(loaded, filename, lua.LTrue)
-
-		// Execute the code
-		if err := L.DoString(string(content)); err != nil {
-			// Unmark on error (allows retry)
-			L.SetField(loaded, filename, lua.LNil)
-			return nil, fmt.Errorf("failed to load %s: %w", filename, err)
-		}
-
-		return nil, nil
+	_, err := r.execute(func() (any, error) {
+		return r.DirectRequireLuaFile(filename)
 	})
 	return err
+}
+
+func (r *Runtime) DirectRequireLuaFile(filename string) (any, error) {
+	L := r.State
+	loaded := r.loadedModules
+
+	// Check if already loaded
+	if L.GetField(loaded, filename) != lua.LNil {
+		return nil, nil // Already loaded
+	}
+
+	// Read file content
+	filePath := filepath.Join(r.luaDir, filename)
+	content, err := os.ReadFile(filePath)
+	if err != nil {
+		return nil, fmt.Errorf("file not found: %s", filePath)
+	}
+
+	// Mark as loaded BEFORE executing (handles circular dependencies)
+	L.SetField(loaded, filename, lua.LTrue)
+
+	// Execute the code
+	if err := L.DoString(string(content)); err != nil {
+		// Unmark on error (allows retry)
+		L.SetField(loaded, filename, lua.LNil)
+		return nil, fmt.Errorf("failed to load %s: %w", filename, err)
+	}
+
+	return nil, nil
 }
 
 // SetReloading sets the session.reloading flag.
