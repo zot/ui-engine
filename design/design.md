@@ -10,16 +10,21 @@ Reactive UI framework with variable-based state synchronization between frontend
 
 ### Hot-Loading Symlink Tracking
 
-All hot-loading features (Lua files, viewdefs, etc.) must track symlinks:
+**Spec:** main.md "Hot-Loading System"
 
-- When a watched file is a symlink, also watch the real (target) directory
-- Changes to either the symlink or the target file trigger a reload
-- When symlinks are added/modified/removed, update watched directories accordingly
-- This supports development workflows where files are symlinked from another location
+All hot-loading features (Lua files, viewdefs, etc.) must track symlinks. See spec for full requirements.
+
+**Implementation pattern:**
+- `symlinkTargets` map: file path → resolved target directory
+- `watchedDirs` map: directory path → reference count
+- `scanSymlinks()`: Initial scan for existing symlinks
+- `updateSymlinkWatch()`: Add/update watch when symlink changes
+- `removeSymlinkWatch()`: Remove watch when symlink deleted
+- `resolveReloadPath()`: Map target file changes back to source file
 
 **Components that implement this:**
-- LuaHotLoader: `symlinkTargets`, `watchedDirs`, `resolveSymlinks()`, `updateSymlinkWatches()`
-- ViewdefStore: Same pattern as LuaHotLoader
+- LuaHotLoader: `internal/lua/hotloader.go`
+- ViewdefHotLoader: `internal/viewdef/hotloader.go`
 
 **Referenced by:** crc-LuaHotLoader.md, crc-ViewdefStore.md, seq-lua-hotload.md, seq-viewdef-hotload.md
 
@@ -45,8 +50,8 @@ All hot-loading features (Lua files, viewdefs, etc.) must track symlinks:
 
 ### Viewdef System
 - [x] crc-Viewdef.md → `internal/viewdef/viewdef.go`, `web/src/viewdef.ts`
-- [ ] crc-ViewdefStore.md → `internal/viewdef/store.go`, `internal/viewdef/hotloader.go`, `web/src/viewdef_store.ts` *(hot-reload)*
-- [ ] crc-View.md → `web/src/view.ts` *(data-ui-viewdef, rerender)*
+- [x] crc-ViewdefStore.md → `internal/viewdef/store.go`, `internal/viewdef/hotloader.go`, `web/src/viewdef_store.ts` *(hot-reload)*
+- [x] crc-View.md → `web/src/view.ts` *(data-ui-viewdef, rerender)*
 - [x] crc-ViewList.md → `web/src/viewlist.ts`, `internal/lua/viewlist.go`
 - [x] crc-ViewListItem.md → `internal/lua/viewlistitem.go`
 - [x] crc-AppView.md → `web/src/app_view.ts`
@@ -56,14 +61,14 @@ All hot-loading features (Lua files, viewdefs, etc.) must track symlinks:
 - [x] crc-EventBinding.md → `web/src/binding.ts`
 - [x] seq-load-viewdefs.md
 - [x] seq-viewdef-delivery.md
-- [ ] seq-render-view.md *(set data-ui-viewdef)*
+- [x] seq-render-view.md *(set data-ui-viewdef)*
 - [x] seq-viewlist-update.md
 - [x] seq-viewlist-presenter-sync.md
-- [ ] seq-bind-element.md *(pass viewElementId)*
+- [x] seq-bind-element.md *(pass viewElementId)*
 - [x] seq-handle-event.md
 - [x] seq-handle-keypress-event.md
 - [x] seq-input-value-binding.md
-- [ ] seq-viewdef-hotload.md → *(new)*
+- [x] seq-viewdef-hotload.md
 
 ### Session System
 - [x] crc-Session.md → `internal/session/session.go`
@@ -151,5 +156,5 @@ All hot-loading features (Lua files, viewdefs, etc.) must track symlinks:
 
 ### Design → Code Gaps
 - [x] Viewdef hot-reload: Backend file watcher with symlink tracking, session tracking, push on change
-- [ ] Viewdef hot-reload: Frontend `data-ui-viewdef` attribute, `rerenderViewsForKey()`
-- [ ] Widget `viewElementId` property for hot-reload view tracking
+- [x] Viewdef hot-reload: Frontend `data-ui-viewdef` attribute, `rerenderViewsForKey()`
+- [x] Widget view reference for hot-reload (implemented as `widget.view` + `setViewForElement()`)

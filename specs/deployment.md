@@ -324,73 +324,9 @@ level = "info"            # "debug", "info", "warn", "error"
 verbosity = 0             # 0=none, 1=connections, 2=messages, 3=variables
 ```
 
-### Hot-Loading (General)
+### Hot-Loading
 
-**Symlink tracking requirement:** All hot-loading features (Lua files, viewdefs, etc.) must track symlinks. When a watched file is a symlink, the server must also watch the real (target) directory. This supports development workflows where files are symlinked from another location. Changes to either the symlink or the target file trigger a reload. When symlinks are added, modified, or removed, the watched directories are updated accordingly.
-
-### Lua Hot-Loading
-
-When `--hotload` is enabled, the server watches the lua directory for file changes and automatically reloads modified files for all active sessions.
-
-**Watch behavior:**
-- Watches the configured lua path (default: `lua/`)
-- Only reloads files that have already been loaded by the session (ignores new files until they're explicitly required)
-- On file change, re-executes the modified file in each active session
-- Sets `session.reloading = true` before reloading, `false` after reload completes
-- Sessions maintain state between reloads (see conventions below)
-
-**Symlink handling:**
-- If a file in the lua directory is a symlink, the server also watches the real (target) directory
-- This supports development workflows where lua files are symlinked from another location
-- Changes to either the symlink or the target file trigger a reload
-- When a symlink is added, modified, or removed, the watched directories are updated accordingly
-
-**Example with symlinks:**
-```
-lua/
-├── main.lua              # regular file - watched directly
-├── app.lua -> ../apps/myapp/app.lua   # symlink - also watches ../apps/myapp/
-└── utils.lua -> /shared/utils.lua     # symlink - also watches /shared/
-```
-
-**Module load tracking:**
-
-A unified load tracker is used by both `require()` and hot-loading to track which files have been loaded. This enables hot-loading to only reload files that have already been loaded by the session.
-
-The tracker handles circular dependencies safely:
-1. Mark the module as "loaded" **before** executing it
-2. Execute the module code, catching any errors
-3. If an error occurred, unmark it as loaded (allowing retry)
-4. If successful, keep it marked
-
-This prevents infinite loops when module A requires module B which requires module A - the second `require("A")` sees it's already marked and returns early.
-
-A Go function `RequireLuaFile(filename)` loads a Lua file using the same require mechanism - it skips loading if already loaded, allowing Go code to load files with proper tracking for hot-reload support.
-
-**Session refresh after hotload:**
-
-After reloading Lua code, the server triggers a session refresh by executing an empty function via `ws.ExecuteInSession`. This causes the session's `AfterBatch` to run, which detects and pushes any viewdef or variable changes to the browser. The execution is wrapped in panic recovery to prevent a misbehaving Lua script from crashing the server - panics are logged as errors instead.
-
-**Hot-loading conventions:**
-
-For hot-loading to preserve state, Lua code should follow these conventions:
-
-1. **Conditional prototype assignment** - preserve existing prototypes:
-   ```lua
-   MyApp = MyApp or {type = "MyApp"}
-   MyApp.__index = MyApp
-   ```
-
-2. **Check for existing app** - avoid recreating variable 1:
-   ```lua
-   if not session:getApp() then
-       session:createAppVariable(MyApp:new())
-   end
-   ```
-
-3. **Instance mutation** - use `session:newVersion()` and `session:needsMutation()` for schema migrations
-
-See `USAGE.md` for complete hot-loading documentation.
+See [Hot-Loading System](main.md#hot-loading-system) in main.md for the unified hot-loading documentation covering Lua scripts and viewdefs.
 
 ### Loading Behavior
 

@@ -1,6 +1,6 @@
 # LuaHotLoader
 
-**Source Spec:** deployment.md
+**Source Spec:** main.md "Hot-Loading System"
 
 ## Responsibilities
 

@@ -38,15 +38,9 @@ The frontend parses viewdefs by placing them in a scratch div's innerHTML, then 
 
 **Hot-reloading:**
 
-Viewdefs support hot-reloading for iterative development.
+Viewdefs support hot-reloading for iterative development. See [Hot-Loading System](main.md#hot-loading-system) for the unified backend behavior (file watching, symlink tracking, session refresh).
 
-**Backend behavior:**
-- File watcher monitors the viewdef directory for changes
-- Symlink tracking follows the general hot-loading rule (see deployment.md "Hot-Loading (General)")
-- When a viewdef file is modified:
-  1. Reload the file content
-  2. For each session that has received this viewdef, queue a re-push via variable 1's `viewdefs` property
-  3. This triggers `ws.afterBatch` on connected clients, causing immediate UI refresh
+**Additional viewdef behavior:**
 - On-demand loading: when a new `type` is encountered, the server automatically loads matching `TYPE.*.html` files from the viewdef directory
 - This enables editing viewdefs without restarting the server
 

@@ -1,6 +1,6 @@
 # ViewdefStore
 
-**Source Spec:** viewdefs.md
+**Source Spec:** viewdefs.md, main.md "Hot-Loading System"
 
 ## Responsibilities
 

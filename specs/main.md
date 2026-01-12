@@ -81,7 +81,7 @@ To ensure consistent output and granular control over debug information:
 ## Specification Outline
 
 ### [Core Concepts](#core-concepts)
-- Sessions, Presenters, Views, Standard Presenters
+- Sessions, Presenters, Views, Hot-Loading System, Standard Presenters
 
 ### [Variable Protocol](protocol.md)
 - Variable Identity, Values, Properties
@@ -149,6 +149,53 @@ Views are HTML snippets associated with presenter types and bound to data within
 - Default view name is `"DEFAULT"`
 - Views contain arbitrary HTML/Shoelace widgets
 - The view + backend together manage the complete UI state of the browser page
+
+### Hot-Loading System
+
+When `--hotload` is enabled, the server watches directories for file changes and automatically reloads modified files. This is a unified system that handles both Lua scripts and viewdefs.
+
+**Watched directories:**
+- Lua scripts: `lua/` (or configured lua path)
+- Viewdefs: `html/viewdefs/`
+
+**Symlink tracking:** When a watched file is a symlink, the server also watches the target directory. Changes to either the symlink or the target file trigger a reload. When symlinks are added, modified, or removed, watched directories update accordingly. This supports development workflows where files are symlinked from another location.
+
+**Backend reload behavior:**
+- Only reloads files that have already been loaded (ignores new files until explicitly required)
+- Debounces rapid file changes to avoid multiple reloads
+- After reload, triggers session refresh to push changes to connected clients
+
+**Lua-specific behavior:**
+- Re-executes modified files in each active session
+- Sets `session.reloading = true` before reload, `false` after
+- Sessions maintain state between reloads (see conventions below)
+- Module load tracking handles circular dependencies safely
+
+**Viewdef-specific behavior:**
+- Reloads file content and updates the viewdefs map
+- For each session that received the changed viewdef, queues a re-push via variable 1's `viewdefs` property
+- Frontend finds views with matching `data-ui-viewdef` attribute and re-renders them
+
+**Hot-loading conventions (Lua):**
+
+For hot-loading to preserve state, Lua code should follow these conventions:
+
+1. **Conditional prototype assignment** - preserve existing prototypes:
+   ```lua
+   MyApp = MyApp or {type = "MyApp"}
+   MyApp.__index = MyApp
+   ```
+
+2. **Check for existing app** - avoid recreating variable 1:
+   ```lua
+   if not session:getApp() then
+       session:createAppVariable(MyApp:new())
+   end
+   ```
+
+3. **Instance mutation** - use `session:newVersion()` and `session:needsMutation()` for schema migrations
+
+See `USAGE.md` for complete hot-loading documentation.
 
 ### Standard Presenters
 
