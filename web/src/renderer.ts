@@ -135,8 +135,18 @@ export class ViewRenderer {
     // Get path and create child variable for backend path resolution
     const path = element.getAttribute('ui-view');
     if (path) {
-      // Parse path to extract base path (without query params)
-      const [basePath] = path.split('?');
+      // Parse path to extract base path and options
+      const [basePath, queryPart] = path.split('?');
+
+      // Check for scrollOnOutput option
+      // Spec: viewdefs.md - scrollOnOutput for ui-view
+      // CRC: crc-View.md - pathOptions
+      if (queryPart) {
+        const params = new URLSearchParams(queryPart);
+        if (params.get('scrollOnOutput') === 'true' || params.has('scrollOnOutput') && params.get('scrollOnOutput') === '') {
+          view.setScrollOnOutput(true);
+        }
+      }
 
       // Build properties with namespace inheritance
       const properties: Record<string, string> = { path: basePath };

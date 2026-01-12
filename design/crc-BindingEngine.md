@@ -8,6 +8,7 @@
 - widgets: Map of element ID to Widget for bound elements (sole tracking structure for bindings)
 - store: VariableStore for creating/watching child variables
 - inputElements: Set of element types that support two-way value binding (`input`, `textarea`, `sl-input`, `sl-textarea`)
+- pendingScrollNotifications: Set of variable IDs whose widgets should be checked for scrollOnOutput
 
 ### Does
 - bind: Apply all ui-* bindings to an element (creates Widget if needed)
@@ -24,13 +25,31 @@
 - createActionBinding: Create ui-action binding, register unbind handler with Widget
 - sendVariableUpdate: Send variable update with local value setting and duplicate suppression (checks if update should be skipped, sets local value first, then sends)
 - shouldSuppressUpdate: Check if update should be skipped due to duplicate value (see Duplicate Update Suppression)
-- parsePath: Parse path with optional URL-style properties (?create=Type&prop=value); properties without values default to `true`; recognizes `scrollOnOutput` for auto-scroll behavior
+- parsePath: Parse path with optional URL-style properties (?prop=value); properties without values default to `true`; separates universal properties (handled locally) from variable properties (sent to backend)
 - parseKeypressAttribute: Extract target key and modifiers from ui-event-keypress-* attribute name (returns `{key, modifiers}`)
 - normalizeKeyName: Convert attribute key name to browser event.key value (e.g., "enter" -> "Enter")
 - isModifierKey: Check if a segment is a known modifier (ctrl, shift, alt, meta)
 - selectInputEvent: Choose event type for input elements (`blur` by default, `input` if `keypress` property is set or `ui-keypress` attribute used)
 - integrateWidgetBinding: Coordinate with WidgetBinder for widget-specific value handling
 - determineDefaultAccess: Determine default `access` property based on binding type and element
+- addScrollNotification: Add a variable ID to pendingScrollNotifications set (called by Views after rendering)
+- processScrollNotifications: Process pending notifications after batch completes using current/next pattern
+
+## Universal Path Properties
+
+All bindings support these path properties regardless of binding type:
+
+- `scrollOnOutput` - Sets `widget.scrollOnOutput = true`. Handled locally by BindingEngine, not sent to backend. Any element can be a scroll container via CSS.
+- `access` - Override default access mode (`r`, `rw`, `w`, `action`). Sent to backend as variable property.
+
+**Binding-specific properties** (only meaningful for certain bindings):
+- `keypress` - For ui-value on input elements
+- `wrapper`, `item`, `create` - For ui-view/ui-viewlist
+
+**Processing flow:**
+1. `parsePath()` extracts all properties from `?key=value` syntax
+2. Universal properties like `scrollOnOutput` are applied to the widget
+3. Remaining properties are set on the child variable for backend processing
 
 ## Child Variable Architecture (Server-Side Path Resolution)
 
@@ -269,6 +288,45 @@ Widget is the sole owner of all bindings for an element. There is no separate Bi
 - No separate Binding interface to maintain
 - Widget encapsulates all cleanup for an element
 - Single point of control for binding lifecycle
+
+## Scroll Notification Processing
+
+When Views/ViewLists render, they notify the BindingEngine so ancestor widgets with `scrollOnOutput` can scroll. This is batched to avoid multiple scrolls during a single update cycle.
+
+**Adding notifications:**
+- Views/ViewLists call `addScrollNotification(parentVarId)` after rendering
+- The variable ID is added to `pendingScrollNotifications` set
+
+**Processing notifications (after batch completes):**
+
+```
+processScrollNotifications():
+  current = pendingScrollNotifications
+  next = new Set()
+
+  while current is not empty:
+    for each varId in current:
+      widget = widgets.get(store.get(varId)?.properties.elementId)
+      if widget?.scrollOnOutput:
+        widget.scrollToBottom()
+        // Don't bubble further
+      else:
+        parentId = store.get(varId)?.parentId
+        if parentId:
+          next.add(parentId)
+
+    current.clear()
+    swap current and next
+
+  pendingScrollNotifications.clear()
+```
+
+**Key behaviors:**
+- Multiple child renders in one batch cause only one scroll
+- Scrolling happens at the correct ancestor widget (the one with `scrollOnOutput`)
+- Views inside ViewLists trigger scrolling on the ViewList's widget or any ancestor
+- Processing stops when a widget scrolls (doesn't bubble further up)
+- Any binding type can have `scrollOnOutput` since any element could be a scroll container via CSS
 
 ## Collaborators
 

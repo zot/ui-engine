@@ -22,7 +22,7 @@
 ### Does
 
 **Frontend (DOM management):**
-- create: Initialize from element with ui-viewlist attribute, vend element ID if needed
+- create: Initialize from element with ui-viewlist attribute, vend element ID if needed, register widget
 - setExemplarHtml: Set HTML string for cloning items (e.g., `<sl-option></sl-option>`)
 - getElement: Look up DOM element by elementId (via document.getElementById)
 - update: Sync viewIds array with bound variable array
@@ -35,6 +35,7 @@
 - notifyRemove: Notify delegate of item removal
 - parsePathProperties: Extract wrapper and item properties from path
 - inheritNamespaceProperties: Copy namespace and fallbackNamespace from ViewList variable to exemplar variable
+- notifyParentRendered: After adding items, add parent variable ID to BindingEngine's pendingScrollNotifications set
 
 **Backend (Wrapper behavior):**
 - new(variable): Constructor receives Variable, sets fallbackNamespace property, returns new or existing wrapper
@@ -144,6 +145,25 @@ This allows a ViewList with `ui-namespace="COMPACT"` to render all its items usi
 ViewList configuration via path properties:
 - `contacts` - Basic ViewList with default ViewListItem
 - `contacts?itemWrapper=ContactPresenter` - Custom ViewListItem type for each item
+- `messages?scrollOnOutput` - Auto-scroll when items are added
+
+### Widget Registration
+
+ViewLists register themselves with the BindingEngine's widgets map. This enables:
+- Consistent cleanup and lifecycle management
+- `scrollOnOutput` support (set on the widget, not the ViewList)
+
+When `scrollOnOutput` is specified in the path (e.g., `ui-viewlist="messages?scrollOnOutput"`), it is set on the element's widget, not on the ViewList itself. See crc-Widget.md for details.
+
+### Render Notifications
+
+When ViewList items render, they notify their parent so ancestor widgets with `scrollOnOutput` can scroll:
+
+1. After adding items, call `notifyParentRendered()` which adds the parent variable ID to BindingEngine's `pendingScrollNotifications` set
+2. The BindingEngine processes these notifications after the batch completes (see crc-BindingEngine.md)
+3. If an ancestor widget has `scrollOnOutput`, it scrolls to bottom
+
+This batched approach ensures multiple item additions cause only one scroll.
 
 ### ViewListItem Objects
 

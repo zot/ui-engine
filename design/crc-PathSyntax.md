@@ -54,7 +54,7 @@ contacts?wrapper=lua.ViewList&itemWrapper=ContactPresenter
   - `itemWrapper` - Item presenter type (for ViewList)
   - `create` - Type to instantiate as variable value
   - `keypress` - Boolean, controls input update timing (see crc-BindingEngine.md)
-  - `scrollOnOutput` - Boolean, auto-scrolls element to bottom on value update (see crc-ValueBinding.md)
+  - `scrollOnOutput` - Boolean, auto-scrolls element to bottom on update (see crc-ValueBinding.md, crc-View.md, crc-ViewList.md); for Views, child render notifications bubble up until an ancestor with `scrollOnOutput` is found
 
 **Examples:**
 - `name` - Simple property access
@@ -65,7 +65,9 @@ contacts?wrapper=lua.ViewList&itemWrapper=ContactPresenter
 - `contacts?wrapper=lua.ViewList` - Path with wrapper property
 - `contacts?itemWrapper=ContactPresenter&editable=true` - Multiple properties
 - `name?keypress` - Property defaults to true (equivalent to `name?keypress=true`)
-- `log?scrollOnOutput` - Auto-scroll element to bottom on value updates
+- `log?scrollOnOutput` - Auto-scroll element to bottom on value updates (ui-value)
+- `chatLog?scrollOnOutput` - Auto-scroll view on render/re-render (ui-view); child renders bubble notification up
+- `messages?wrapper=lua.ViewList&scrollOnOutput` - Auto-scroll list when items added (ui-view/ui-viewlist)
 
 ## Collaborators
 

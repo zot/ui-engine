@@ -1,0 +1,76 @@
+<template>
+  <style>
+    .task-row {
+      display: flex;
+      align-items: center;
+      gap: var(--sl-spacing-small);
+      padding: var(--sl-spacing-small) var(--sl-spacing-medium);
+      border-bottom: 1px solid var(--sl-color-neutral-100);
+      cursor: pointer;
+    }
+    .task-row:hover {
+      background: var(--sl-color-neutral-50);
+    }
+    .task-row.selected {
+      background: var(--sl-color-primary-50);
+    }
+    .task-name {
+      flex: 1;
+      font-size: var(--sl-font-size-medium);
+    }
+    .task-name.completed {
+      text-decoration: line-through;
+      color: var(--sl-color-neutral-500);
+    }
+    .task-name-input {
+      flex: 1;
+    }
+    .detail-panel {
+      margin: var(--sl-spacing-small) 0 var(--sl-spacing-small) var(--sl-spacing-3x-large);
+      padding: var(--sl-spacing-medium);
+      background: var(--sl-color-neutral-50);
+      border: 1px solid var(--sl-color-neutral-200);
+      border-radius: var(--sl-border-radius-medium);
+    }
+    .detail-row {
+      margin-bottom: var(--sl-spacing-small);
+    }
+    .detail-row label {
+      display: block;
+      font-size: var(--sl-font-size-small);
+      color: var(--sl-color-neutral-600);
+      margin-bottom: var(--sl-spacing-2x-small);
+    }
+    .detail-buttons {
+      display: flex;
+      gap: var(--sl-spacing-small);
+      margin-top: var(--sl-spacing-medium);
+    }
+    .hidden { display: none !important; }
+  </style>
+  <div>
+    <div class="task-row" ui-class-selected="isSelected()" ui-event-click="select()">
+      <sl-checkbox ui-value="completed" ui-event-sl-change="toggle()"></sl-checkbox>
+      <span class="task-name" ui-class-completed="completed" ui-class-hidden="editing" ui-event-dblclick="startEdit()" ui-value="name"></span>
+      <sl-input class="task-name-input" ui-class-hidden="isNotEditing()" ui-value="editName" ui-event-keypress-enter="saveEdit()" ui-event-keypress-escape="cancelEdit()" size="small"></sl-input>
+      <sl-button ui-action="toggleExpand()" size="small" variant="text">Edit</sl-button>
+    </div>
+    <div class="detail-panel" ui-class-hidden="isCollapsed()">
+      <div class="detail-row">
+        <label>Name</label>
+        <sl-input ui-value="editName" size="small"></sl-input>
+      </div>
+      <div class="detail-row">
+        <label>Description</label>
+        <sl-textarea ui-value="editDesc" rows="3" resize="auto"></sl-textarea>
+      </div>
+      <div class="detail-row">
+        <sl-checkbox ui-value="completed">Completed</sl-checkbox>
+      </div>
+      <div class="detail-buttons">
+        <sl-button ui-action="saveDetails()" size="small" variant="primary">Save</sl-button>
+        <sl-button ui-action="cancelDetails()" size="small" variant="default">Cancel</sl-button>
+      </div>
+    </div>
+  </div>
+</template>

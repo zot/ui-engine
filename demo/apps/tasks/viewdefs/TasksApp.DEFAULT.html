@@ -1,0 +1,48 @@
+<template>
+  <style>
+    html, body {
+      margin: 0;
+      padding: 0;
+      overflow: hidden;
+    }
+    .tasks-app {
+      display: flex;
+      flex-direction: column;
+      height: 100vh;
+      overflow: hidden;
+      font-family: var(--sl-font-sans);
+      padding: var(--sl-spacing-medium);
+      box-sizing: border-box;
+    }
+    .header {
+      display: flex;
+      align-items: center;
+      gap: var(--sl-spacing-small);
+      padding-bottom: var(--sl-spacing-medium);
+      border-bottom: 1px solid var(--sl-color-neutral-200);
+      margin-bottom: var(--sl-spacing-medium);
+    }
+    .header-title {
+      font-size: var(--sl-font-size-large);
+      font-weight: var(--sl-font-weight-semibold);
+      color: var(--sl-color-neutral-900);
+    }
+    .header sl-input {
+      flex: 1;
+    }
+    .task-list {
+      flex: 1;
+      min-height: 0;
+      overflow-y: auto;
+    }
+    .hidden { display: none !important; }
+  </style>
+  <div class="tasks-app">
+    <div class="header">
+      <span class="header-title">Tasks:</span>
+      <sl-input ui-value="search?keypress" placeholder="Search tasks..." size="small"></sl-input>
+      <sl-button ui-action="addTask()" size="small" variant="primary">+</sl-button>
+    </div>
+    <div class="task-list" ui-view="filteredTasks()?wrapper=lua.ViewList&scrollOnOutput"></div>
+  </div>
+</template>

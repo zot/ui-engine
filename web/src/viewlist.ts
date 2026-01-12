@@ -47,6 +47,7 @@ export class ViewList {
   private variableStore: VariableStore;
   private unwatch: (() => void) | null = null;
   private binding?: BindingEngine;
+  private _scrollOnOutput = false;  // Pending scrollOnOutput to set on widget
 
   // Path properties for wrapper configuration
   private pathConfig: ParsedViewListPath | null = null;
@@ -81,6 +82,46 @@ export class ViewList {
     return document.getElementById(this.elementId) as HTMLElement | null;
   }
 
+  // Set scrollOnOutput flag (will be applied to widget)
+  // Spec: viewdefs.md - scrollOnOutput (universal property on widget)
+  // CRC: crc-Widget.md - scrollOnOutput property
+  setScrollOnOutput(value: boolean): void {
+    this._scrollOnOutput = value;
+  }
+
+  // Register with widget and set scrollOnOutput if flagged
+  // CRC: crc-ViewList.md - Widget Registration
+  private registerWidget(): void {
+    if (!this.binding) return;
+    // Ensure widget exists for this element
+    this.binding.setViewForElement(this.elementId, { forceRender: () => this.update() });
+    const widget = this.binding.getWidget(this.elementId);
+    if (widget && this._scrollOnOutput) {
+      widget.scrollOnOutput = true;
+    }
+  }
+
+  // Notify parent that items were added (for scrollOnOutput bubbling)
+  // Spec: viewdefs.md - Render notifications (for scrollOnOutput)
+  // CRC: crc-ViewList.md - notifyParentRendered
+  private notifyParentRendered(): void {
+    if (!this.binding || this.variableId === null) return;
+    const data = this.variableStore.get(this.variableId);
+    if (data?.parentId) {
+      this.binding.addScrollNotification(data.parentId);
+    }
+  }
+
+  // Scroll element to bottom if widget has scrollOnOutput
+  // CRC: crc-Widget.md - scrollToBottom
+  private scrollToBottom(): void {
+    if (!this.binding) return;
+    const widget = this.binding.getWidget(this.elementId);
+    if (widget?.scrollOnOutput) {
+      widget.scrollToBottom();
+    }
+  }
+
   getItemWrapper(): string | undefined {
     // RETURN PARENT's itemWrapper property
     return
@@ -94,6 +135,15 @@ export class ViewList {
   // Parse and store path configuration from ui-viewlist attribute
   setPathConfig(fullPath: string): void {
     this.pathConfig = parseViewListPath(fullPath);
+
+    // Extract scrollOnOutput option (will be applied to widget)
+    // Spec: viewdefs.md - scrollOnOutput (universal property on widget)
+    // CRC: crc-Widget.md - scrollOnOutput property
+    if (this.pathConfig.props['scrollOnOutput'] === 'true' ||
+        this.pathConfig.props['scrollOnOutput'] === '') {
+      this._scrollOnOutput = true;
+      delete this.pathConfig.props['scrollOnOutput'];  // Don't send to backend
+    }
   }
 
   // Get properties to set on the variable when created
@@ -149,6 +199,10 @@ export class ViewList {
     }
 
     this.variableId = variableId;
+
+    // Register widget for scrollOnOutput support
+    // CRC: crc-ViewList.md - Widget Registration
+    this.registerWidget();
 
     // Watch the variable
     this.unwatch = this.variableStore.watch(variableId, () => {
@@ -241,6 +295,13 @@ export class ViewList {
     // Update viewIds array
     this.viewIds = newViewIds;
 
+    // Scroll to bottom if widget has scrollOnOutput
+    // Spec: viewdefs.md - scrollOnOutput (universal property on widget)
+    this.scrollToBottom();
+
+    // Notify parent that items were added (for scrollOnOutput bubbling)
+    // Spec: viewdefs.md - Render notifications (for scrollOnOutput)
+    this.notifyParentRendered();
   }
 
   // Create a view element for an item

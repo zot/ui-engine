@@ -107,6 +107,7 @@ export class Widget {
   private variables: Map<string, number> = new Map()  // binding name → variable ID
   private unbindHandlers: Map<string, () => void> = new Map()  // binding name → cleanup fn
   view?: ViewLike  // Optional reference to containing View (for hot-reload)
+  scrollOnOutput = false  // CRC: crc-Widget.md - scrollOnOutput property
 
   constructor(element: Element) {
     // Vend ID if element doesn't have one
@@ -114,6 +115,15 @@ export class Widget {
       element.id = ensureElementId(element)
     }
     this.elementId = element.id
+  }
+
+  // Scroll element to bottom if scrollable
+  // CRC: crc-Widget.md - scrollToBottom
+  scrollToBottom(): void {
+    const element = this.getElement()
+    if (element && element.scrollHeight > element.clientHeight) {
+      element.scrollTop = element.scrollHeight
+    }
   }
 
   // Register a binding's variable ID and unbind handler
@@ -171,9 +181,66 @@ export function resolvePath(value: unknown, segments: string[]): unknown {
 export class BindingEngine {
   private store: VariableStore
   private widgets: Map<string, Widget> = new Map()  // keyed by elementId
+  private pendingScrollNotifications: Set<number> = new Set()  // variable IDs to notify
+  private scrollProcessingScheduled = false  // whether processing is already queued
 
   constructor(store: VariableStore) {
     this.store = store
+  }
+
+  // Add a variable ID to pending scroll notifications
+  // Called by Views after rendering to notify parent that child rendered
+  // Schedules processing via queueMicrotask to batch notifications
+  // Spec: viewdefs.md - Render notifications (for scrollOnOutput)
+  // CRC: crc-BindingEngine.md - addScrollNotification
+  addScrollNotification(varId: number): void {
+    this.pendingScrollNotifications.add(varId)
+
+    // Schedule processing if not already scheduled
+    if (!this.scrollProcessingScheduled) {
+      this.scrollProcessingScheduled = true
+      queueMicrotask(() => {
+        this.scrollProcessingScheduled = false
+        this.processScrollNotifications()
+      })
+    }
+  }
+
+  // Process pending scroll notifications after batch completes
+  // Uses current/next pattern to bubble up until a widget with scrollOnOutput is found
+  // Spec: viewdefs.md - Render notifications (for scrollOnOutput)
+  // CRC: crc-BindingEngine.md - processScrollNotifications
+  processScrollNotifications(): void {
+    let current = new Set(this.pendingScrollNotifications)
+    this.pendingScrollNotifications.clear()
+
+    while (current.size > 0) {
+      const next = new Set<number>()
+
+      for (const varId of current) {
+        const varData = this.store.get(varId)
+        if (!varData) continue
+
+        const elementId = varData.properties['elementId']
+        if (elementId) {
+          const widget = this.widgets.get(elementId)
+          // Check if widget has scrollOnOutput (universal property on widget, not view)
+          // CRC: crc-Widget.md - scrollOnOutput property
+          if (widget?.scrollOnOutput) {
+            // Scroll and don't bubble further
+            widget.scrollToBottom()
+            continue
+          }
+        }
+
+        // Bubble up to parent
+        if (varData.parentId) {
+          next.add(varData.parentId)
+        }
+      }
+
+      current = next
+    }
   }
 
   // Get widget for an element (for external access if needed)
@@ -311,9 +378,12 @@ export class BindingEngine {
     const useKeypress = parsed.options.props?.['keypress'] === 'true'
 
     // Check if scrollOnOutput is enabled (auto-scroll to bottom on value updates)
-    // Spec: viewdefs.md - scrollOnOutput path property
-    // CRC: crc-ValueBinding.md - scrollToBottom
+    // Spec: viewdefs.md - scrollOnOutput path property (universal property)
+    // CRC: crc-Widget.md - scrollOnOutput property
     const scrollOnOutput = parsed.options.props?.['scrollOnOutput'] === 'true'
+    if (scrollOnOutput) {
+      widget.scrollOnOutput = true  // Set on widget for bubbling mechanism
+    }
 
     // Create a child variable for this path
     // The server will resolve the path and send back the value
@@ -501,6 +571,12 @@ export class BindingEngine {
     const properties = pathOptionsToProperties(parsed.options)
     properties['path'] = parsed.segments.join('.')
 
+    // Set scrollOnOutput on widget if specified (universal property)
+    // CRC: crc-Widget.md - scrollOnOutput property
+    if (parsed.options.props?.['scrollOnOutput'] === 'true') {
+      widget.scrollOnOutput = true
+    }
+
     // Default to access=r for attribute bindings (read-only)
     // Spec: viewdefs.md - Value Bindings
     if (!properties['access']) {
@@ -556,6 +632,12 @@ export class BindingEngine {
     const parsed = parsePath(path)
     const properties = pathOptionsToProperties(parsed.options)
     properties['path'] = parsed.segments.join('.')
+
+    // Set scrollOnOutput on widget if specified (universal property)
+    // CRC: crc-Widget.md - scrollOnOutput property
+    if (parsed.options.props?.['scrollOnOutput'] === 'true') {
+      widget.scrollOnOutput = true
+    }
 
     // Default to access=r for class bindings (read-only)
     // Spec: viewdefs.md - Value Bindings
@@ -613,6 +695,12 @@ export class BindingEngine {
     const properties = pathOptionsToProperties(parsed.options)
     properties['path'] = parsed.segments.join('.')
 
+    // Set scrollOnOutput on widget if specified (universal property)
+    // CRC: crc-Widget.md - scrollOnOutput property
+    if (parsed.options.props?.['scrollOnOutput'] === 'true') {
+      widget.scrollOnOutput = true
+    }
+
     // Default to access=r for style bindings (read-only)
     // Spec: viewdefs.md - Value Bindings
     if (!properties['access']) {
@@ -667,6 +755,12 @@ export class BindingEngine {
     const parsed = parsePath(path)
     const properties = pathOptionsToProperties(parsed.options)
     properties['path'] = parsed.segments.join('.')
+
+    // Set scrollOnOutput on widget if specified (universal property)
+    // CRC: crc-Widget.md - scrollOnOutput property
+    if (parsed.options.props?.['scrollOnOutput'] === 'true') {
+      widget.scrollOnOutput = true
+    }
 
     // Default to access=r for code bindings (read-only)
     // Spec: viewdefs.md - Value Bindings

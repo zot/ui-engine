@@ -33,7 +33,7 @@ Reactive UI framework with variable-based state synchronization between frontend
 - [x] crc-ViewList.md → `web/src/viewlist.ts`, `internal/lua/viewlist.go`
 - [x] crc-ViewListItem.md → `internal/lua/viewlistitem.go`
 - [x] crc-AppView.md → `web/src/app_view.ts`
-- [ ] crc-Widget.md → `web/src/binding.ts` *(viewElementId)*
+- [x] crc-Widget.md → `web/src/binding.ts`
 - [x] crc-BindingEngine.md → `web/src/binding.ts`
 - [x] crc-ValueBinding.md → `web/src/binding.ts`
 - [x] crc-EventBinding.md → `web/src/binding.ts`

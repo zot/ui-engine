@@ -92,17 +92,19 @@ const element = document.getElementById(this.elementId)
 
 A **Widget** is the binding context for an element with `ui-*` bindings. Each element with bindings has exactly one Widget that manages all its bindings.
 
+**All bindings create widgets:** Every binding type (`ui-value`, `ui-attr-*`, `ui-view`, `ui-viewlist`, etc.) creates and registers a Widget. This is necessary because any element could become a scroll container via CSS, and scroll-related behavior (like `scrollOnOutput`) is managed at the Widget level.
+
 **Widget properties:**
 - `elementId` - Element ID (from global vendor if element has no ID)
 - `variables` - Map of binding name to variable ID for all bindings on this element
 - `unbindHandlers` - Map of binding name to cleanup function
-- `viewElementId` - (optional) Element ID of the containing view, if any
+- `scrollOnOutput` - If true, scroll element to bottom when child content renders (set via path property)
 
 **Widget responsibilities:**
 - Tracks all bindings and their variable IDs for the element
 - Provides cleanup via `unbindAll()` which calls all unbind handlers
 - Enables bindings to look up sibling bindings (e.g., event binding finding ui-value variable)
-- Tracks containing view element ID for hot-reload support (widgets can find their view)
+- Manages scroll behavior via `scrollOnOutput` property and `scrollToBottom()` method
 
 **Element ID assignment:**
 - If an element doesn't have an ID, the Widget uses the global ID vendor to assign one
@@ -116,10 +118,7 @@ A **Widget** is the binding context for an element with `ui-*` bindings. Each el
 - `ui-value` - Bind a variable to the element's "value" (input field, file name, etc.)
   - For non-interactive elements (div, span, etc.), automatically adds `access=r` if no `access` property is specified
   - Interactive elements (input, textarea, select, etc.) default to read-write
-  - **Path properties:**
-    - `scrollOnOutput` - Auto-scroll element to bottom when value updates (e.g., `ui-value="log?scrollOnOutput"`)
-      - Useful for log viewers, chat windows, or any container showing streaming content
-      - Only scrolls if the element is scrollable (has overflow)
+  - Additional path property: `keypress` (see Path Properties section)
 - `ui-attr-*` - Bind a variable value to an HTML attribute (e.g., `ui-attr-disabled`); defaults to `access=r`
 - `ui-class-*` - Bind a variable value to CSS classes (value is a class string); defaults to `access=r`
 - `ui-style-*` - Bind a variable value to a CSS style property (e.g., `ui-style-background-color`); defaults to `access=r`
@@ -222,7 +221,7 @@ The binding engine must:
 
 ## Backend Paths
 
-The `ui-*` attribute values can contain **paths** that navigate the presenter's data structure. Paths use dot notation to traverse nested objects.
+**All `ui-*` binding attributes contain paths.** Paths navigate the presenter's data structure using dot notation to traverse nested objects.
 
 **Examples:**
 - `ui-value="name"` - Binds to the `name` field of the presenter
@@ -242,6 +241,45 @@ Paths are stored in the variable's "path" property, allowing the backend to:
 - Resolve the path to the actual data location in the presenter data
 - Update the correct nested field when the variable changes
 - Watch specific sub-paths for changes
+
+## Path Properties
+
+**All bindings use paths, and all paths can specify path properties.**
+
+Path properties use URL-style query parameters appended to the path:
+
+```
+path.to.value?property1=value1&property2=value2
+```
+
+Properties without values default to `true`:
+```
+path?scrollOnOutput        <!-- equivalent to path?scrollOnOutput=true -->
+```
+
+**Universal path properties (supported by all bindings):**
+- `scrollOnOutput` - Auto-scroll element to bottom when child content renders. Applies to the element's widget, not the variable, so it works with any binding type since any element could be a scroll container via CSS.
+- `access` - Override default access mode (`r`, `rw`, `w`, `action`)
+
+**Binding-specific path properties:**
+- `keypress` - For input elements, send updates on every keypress instead of blur
+- `wrapper` - Specify a wrapper type (e.g., `wrapper=lua.ViewList`)
+- `item` - Specify item wrapper for lists (e.g., `item=ContactPresenter`)
+- `create` - Create a new object of specified type
+
+**Examples across binding types:**
+```html
+<div ui-value="log?scrollOnOutput"></div>
+<input ui-value="search?keypress">
+<div ui-view="messages?scrollOnOutput"></div>
+<div ui-viewlist="contacts?item=ContactPresenter"></div>
+<div ui-attr-disabled="isLocked?scrollOnOutput"></div>
+<div ui-class-active="isSelected?scrollOnOutput"></div>
+```
+
+Path properties are parsed by the frontend and either:
+- Handled locally (e.g., `scrollOnOutput` sets widget property)
+- Sent to backend as variable properties (e.g., `wrapper`, `item`, `access`)
 
 ## App View
 
@@ -278,7 +316,7 @@ A **View** is an element that renders a variable using a viewdef. Views are crea
 - `ui-view` - Path to an object reference variable to render
 - `ui-namespace` - (optional) Namespace for viewdef lookup
 
-The `ui-view` binding automatically adds `access=r` if no `access` property is specified, since views are typically read-only bindings.
+The `ui-view` binding automatically adds `access=r` if no `access` property is specified, since views are typically read-only bindings. See Path Properties section for universal properties supported by all bindings.
 
 **Namespace variable properties:**
 
@@ -370,6 +408,27 @@ When updated viewdefs arrive (viewdefs that were already sent):
 2. Re-rendering reuses the same variable and container element
 3. Widgets within the view are unbound and recreated during re-render
 
+**Render notifications (for scrollOnOutput):**
+
+When a view or viewlist item renders, it may need to trigger scrolling on an ancestor with `scrollOnOutput`. This is batched to avoid multiple scrolls during a single update cycle.
+
+1. **After rendering:** A view adds its parent variable ID to a global `pendingScrollNotifications` set
+2. **After batch completes:** The BindingEngine processes using current/next pattern:
+   - `current` = pendingScrollNotifications, `next` = empty set
+   - While `current` is not empty:
+     - For each variable ID in `current`:
+       - Look up the widget for this variable ID
+       - If the widget has `scrollOnOutput`:
+         - Call the widget's `scrollToBottom()` (don't bubble further)
+       - Otherwise, add the variable's parent ID to `next` (bubble up)
+     - Clear `current`, swap `current` and `next`
+   - Clear pendingScrollNotifications
+
+This ensures:
+- Multiple child renders in one batch cause only one scroll
+- Scrolling happens at the correct ancestor widget (the one with `scrollOnOutput`)
+- Views inside ViewLists trigger scrolling on the ViewList's widget or any ancestor with `scrollOnOutput`
+
 ## ViewLists
 
 A **ViewList** renders an array of object references as a list of views.
@@ -386,9 +445,7 @@ Use `ui-view` with the `wrapper=lua.ViewList` path property:
 <div ui-view="contacts?wrapper=lua.ViewList&itemWrapper=ContactPresenter"></div>
 ```
 
-**Path properties:**
-- `wrapper=lua.ViewList` - Creates a ViewList wrapper for the array
-- `itemWrapper=PresenterType` - (optional) Wraps each domain object with a presenter type
+Additional path properties: `wrapper`, `item` (see Path Properties section)
 
 **Alternative: ui-viewlist attribute:**
 
@@ -397,9 +454,12 @@ The `ui-viewlist` attribute is a shorthand that implicitly uses `lua.ViewList`:
 ```html
 <div ui-viewlist="contacts"></div>
 <!-- Equivalent to: <div ui-view="contacts?wrapper=lua.ViewList&access=r"></div> -->
+
+<!-- With scrollOnOutput for auto-scrolling lists -->
+<div ui-viewlist="messages?scrollOnOutput"></div>
 ```
 
-The `ui-viewlist` binding automatically adds `access=r` if no `access` property is specified, since lists are typically read-only bindings.
+The `ui-viewlist` binding automatically adds `access=r` if no `access` property is specified, since lists are typically read-only bindings. Additional path property: `item` (see Path Properties section for universal properties)
 
 With `ui-viewlist`, use `ui-namespace` to specify the item viewdef namespace. Namespace inheritance follows the same rules as Views (see above).
 

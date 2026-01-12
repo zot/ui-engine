@@ -11,7 +11,7 @@
 - viewdefKey: The resolved viewdef key (e.g., "Contact.COMPACT") stored as `data-ui-viewdef` attribute
 
 ### Does
-- create: Initialize view from element with ui-view attribute, vend element ID if needed, set variable namespace properties
+- create: Initialize view from element with ui-view attribute, vend element ID if needed, set variable namespace properties, register widget
 - render: Render variable using 3-tier namespace resolution, set `data-ui-viewdef` attribute, returns boolean
 - setVariable: Update bound variable (triggers re-render)
 - clear: Remove rendered content from element (unbinds existing widgets)
@@ -20,6 +20,7 @@
 - removePending: Remove from pending views list after successful render
 - resolveNamespace: Apply 3-tier resolution (namespace -> fallbackNamespace -> DEFAULT)
 - rerender: Hot-reload re-render using updated viewdef (unbinds old widgets, re-binds new)
+- notifyParentRendered: After rendering, add parent variable ID to BindingEngine's pendingScrollNotifications set
 
 ## Collaborators
 
@@ -61,6 +62,25 @@ Views support hot-reload re-rendering:
 3. Each matching view's `rerender()` method is called with the updated viewdef
 4. Re-rendering reuses the same variable and container element
 5. Widgets within the view are unbound via `clear()` and recreated during re-render
+
+## Widget Registration
+
+Views register themselves with the BindingEngine's widgets map. This enables:
+- Consistent cleanup and lifecycle management
+- `scrollOnOutput` support (set on the widget, not the view)
+- Hot-reload targeting
+
+When `scrollOnOutput` is specified in the path (e.g., `ui-view="chatLog?scrollOnOutput"`), it is set on the element's widget, not on the View itself. See crc-Widget.md for details.
+
+## Render Notifications
+
+After a view renders, it notifies its parent so ancestor widgets with `scrollOnOutput` can scroll:
+
+1. After rendering, call `notifyParentRendered()` which adds the parent variable ID to BindingEngine's `pendingScrollNotifications` set
+2. The BindingEngine processes these notifications after the batch completes (see crc-BindingEngine.md)
+3. If an ancestor widget has `scrollOnOutput`, it scrolls to bottom
+
+This batched approach ensures multiple child renders cause only one scroll.
 
 ## Sequences
 

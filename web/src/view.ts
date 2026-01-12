@@ -38,6 +38,7 @@ export class View {
   private binding?: BindingEngine;
   private viewLists: ViewList[] = [];
   private childViews: View[] = [];
+  private _scrollOnOutput = false;  // Pending scrollOnOutput to set on widget
 
   constructor(
     element: HTMLElement,
@@ -56,6 +57,24 @@ export class View {
   // Spec: viewdefs.md - Element References (Cross-Cutting Requirement)
   getElement(): HTMLElement | null {
     return document.getElementById(this.elementId) as HTMLElement | null;
+  }
+
+  // Set scrollOnOutput flag (will be applied to widget on render)
+  // Spec: viewdefs.md - scrollOnOutput (universal property on widget)
+  // CRC: crc-Widget.md - scrollOnOutput property
+  setScrollOnOutput(value: boolean): void {
+    this._scrollOnOutput = value;
+  }
+
+  // Notify parent that this view rendered (for scrollOnOutput bubbling)
+  // Spec: viewdefs.md - Render notifications (for scrollOnOutput)
+  // CRC: crc-View.md - notifyParentRendered
+  private notifyParentRendered(): void {
+    if (!this.binding || this.variableId === null) return;
+    const data = this.variableStore.get(this.variableId);
+    if (data?.parentId) {
+      this.binding.addScrollNotification(data.parentId);
+    }
   }
 
   // Get namespace from variable properties (set from ui-namespace or inherited)
@@ -267,6 +286,25 @@ export class View {
     // Remove from pending if we were pending
     this.removePending();
 
+    // Set scrollOnOutput on widget if View has the flag, then scroll
+    // Spec: viewdefs.md - scrollOnOutput (universal property on widget)
+    // CRC: crc-Widget.md - scrollOnOutput property
+    if (this.binding) {
+      const widget = this.binding.getWidget(this.elementId);
+      if (widget) {
+        if (this._scrollOnOutput) {
+          widget.scrollOnOutput = true;
+        }
+        if (widget.scrollOnOutput) {
+          widget.scrollToBottom();
+        }
+      }
+    }
+
+    // Notify parent that we rendered (for scrollOnOutput bubbling)
+    // Spec: viewdefs.md - Render notifications (for scrollOnOutput)
+    this.notifyParentRendered();
+
     return true;
   }
 
@@ -375,6 +413,14 @@ export class View {
       } else {
         extra = {}
       }
+
+      // Set scrollOnOutput on View if specified (will be applied to widget on render)
+      // Spec: viewdefs.md - scrollOnOutput (universal property on widget)
+      // CRC: crc-Widget.md - scrollOnOutput property
+      if (extra['scrollOnOutput'] === 'true') {
+        view.setScrollOnOutput(true);
+      }
+      delete extra['scrollOnOutput'];  // Don't send to backend (handled locally)
 
       // Ensure element has an ID for tracking
       // Spec: viewdefs.md - Variable Element Tracking

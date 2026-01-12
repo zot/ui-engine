@@ -9,7 +9,7 @@
 - variables: Map of binding name to variable ID for all bindings on this element
 - unbindHandlers: Map of binding name to cleanup function (`Map<string, () => void>`)
 - autoVendedId: Boolean indicating if ID was auto-assigned (for cleanup)
-- viewElementId: (optional) Element ID of the containing view for hot-reload support
+- scrollOnOutput: If true, scroll element to bottom when child content renders (set via path property)
 
 ### Does
 - create: Create a Widget for an element with ui-* bindings
@@ -21,6 +21,7 @@
 - getVariableId: Get variable ID for a binding name
 - hasBinding: Check if a binding exists by name (e.g., "ui-value")
 - getElement: Look up DOM element by elementId (via document.getElementById)
+- scrollToBottom: Scroll element to bottom if scrollable (`scrollHeight > clientHeight`)
 - destroy: Call unbindAll(), clean up, and remove element ID if auto-vended
 
 ## Element ID Vending
@@ -57,12 +58,36 @@ Widget is the sole owner of all bindings for an element. There is no separate Bi
 3. When unbinding the element, BindingEngine calls `widget.unbindAll()` which invokes all cleanup functions
 4. Each binding name has exactly one cleanup handler (e.g., "ui-value", "ui-attr-hidden", "ui-event-click")
 
+## All Bindings Create Widgets
+
+Every binding type (`ui-value`, `ui-attr-*`, `ui-view`, `ui-viewlist`, etc.) creates and registers a Widget. This is necessary because:
+- Any element could become a scroll container via CSS
+- Scroll-related behavior (`scrollOnOutput`) is managed at the Widget level
+- Consistent cleanup and lifecycle management across all binding types
+
+## scrollOnOutput Behavior
+
+`scrollOnOutput` is a **universal path property** supported by all binding types (see crc-BindingEngine.md). Since any element could be a scroll container via CSS, this property applies to the widget, not the variable.
+
+When `scrollOnOutput` is set on a widget (via path property like `?scrollOnOutput`):
+1. Child Views/ViewLists notify their parent after rendering
+2. Notifications bubble up through the variable hierarchy
+3. When a widget with `scrollOnOutput` is found, it calls `scrollToBottom()`
+4. Bubbling stops at the scrolling widget
+
+**Examples across binding types:**
+```html
+<div ui-value="log?scrollOnOutput"></div>
+<div ui-view="messages?scrollOnOutput"></div>
+<div ui-viewlist="items?scrollOnOutput"></div>
+<div ui-attr-class="theme?scrollOnOutput"></div>
+```
+
 ## Collaborators
 
 - ElementIdVendor: Global vendor for unique element IDs
 - BindingEngine: Creates Widgets when processing ui-* attributes, registers unbind handlers
 - Variable: Stores elementId reference to Widget (not direct DOM reference)
-- View: Widgets track their containing view for hot-reload targeting
 
 ## Sequences
 
