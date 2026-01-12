@@ -6,6 +6,23 @@
 
 Reactive UI framework with variable-based state synchronization between frontend and backend. Uses a 2-layer server architecture (frontend session management + backend variable management) with embedded Lua for presentation logic. Views are defined via HTML viewdefs with declarative bindings.
 
+## Cross-cutting Concerns
+
+### Hot-Loading Symlink Tracking
+
+All hot-loading features (Lua files, viewdefs, etc.) must track symlinks:
+
+- When a watched file is a symlink, also watch the real (target) directory
+- Changes to either the symlink or the target file trigger a reload
+- When symlinks are added/modified/removed, update watched directories accordingly
+- This supports development workflows where files are symlinked from another location
+
+**Components that implement this:**
+- LuaHotLoader: `symlinkTargets`, `watchedDirs`, `resolveSymlinks()`, `updateSymlinkWatches()`
+- ViewdefStore: Same pattern as LuaHotLoader
+
+**Referenced by:** crc-LuaHotLoader.md, crc-ViewdefStore.md, seq-lua-hotload.md, seq-viewdef-hotload.md
+
 ## Artifacts
 
 ### Variable Protocol System
@@ -28,7 +45,7 @@ Reactive UI framework with variable-based state synchronization between frontend
 
 ### Viewdef System
 - [x] crc-Viewdef.md → `internal/viewdef/viewdef.go`, `web/src/viewdef.ts`
-- [ ] crc-ViewdefStore.md → `internal/viewdef/store.go`, `web/src/viewdef_store.ts` *(hot-reload)*
+- [ ] crc-ViewdefStore.md → `internal/viewdef/store.go`, `internal/viewdef/hotloader.go`, `web/src/viewdef_store.ts` *(hot-reload)*
 - [ ] crc-View.md → `web/src/view.ts` *(data-ui-viewdef, rerender)*
 - [x] crc-ViewList.md → `web/src/viewlist.ts`, `internal/lua/viewlist.go`
 - [x] crc-ViewListItem.md → `internal/lua/viewlistitem.go`
@@ -133,6 +150,6 @@ Reactive UI framework with variable-based state synchronization between frontend
 (None currently tracked)
 
 ### Design → Code Gaps
-- [ ] Viewdef hot-reload: Backend file watcher, session tracking, push on change
+- [x] Viewdef hot-reload: Backend file watcher with symlink tracking, session tracking, push on change
 - [ ] Viewdef hot-reload: Frontend `data-ui-viewdef` attribute, `rerenderViewsForKey()`
 - [ ] Widget `viewElementId` property for hot-reload view tracking

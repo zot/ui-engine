@@ -32,6 +32,11 @@ type HotLoader struct {
 	manager    *ViewdefManager
 	sessions   SessionPusher
 
+	// Symlink tracking (see cross-cutting: Hot-Loading Symlink Tracking)
+	symlinkTargets map[string]string // viewdef file path -> resolved target dir
+	watchedDirs    map[string]int    // dir path -> reference count
+	mu             sync.Mutex
+
 	// Debouncing
 	pendingReloads map[string]time.Time
 	debounceMu     sync.Mutex
@@ -53,6 +58,8 @@ func NewHotLoader(cfg *config.Config, viewdefDir string, manager *ViewdefManager
 		watcher:        watcher,
 		manager:        manager,
 		sessions:       sessions,
+		symlinkTargets: make(map[string]string),
+		watchedDirs:    make(map[string]int),
 		pendingReloads: make(map[string]time.Time),
 		debounceDelay:  100 * time.Millisecond,
 		done:           make(chan struct{}),
@@ -63,9 +70,14 @@ func NewHotLoader(cfg *config.Config, viewdefDir string, manager *ViewdefManager
 
 // Start begins watching for file changes.
 func (h *HotLoader) Start() error {
-	// Watch the viewdef directory
-	if err := h.watcher.Add(h.viewdefDir); err != nil {
+	// Watch the main viewdef directory
+	if err := h.addWatch(h.viewdefDir); err != nil {
 		return err
+	}
+
+	// Scan for existing symlinks and watch their target directories
+	if err := h.scanSymlinks(); err != nil {
+		h.config.Log(1, "ViewdefHotLoader: error scanning symlinks: %v", err)
 	}
 
 	// Start the event loop
@@ -112,6 +124,19 @@ func (h *HotLoader) handleEvent(event fsnotify.Event) {
 	}
 
 	h.config.Log(3, "ViewdefHotLoader: event %s on %s", event.Op, event.Name)
+
+	// Handle symlink changes in the viewdef directory
+	if filepath.Dir(event.Name) == h.viewdefDir {
+		switch {
+		case event.Op&fsnotify.Create != 0:
+			h.updateSymlinkWatch(event.Name)
+		case event.Op&fsnotify.Remove != 0:
+			h.removeSymlinkWatch(event.Name)
+		case event.Op&fsnotify.Rename != 0:
+			// Rename is like remove + create elsewhere
+			h.removeSymlinkWatch(event.Name)
+		}
+	}
 
 	// Queue reload for write events
 	if event.Op&fsnotify.Write != 0 || event.Op&fsnotify.Create != 0 {
@@ -161,28 +186,34 @@ func (h *HotLoader) processPendingReloads() {
 
 // reloadFile reloads a viewdef file and pushes to sessions that have received it.
 func (h *HotLoader) reloadFile(filePath string) {
+	// Resolve the actual file to reload (handles symlink targets)
+	reloadPath := h.resolveReloadPath(filePath)
+	if reloadPath == "" {
+		return
+	}
+
 	// Check if file exists (might have been deleted)
-	info, err := os.Stat(filePath)
+	info, err := os.Stat(reloadPath)
 	if err != nil {
-		h.config.Log(2, "ViewdefHotLoader: file not found %s", filePath)
+		h.config.Log(2, "ViewdefHotLoader: file not found %s", reloadPath)
 		return
 	}
 
 	// Read the file content
-	content, err := os.ReadFile(filePath)
+	content, err := os.ReadFile(reloadPath)
 	if err != nil {
-		h.config.Log(1, "ViewdefHotLoader: error reading %s: %v", filePath, err)
+		h.config.Log(1, "ViewdefHotLoader: error reading %s: %v", reloadPath, err)
 		return
 	}
 
 	// Get the viewdef key from filename
-	filename := filepath.Base(filePath)
+	filename := filepath.Base(reloadPath)
 	key := strings.TrimSuffix(filename, ".html")
 
 	h.config.Log(1, "ViewdefHotLoader: reloading %s", key)
 
 	// Update the viewdef in the manager
-	h.manager.updateViewdef(key, string(content), filePath, info.ModTime())
+	h.manager.updateViewdef(key, string(content), reloadPath, info.ModTime())
 
 	// Find sessions that have received this viewdef and push to them
 	for _, sessionID := range h.sessions.GetSessionIDs() {
@@ -193,4 +224,125 @@ func (h *HotLoader) reloadFile(filePath string) {
 			h.config.Log(2, "ViewdefHotLoader: pushed %s to session %s", key, sessionID)
 		}
 	}
+}
+
+// scanSymlinks scans the viewdef directory for symlinks and watches their target directories.
+func (h *HotLoader) scanSymlinks() error {
+	entries, err := os.ReadDir(h.viewdefDir)
+	if err != nil {
+		return err
+	}
+
+	for _, entry := range entries {
+		if !strings.HasSuffix(entry.Name(), ".html") {
+			continue
+		}
+		filePath := filepath.Join(h.viewdefDir, entry.Name())
+		h.updateSymlinkWatch(filePath)
+	}
+
+	return nil
+}
+
+// updateSymlinkWatch checks if a file is a symlink and updates watches accordingly.
+func (h *HotLoader) updateSymlinkWatch(filePath string) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	// Check if file is a symlink
+	info, err := os.Lstat(filePath)
+	if err != nil {
+		return
+	}
+
+	// Remove old watch if this file was previously a symlink
+	if oldTarget, ok := h.symlinkTargets[filePath]; ok {
+		h.removeWatchLocked(oldTarget)
+		delete(h.symlinkTargets, filePath)
+	}
+
+	// If it's a symlink, resolve and watch the target directory
+	if info.Mode()&os.ModeSymlink != 0 {
+		target, err := filepath.EvalSymlinks(filePath)
+		if err != nil {
+			h.config.Log(2, "ViewdefHotLoader: cannot resolve symlink %s: %v", filePath, err)
+			return
+		}
+
+		targetDir := filepath.Dir(target)
+		h.symlinkTargets[filePath] = targetDir
+		h.addWatchLocked(targetDir)
+		h.config.Log(2, "ViewdefHotLoader: watching symlink target dir %s for %s", targetDir, filePath)
+	}
+}
+
+// removeSymlinkWatch removes the watch for a symlink's target directory.
+func (h *HotLoader) removeSymlinkWatch(filePath string) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	if targetDir, ok := h.symlinkTargets[filePath]; ok {
+		h.removeWatchLocked(targetDir)
+		delete(h.symlinkTargets, filePath)
+	}
+}
+
+// addWatch adds a directory to the watch list.
+func (h *HotLoader) addWatch(dir string) error {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return h.addWatchLocked(dir)
+}
+
+func (h *HotLoader) addWatchLocked(dir string) error {
+	h.watchedDirs[dir]++
+	if h.watchedDirs[dir] == 1 {
+		if err := h.watcher.Add(dir); err != nil {
+			h.watchedDirs[dir]--
+			return err
+		}
+		h.config.Log(2, "ViewdefHotLoader: added watch for %s", dir)
+	}
+	return nil
+}
+
+func (h *HotLoader) removeWatchLocked(dir string) {
+	h.watchedDirs[dir]--
+	if h.watchedDirs[dir] <= 0 {
+		h.watcher.Remove(dir)
+		delete(h.watchedDirs, dir)
+		h.config.Log(2, "ViewdefHotLoader: removed watch for %s", dir)
+	}
+}
+
+// resolveReloadPath determines which file to reload based on the changed path.
+func (h *HotLoader) resolveReloadPath(changedPath string) string {
+	// If the change is directly in the viewdef directory, use it
+	if filepath.Dir(changedPath) == h.viewdefDir {
+		// Check if file exists (might have been deleted)
+		if _, err := os.Stat(changedPath); err != nil {
+			return ""
+		}
+		return changedPath
+	}
+
+	// Otherwise, this is a change in a symlink target directory
+	// Find which viewdef file symlinks to this location
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	changedDir := filepath.Dir(changedPath)
+	changedBase := filepath.Base(changedPath)
+
+	for viewdefPath, targetDir := range h.symlinkTargets {
+		if targetDir == changedDir {
+			// Check if the symlink points to this specific file
+			target, err := filepath.EvalSymlinks(viewdefPath)
+			if err == nil && filepath.Base(target) == changedBase {
+				return viewdefPath
+			}
+		}
+	}
+
+	return ""
 }

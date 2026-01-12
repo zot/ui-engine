@@ -38,10 +38,11 @@ The frontend parses viewdefs by placing them in a scratch div's innerHTML, then 
 
 **Hot-reloading:**
 
-Viewdefs support hot-reloading for iterative development:
+Viewdefs support hot-reloading for iterative development.
 
 **Backend behavior:**
-- File watcher monitors the viewdef directory for changes (like Lua hot-loading)
+- File watcher monitors the viewdef directory for changes
+- Symlink tracking follows the general hot-loading rule (see deployment.md "Hot-Loading (General)")
 - When a viewdef file is modified:
   1. Reload the file content
   2. For each session that has received this viewdef, queue a re-push via variable 1's `viewdefs` property

@@ -324,6 +324,10 @@ level = "info"            # "debug", "info", "warn", "error"
 verbosity = 0             # 0=none, 1=connections, 2=messages, 3=variables
 ```
 
+### Hot-Loading (General)
+
+**Symlink tracking requirement:** All hot-loading features (Lua files, viewdefs, etc.) must track symlinks. When a watched file is a symlink, the server must also watch the real (target) directory. This supports development workflows where files are symlinked from another location. Changes to either the symlink or the target file trigger a reload. When symlinks are added, modified, or removed, the watched directories are updated accordingly.
+
 ### Lua Hot-Loading
 
 When `--hotload` is enabled, the server watches the lua directory for file changes and automatically reloads modified files for all active sessions.

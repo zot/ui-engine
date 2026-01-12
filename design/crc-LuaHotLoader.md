@@ -40,8 +40,7 @@
 - Watches the lua directory (default: `lua/` or `<dir>/lua/`)
 - **Only reloads files already loaded by session**: Checks `IsFileLoaded()` before reloading (ignores new files)
 - **reloading flag**: Sets `session.reloading = true` before reload, `false` after (Lua code can detect)
-- **Symlink handling**: Also watches real (target) directories of symlinked files
-- **Dynamic watch updates**: When symlinks are added/modified/removed, updates watched directories
+- **Symlink handling**: See cross-cutting concern "Hot-Loading Symlink Tracking" in design.md
 - Sessions maintain state between reloads (Lua code should use hot-loading conventions)
 - Uses fsnotify for cross-platform file watching
 - Debounces rapid file changes to avoid multiple reloads

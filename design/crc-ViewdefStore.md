@@ -10,6 +10,8 @@
 - pendingViews: List of Views waiting for viewdefs to render
 - fileWatcher: (backend) File watcher for viewdef directory (like LuaHotLoader)
 - sentViewdefs: (backend) Map of session ID to set of sent viewdef keys
+- symlinkTargets: (backend) Map of symlink paths to their resolved target directories
+- watchedDirs: (backend) Set of directories currently being watched
 
 ### Does
 - store: Add or replace viewdef by TYPE.NAMESPACE key
@@ -26,6 +28,8 @@
 - startWatching: (backend) Start file watcher for viewdef directory
 - stopWatching: (backend) Stop file watcher
 - handleFileChange: (backend) Reload viewdef, queue re-push for sessions that received it
+- resolveSymlinks: (backend) Scan viewdef directory for symlinks, resolve and watch target directories
+- updateSymlinkWatches: (backend) When symlinks change, update watched directories accordingly
 - rerenderViewsForKey: (frontend) Query `[data-ui-viewdef="KEY"]`, call rerender() on each
 
 ## Collaborators
@@ -43,10 +47,11 @@
 
 When hot-loading is enabled:
 1. File watcher monitors viewdef directory (like LuaHotLoader)
-2. On file change, reload content and update viewdefs map
-3. For each session that has received the changed viewdef (tracked in sentViewdefs):
+2. **Symlink tracking**: See cross-cutting concern "Hot-Loading Symlink Tracking"
+3. On file change, reload content and update viewdefs map
+4. For each session that has received the changed viewdef (tracked in sentViewdefs):
    - Queue a re-push via variable 1's `viewdefs` property with :high priority
-4. This triggers `ws.afterBatch` on connected clients
+5. This triggers `ws.afterBatch` on connected clients
 
 ### Frontend Hot-Reload
 

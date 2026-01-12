@@ -70,9 +70,17 @@ FileWatcher      ViewdefStore       Session        MessageBatcher        Fronten
     |                 |                |                 |                   |                 |               |
 ```
 
+## Symlink Resolution
+
+Symlink handling follows the same pattern as LuaHotLoader (see seq-lua-hotload.md "Symlink Resolution Sequence"):
+- If a viewdef file is a symlink, the server also watches the target directory
+- Changes to symlink targets reload as if the symlink file changed
+- See cross-cutting concern "Hot-Loading Symlink Tracking" in design.md
+
 ## Notes
 
 - Backend file watcher uses same pattern as LuaHotLoader
+- **Symlink tracking**: All hot-loading follows the same symlink resolution pattern
 - Only sessions that have received the viewdef get the update (tracked in sentViewdefs)
 - Push uses variable 1's `viewdefs` property with `:high` priority
 - afterBatch triggers immediate flush to connected clients
