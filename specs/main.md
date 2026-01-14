@@ -180,10 +180,11 @@ When `--hotload` is enabled, the server watches directories for file changes and
 
 For hot-loading to preserve state, Lua code should follow these conventions:
 
-1. **Conditional prototype assignment** - preserve existing prototypes:
+1. **Use session:prototype()** - prototypes are stored in session registry and preserved across reloads:
    ```lua
-   MyApp = MyApp or {type = "MyApp"}
-   MyApp.__index = MyApp
+   MyApp = session:prototype("MyApp", {
+       title = "My Application"
+   })
    ```
 
 2. **Check for existing app** - avoid recreating variable 1:
@@ -193,7 +194,7 @@ For hot-loading to preserve state, Lua code should follow these conventions:
    end
    ```
 
-3. **Instance mutation** - use `session:newVersion()` and `session:needsMutation()` for schema migrations
+3. **Instance mutation** - define a `mutate()` method on the prototype for schema migrations
 
 See `USAGE.md` for complete hot-loading documentation.
 

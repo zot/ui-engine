@@ -149,7 +149,7 @@ All hot-loading features (Lua files, viewdefs, etc.) must track symlinks. See sp
 ## Gaps
 
 ### Incomplete Implementation
-- [ ] `crc-LuaSession.md`: Prototype management API (prototypeRegistry, instanceRegistry, mutationQueue, prototype/create methods, EMPTY sentinel)
+- [x] `crc-LuaSession.md`: Prototype management API (prototypeRegistry, instanceRegistry, mutationQueue, prototype/create methods, EMPTY sentinel)
 
 ### Spec → Design Gaps
 (None currently tracked)

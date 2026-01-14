@@ -73,7 +73,7 @@ session:create(prototype, instance) -- Create a tracked instance (see below)
 
 **Prototype Management:**
 
-The session provides automatic prototype and instance management for hot-loading support:
+The session provides automatic prototype and instance management for hot-loading support. Prototypes are stored in a **session prototype registry** keyed by name, allowing dotted names like `contacts.Contact` to work consistently.
 
 ```lua
 -- Declare a prototype (assign to global for LSP support)
@@ -111,11 +111,14 @@ end
 - The `EMPTY` global (an empty table `{}`) declares a field that starts as nil but is tracked for mutation
   - `session:prototype` removes `EMPTY` values from init after copying, so the field defaults to nil
   - Useful for optional fields that may be added/removed during hot-reload
-- If global `name` is nil: creates new prototype with `type = name` and `__index` set
+- Looks up `name` in the **session prototype registry** (not Lua globals)
+- If not in registry: creates new prototype with `type = name` and `__index` set, stores in registry
 - Adds default `new` method if not already defined: `function(self, instance) return session:create(self, instance) end`
 - Stores a shallow copy of `init` for change detection (with `EMPTY` markers preserved for tracking)
-- If global `name` exists: compares new `init` to stored copy
+- If already in registry: compares new `init` to stored copy
   - If different: updates prototype with new init values, stores new copy, computes removed fields, queues for mutation
+- **Returns** the prototype (for assignment to a global variable)
+- **Dotted names** work consistently: `session:prototype("contacts.Contact", {...})` stores under the key `"contacts.Contact"`
 - **Prototype variables** (shared state like `nextId`) should be assigned separately with guards: `Proto.nextId = Proto.nextId or 0`
 - Methods defined via `function Proto:method()` go on the prototype directly, not in init
 

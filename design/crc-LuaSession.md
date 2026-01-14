@@ -43,10 +43,12 @@
 **Prototype Management (Hot-Loading Support):**
 
 `session:prototype(name, init)`:
-- If global `name` is nil: creates new prototype with `type = name`, `__index` set, default `:new()` method
+- Looks up `name` in `prototypeRegistry` (NOT Lua globals - enables dotted names like `"contacts.Contact"`)
+- If not in registry: creates new prototype with `type = name`, `__index` set, default `:new()` method, stores in registry
 - Stores shallow copy of `init` for change detection (preserves EMPTY markers)
 - Creates instance tracking for this prototype (weak set)
-- If global `name` exists and `init` differs from stored copy: updates prototype in place, computes removed fields, queues for mutation
+- If already in registry and `init` differs from stored copy: updates prototype in place, computes removed fields, queues for mutation
+- **Returns the prototype** (caller assigns to global: `Person = session:prototype("Person", {...})`)
 - EMPTY global (`{}`) marks fields that start nil but are tracked for mutation
 
 `session:create(prototype, instance)`:
@@ -87,7 +89,8 @@
 - **Server Owns Sessions**: Server maintains `luaSessions map[string]*LuaSession` and creates/destroys sessions via callbacks
 - **Implements PathVariableHandler**: Server routes HandleFrontendCreate/Update to per-session LuaSession
 - **Hot-Loading Support**: Automatic prototype and instance management:
-  - `session:prototype(name, init)` - declare/update prototype with instance field tracking
+  - `session:prototype(name, init)` - declare/update prototype, returns it for local assignment
+  - Prototypes stored in session registry (not globals), enabling dotted names like `"contacts.Contact"`
   - `session:create(prototype, instance)` - create tracked instance with weak reference
   - `Prototype:mutate()` - optional migration method called automatically on instances
   - Post-load processing iterates mutation queue, calls mutate(), nils removed fields

@@ -748,11 +748,15 @@ func (r *Runtime) addGoSessionMethods(L *lua.LState, session *lua.LTable, vended
 
 // prototypeImpl implements session:prototype(name, init).
 // Creates or updates a prototype with automatic change detection and mutation queueing.
+// Uses prototypeRegistry for lookup (not Lua globals), enabling dotted names like "contacts.Contact".
+// Returns the prototype for the caller to assign to a global.
 func (r *Runtime) prototypeImpl(L *lua.LState, name string, init *lua.LTable) *lua.LTable {
-	existing := L.GetGlobal(name)
 	empty := L.GetGlobal("EMPTY")
 
-	if existing == lua.LNil {
+	// Look up in prototype registry (NOT Lua globals)
+	info := r.prototypeRegistry[name]
+
+	if info == nil {
 		// Create new prototype
 		var prototype *lua.LTable
 		if init != nil {
@@ -786,7 +790,7 @@ func (r *Runtime) prototypeImpl(L *lua.LState, name string, init *lua.LTable) *l
 		// Remove EMPTY values from prototype (they should default to nil)
 		r.removeEmptyValues(L, prototype, empty)
 
-		// Register prototype
+		// Register prototype in registry
 		r.prototypeRegistry[name] = &prototypeInfo{
 			prototype:  prototype,
 			storedInit: storedInit,
@@ -795,36 +799,14 @@ func (r *Runtime) prototypeImpl(L *lua.LState, name string, init *lua.LTable) *l
 		// Initialize instance tracking for this prototype
 		r.instanceRegistry[prototype] = nil
 
-		// Set global
-		L.SetGlobal(name, prototype)
 		return prototype
 	}
 
-	// Prototype already exists
-	prototype, ok := existing.(*lua.LTable)
-	if !ok {
-		r.Log(1, "LuaRuntime: prototype %s exists but is not a table", name)
-		return nil
-	}
+	// Prototype already exists in registry
+	prototype := info.prototype
 
 	// If init is nil, just return existing prototype (no update)
 	if init == nil {
-		return prototype
-	}
-
-	// Compare init with stored copy
-	info := r.prototypeRegistry[name]
-	if info == nil {
-		// Prototype exists but wasn't registered via session:prototype
-		// Register it now
-		storedInit := r.copyInitTable(L, init, empty)
-		r.prototypeRegistry[name] = &prototypeInfo{
-			prototype:  prototype,
-			storedInit: storedInit,
-		}
-		if r.instanceRegistry[prototype] == nil {
-			r.instanceRegistry[prototype] = nil
-		}
 		return prototype
 	}
 
