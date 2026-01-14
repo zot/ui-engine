@@ -16,6 +16,11 @@ import (
 // DebugDataProvider is called to get variable data for the debug page.
 type DebugDataProvider func(sessionID string) ([]DebugVariable, error)
 
+// RootSessionProvider returns the session ID to use for the root path "/".
+// If it returns an empty string, the default behavior (create new session and redirect) is used.
+// If it returns a session ID, index.html is served with a session cookie set.
+type RootSessionProvider func() string
+
 // DebugVariable represents a variable for the debug tree view.
 type DebugVariable struct {
 	ID         int64             `json:"id"`
@@ -29,13 +34,14 @@ type DebugVariable struct {
 
 // HTTPEndpoint handles HTTP requests.
 type HTTPEndpoint struct {
-	sessions          *session.Manager
-	handler           *protocol.Handler
-	wsEndpoint        *WebSocketEndpoint
-	staticDir         string
-	embeddedSite      fs.FS
-	mux               *http.ServeMux
-	debugDataProvider DebugDataProvider
+	sessions            *session.Manager
+	handler             *protocol.Handler
+	wsEndpoint          *WebSocketEndpoint
+	staticDir           string
+	embeddedSite        fs.FS
+	mux                 *http.ServeMux
+	debugDataProvider   DebugDataProvider
+	rootSessionProvider RootSessionProvider
 }
 
 // NewHTTPEndpoint creates a new HTTP endpoint.
@@ -65,6 +71,12 @@ func (h *HTTPEndpoint) SetDebugDataProvider(provider DebugDataProvider) {
 	h.debugDataProvider = provider
 }
 
+// SetRootSessionProvider sets a provider for the root path "/" session.
+// If the provider returns a session ID, that session is used instead of creating a new one.
+func (h *HTTPEndpoint) SetRootSessionProvider(provider RootSessionProvider) {
+	h.rootSessionProvider = provider
+}
+
 // setupRoutes configures HTTP routes.
 func (h *HTTPEndpoint) setupRoutes() {
 	h.mux.HandleFunc("/", h.handleRoot)
@@ -82,8 +94,18 @@ func (h *HTTPEndpoint) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 func (h *HTTPEndpoint) handleRoot(w http.ResponseWriter, r *http.Request) {
 	path := r.URL.Path
 
-	// Root path - create new session and redirect
+	// Root path handling
 	if path == "/" {
+		// Check for custom root session provider (e.g., ui-mcp)
+		if h.rootSessionProvider != nil {
+			if sessionID := h.rootSessionProvider(); sessionID != "" {
+				// Serve index.html with session cookie (no redirect)
+				h.setSessionCookie(w, sessionID)
+				h.serveStatic(w, r, "index.html")
+				return
+			}
+		}
+		// Default: create new session and redirect
 		sess, _, err := h.sessions.CreateSession()
 		if err != nil {
 			http.Error(w, "Failed to create session", http.StatusInternalServerError)
@@ -100,6 +122,8 @@ func (h *HTTPEndpoint) handleRoot(w http.ResponseWriter, r *http.Request) {
 
 	// Check if this is a valid session
 	if h.sessions.SessionExists(sessionID) {
+		// Set session cookie for this session
+		h.setSessionCookie(w, sessionID)
 		// Check for /SESSION-ID/variables debug endpoint
 		if len(parts) > 1 && parts[1] == "variables" {
 			h.handleDebugVariables(w, r, sessionID)
@@ -112,6 +136,17 @@ func (h *HTTPEndpoint) handleRoot(w http.ResponseWriter, r *http.Request) {
 
 	// Not a session path - serve static file
 	h.serveStatic(w, r, strings.TrimPrefix(path, "/"))
+}
+
+// setSessionCookie sets the ui-session cookie.
+func (h *HTTPEndpoint) setSessionCookie(w http.ResponseWriter, sessionID string) {
+	http.SetCookie(w, &http.Cookie{
+		Name:     "ui-session",
+		Value:    sessionID,
+		Path:     "/",
+		HttpOnly: false, // JS needs to read it
+		SameSite: http.SameSiteLaxMode,
+	})
 }
 
 // serveStatic serves a static file.

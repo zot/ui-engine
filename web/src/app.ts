@@ -7,6 +7,7 @@ import { BindingEngine } from './binding';
 import { Message } from './protocol';
 import { ViewdefStore } from './viewdef_store';
 import { AppView, findAppElement, createAppView } from './app_view';
+import { getSessionIdFromLocation } from './router';
 
 export class UIApp {
   private connection: Connection;
@@ -29,13 +30,9 @@ export class UIApp {
   }
 
   private extractSessionId(): string {
-    // Extract session ID from URL path: /SESSION-ID/...
-    const path = window.location.pathname;
-    const parts = path.split('/').filter(Boolean);
-    if (parts.length > 0) {
-      return parts[0];
-    }
-    throw new Error('No session ID in URL');
+    // Extract session ID from cookie or URL path
+    // Cookie takes precedence (set by server for root session binding)
+    return getSessionIdFromLocation();
   }
 
   async initialize(): Promise<void> {

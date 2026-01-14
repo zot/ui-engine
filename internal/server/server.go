@@ -402,6 +402,13 @@ func (s *Server) SetSiteFS(siteFS fs.FS) {
 	s.httpEndpoint.SetEmbeddedSite(siteFS)
 }
 
+// SetRootSessionProvider sets a provider for the root path "/" session.
+// If the provider returns a session ID, that session is used instead of creating a new one.
+// This allows MCP-style servers to serve an existing session at "/" without redirect.
+func (s *Server) SetRootSessionProvider(provider RootSessionProvider) {
+	s.httpEndpoint.SetRootSessionProvider(provider)
+}
+
 // serverMessageSender implements protocol.MessageSender.
 type serverMessageSender struct {
 	server *Server

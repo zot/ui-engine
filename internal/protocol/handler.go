@@ -273,7 +273,14 @@ func (h *Handler) handleWatch(connectionID string, data json.RawMessage) (*Respo
 		}
 	}
 
+	if b == nil {
+		return nil, fmt.Errorf("no backend for connection %s", connectionID)
+	}
+
 	v := b.GetTracker().GetVariable(msg.VarID)
+	if v == nil {
+		return nil, fmt.Errorf("variable %d not found", msg.VarID)
+	}
 
 	// Send current value immediately
 	//props := v.Properties

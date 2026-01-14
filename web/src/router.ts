@@ -89,13 +89,29 @@ export function parseUrl(urlPath: string): { sessionId: string; path: string } {
 }
 
 /**
- * Extract session ID from current window location.
+ * Get session ID from cookie.
+ * Returns empty string if cookie not found.
+ */
+function getSessionIdFromCookie(): string {
+  const match = document.cookie.match(/(?:^|; )ui-session=([^;]*)/);
+  return match ? match[1] : '';
+}
+
+/**
+ * Extract session ID from cookie or URL.
+ * Cookie takes precedence (set by server).
  * Throws if no session ID found.
  */
 export function getSessionIdFromLocation(): string {
+  // Cookie takes precedence (always set by server)
+  const cookieSessionId = getSessionIdFromCookie();
+  if (cookieSessionId) {
+    return cookieSessionId;
+  }
+  // Fall back to URL path
   const { sessionId } = parseUrl(window.location.pathname);
   if (!sessionId) {
-    throw new Error('No session ID in URL');
+    throw new Error('No session ID in URL or cookie');
   }
   return sessionId;
 }

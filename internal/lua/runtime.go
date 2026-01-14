@@ -1199,13 +1199,18 @@ func (r *Runtime) AfterBatch(vendedID string) []VariableUpdate {
 	}
 
 	v1 := tracker.GetVariable(1)
+	if v1 == nil {
+		return nil
+	}
 	var sending changetracker.Change
 
 	// Load viewdefs for any new types encountered
 	for _, change := range changes {
 		if slices.Contains(change.PropertiesChanged, "type") {
-			typ := tracker.GetVariable(change.VariableID).Properties["type"]
-			r.viewdefManager.LoadViewdefsForType(typ)
+			if v := tracker.GetVariable(change.VariableID); v != nil {
+				typ := v.Properties["type"]
+				r.viewdefManager.LoadViewdefsForType(typ)
+			}
 		}
 		if change.VariableID == 1 && slices.Contains(change.PropertiesChanged, "viewdefs") {
 			sending = change
