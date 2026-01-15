@@ -1,6 +1,6 @@
 # ui-engine
 
-**Build reactive web UIs with just backend code and HTML templates.**
+**Build reactive desktop UIs with just backend code and HTML templates.**
 
 No frontend JavaScript. No API layers. No state management boilerplate. Define your domain and presentation objects in backend code, add HTML templates with declarative bindings, and ui-engine handles the rest.
 
@@ -65,6 +65,15 @@ See [demo/README.md](demo/README.md) for details.
 - **Hot-reloading** — edit templates, see changes instantly
 - **ViewList** — automatic presenter wrapping for collections
 - **Namespace system** — multiple views per type (list-item, detail, etc.)
+
+## Best For
+
+- **Desktop applications** — Electron-style apps without the complexity
+- **Internal tools** — Admin panels, dashboards, dev tools
+- **Kiosk/embedded UIs** — Local displays, point-of-sale, industrial HMI
+- **Rapid prototyping** — Get from idea to working UI in minutes
+
+The reactive WebSocket architecture assumes low latency between client and server, making it ideal for local or LAN deployments rather than internet-scale web apps.
 
 ## Current Focus
 

@@ -9,6 +9,20 @@ const READ_ONLY_WITH_VALUE = {
   'SL-BADGE': true
 }
 
+// Elements that don't resize when their content changes
+// These should NOT trigger parent scroll notifications on ui-value updates
+// CRC: crc-ValueBinding.md - Parent Scroll Notifications
+const NON_RESIZING_ELEMENTS = new Set([
+  'INPUT', 'TEXTAREA', 'SL-INPUT', 'SL-TEXTAREA'
+])
+
+// Check if element triggers parent scroll notifications on content update
+// Content-resizable elements (span, div, etc.) trigger scroll, input elements don't
+// CRC: crc-ValueBinding.md - Parent Scroll Notifications
+function triggersParentScroll(element: Element): boolean {
+  return !NON_RESIZING_ELEMENTS.has(element.tagName)
+}
+
 export interface PathOptions {
   create?: string
   wrapper?: string
@@ -417,6 +431,10 @@ export class BindingEngine {
       }
     }
 
+    // Check if element is content-resizable (triggers parent scroll on value update)
+    // CRC: crc-ValueBinding.md - Parent Scroll Notifications
+    const shouldNotifyParentScroll = triggersParentScroll(element)
+
     const update = editableValue
       ? (value: unknown) => {
           const el = document.getElementById(elementId)
@@ -428,12 +446,21 @@ export class BindingEngine {
             (el as any).value = value?.toString() ?? ''
           }
           scrollToBottom()
+          // Content-resizable elements notify parent for scrollOnOutput
+          // Input elements don't resize so they don't trigger parent scroll
+          if (shouldNotifyParentScroll) {
+            this.addScrollNotification(varId)
+          }
         }
       : (value: unknown) => {
           const el = document.getElementById(elementId)
           if (!el) return
           el.textContent = value?.toString() ?? ''
           scrollToBottom()
+          // Content-resizable elements notify parent for scrollOnOutput
+          if (shouldNotifyParentScroll) {
+            this.addScrollNotification(varId)
+          }
         }
 
     // Handle error state changes - add/remove ui-error class and ui-error-* attributes

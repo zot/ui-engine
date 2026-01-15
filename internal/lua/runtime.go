@@ -704,12 +704,16 @@ func (r *Runtime) addGoSessionMethods(L *lua.LState, session *lua.LTable, vended
 	}))
 
 	// prototype - declare/update a prototype with instance field tracking
-	// session:prototype(name, init) -> prototype table
+	// session:prototype(name, init, base) -> prototype table
 	L.SetField(session, "prototype", L.NewFunction(func(L *lua.LState) int {
 		name := L.CheckString(2)
 		var init *lua.LTable
 		if L.GetTop() >= 3 && L.Get(3) != lua.LNil {
 			init = L.CheckTable(3)
+		}
+		var base *lua.LTable
+		if L.GetTop() >= 4 && L.Get(4) != lua.LNil {
+			base = L.CheckTable(4)
 		}
 
 		luaSess, ok := r.GetLuaSession(vendedID)
@@ -718,7 +722,7 @@ func (r *Runtime) addGoSessionMethods(L *lua.LState, session *lua.LTable, vended
 			return 1
 		}
 
-		prototype := luaSess.prototypeImpl(L, name, init)
+		prototype := luaSess.prototypeImpl(L, name, init, base)
 		L.Push(prototype)
 		return 1
 	}))
@@ -746,12 +750,20 @@ func (r *Runtime) addGoSessionMethods(L *lua.LState, session *lua.LTable, vended
 	}))
 }
 
-// prototypeImpl implements session:prototype(name, init).
+// prototypeImpl implements session:prototype(name, init, base).
 // Creates or updates a prototype with automatic change detection and mutation queueing.
 // Uses prototypeRegistry for lookup (not Lua globals), enabling dotted names like "contacts.Contact".
+// If base is nil, defaults to registered "Object" prototype (if exists).
 // Returns the prototype for the caller to assign to a global.
-func (r *Runtime) prototypeImpl(L *lua.LState, name string, init *lua.LTable) *lua.LTable {
+func (r *Runtime) prototypeImpl(L *lua.LState, name string, init *lua.LTable, base *lua.LTable) *lua.LTable {
 	empty := L.GetGlobal("EMPTY")
+
+	// Resolve base prototype: use provided base, or default to "Object" if registered
+	if base == nil {
+		if objectInfo := r.prototypeRegistry["Object"]; objectInfo != nil {
+			base = objectInfo.prototype
+		}
+	}
 
 	// Look up in prototype registry (NOT Lua globals)
 	info := r.prototypeRegistry[name]
@@ -765,23 +777,28 @@ func (r *Runtime) prototypeImpl(L *lua.LState, name string, init *lua.LTable) *l
 			prototype = L.NewTable()
 		}
 
-		// Set type and __index
+		// Set type and __index for instance method lookup
 		L.SetField(prototype, "type", lua.LString(name))
 		L.SetField(prototype, "__index", prototype)
 
-		// Add default new method if not defined
-		if L.GetField(prototype, "new") == lua.LNil {
-			L.SetField(prototype, "new", L.NewFunction(func(L *lua.LState) int {
-				var instance *lua.LTable
-				if L.GetTop() >= 2 && L.Get(2) != lua.LNil {
-					instance = L.CheckTable(2)
-				} else {
-					instance = L.NewTable()
-				}
-				r.createInstance(L, prototype, instance)
-				L.Push(instance)
-				return 1
-			}))
+		// Set up inheritance chain if base exists
+		if base != nil {
+			L.SetMetatable(prototype, base)
+		} else {
+			// Add default new method only if no base (base provides :new() via inheritance)
+			if L.GetField(prototype, "new") == lua.LNil {
+				L.SetField(prototype, "new", L.NewFunction(func(L *lua.LState) int {
+					var instance *lua.LTable
+					if L.GetTop() >= 2 && L.Get(2) != lua.LNil {
+						instance = L.CheckTable(2)
+					} else {
+						instance = L.NewTable()
+					}
+					r.createInstance(L, prototype, instance)
+					L.Push(instance)
+					return 1
+				}))
+			}
 		}
 
 		// Store shallow copy of init for change detection

@@ -67,7 +67,7 @@ session:destroyVariable(id)
 session:log(level, message)
 
 -- Prototype management (hot-loading support)
-session:prototype(name, init) -- Declare/update a prototype (see below)
+session:prototype(name, init, base) -- Declare/update a prototype (see below)
 session:create(prototype, instance) -- Create a tracked instance (see below)
 ```
 
@@ -104,16 +104,26 @@ function Person:mutate()
         self.fullName = nil
     end
 end
+
+-- Prototype inheritance: Employee inherits from Person
+Employee = session:prototype("Employee", {
+    department = "",
+    title = "",
+}, Person)  -- Third argument specifies base prototype
 ```
 
-**`session:prototype(name, init)` behavior:**
+**`session:prototype(name, init, base)` behavior:**
 - `init` **declares instance fields** with their default values — only fields in `init` are tracked for mutation
 - The `EMPTY` global (an empty table `{}`) declares a field that starts as nil but is tracked for mutation
   - `session:prototype` removes `EMPTY` values from init after copying, so the field defaults to nil
   - Useful for optional fields that may be added/removed during hot-reload
+- `base` is an optional third argument specifying the base prototype to inherit from
+  - If `nil`, defaults to the registered "Object" prototype from the session prototype registry (if one exists)
+  - If `nil` and no "Object" prototype is registered, the prototype's metatable is not set
+  - Allows prototype inheritance: the prototype's metatable is set to base
 - Looks up `name` in the **session prototype registry** (not Lua globals)
-- If not in registry: creates new prototype with `type = name` and `__index` set, stores in registry
-- Adds default `new` method if not already defined: `function(self, instance) return session:create(self, instance) end`
+- If not in registry: creates new prototype with `type = name`, sets metatable to resolved base (if any), stores in registry
+- Adds default `new` method only if no metatable (base inherits `:new()`): `function(self, instance) return session:create(self, instance) end`
 - Stores a shallow copy of `init` for change detection (with `EMPTY` markers preserved for tracking)
 - If already in registry: compares new `init` to stored copy
   - If different: updates prototype with new init values, stores new copy, computes removed fields, queues for mutation
@@ -147,7 +157,7 @@ The Lua runtime automatically watches the `lua` property on variable 1. When upd
 
 Lua types follow a convention that enables frictionless development:
 
-1. **Use `session:prototype()`**: Declares instance fields, handles `type`, `__index`, and default `:new()` automatically
+1. **Use `session:prototype()`**: Declares instance fields, handles `type`, metatable, and default `:new()` automatically
 2. **Override `:new()` only when needed**: Default `:new()` calls `session:create()` for instance tracking
 3. **Auto-extraction**: `createAppVariable` and `createVariable` automatically extract the type from the object's `type` field
 
@@ -284,9 +294,11 @@ The frontend library connects to the UI server and supports remote UIs:
 - This applies to `<input>`, `<textarea>`, `<sl-input>`, and `<sl-textarea>`
 
 **Auto-scroll behavior:**
-- Add `scrollOnOutput` property to auto-scroll an element to the bottom when its value updates: `ui-value="log?scrollOnOutput"`
+- Add `scrollOnOutput` property to auto-scroll an element to the bottom when child content changes: `ui-value="log?scrollOnOutput"`
 - Useful for log viewers, chat windows, or streaming content containers
 - Only scrolls if the element has overflow (is scrollable)
+- **Parent scroll trigger:** When `ui-value` updates a content-resizable element (span, div, p, etc.), it triggers scroll on the nearest ancestor with `scrollOnOutput`
+- **No parent scroll:** Input elements (input, textarea, sl-input, sl-textarea) don't trigger parent scroll since they have fixed dimensions
 
 **Shoelace widget bindings:**
 - Input: `ui-value`, `ui-disabled`

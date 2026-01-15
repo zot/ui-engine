@@ -405,9 +405,16 @@ When updated viewdefs arrive (viewdefs that were already sent):
 
 **Render notifications (for scrollOnOutput):**
 
-When a view or viewlist item renders, it may need to trigger scrolling on an ancestor with `scrollOnOutput`. This is batched to avoid multiple scrolls during a single update cycle.
+When content changes may affect an element's size, it may need to trigger scrolling on an ancestor with `scrollOnOutput`. This is batched to avoid multiple scrolls during a single update cycle.
 
-1. **After rendering:** A view adds its parent variable ID to a global `pendingScrollNotifications` set
+**Triggers for scroll notifications:**
+- View or viewlist item renders
+- `ui-value` updates a **content-resizable element** (span, div, p, etc.) - elements whose size changes when their text content changes
+
+**Non-triggers:**
+- `ui-value` updates an **input element** (input, textarea, sl-input, sl-textarea) - these have fixed dimensions regardless of content
+
+1. **After content change:** The binding adds its parent variable ID to a global `pendingScrollNotifications` set
 2. **After batch completes:** The BindingEngine processes using current/next pattern:
    - `current` = pendingScrollNotifications, `next` = empty set
    - While `current` is not empty:

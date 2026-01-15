@@ -70,7 +70,10 @@ Every binding type (`ui-value`, `ui-attr-*`, `ui-view`, `ui-viewlist`, etc.) cre
 `scrollOnOutput` is a **universal path property** supported by all binding types (see crc-BindingEngine.md). Since any element could be a scroll container via CSS, this property applies to the widget, not the variable.
 
 When `scrollOnOutput` is set on a widget (via path property like `?scrollOnOutput`):
-1. Child Views/ViewLists notify their parent after rendering
+1. Child content changes trigger scroll notifications:
+   - Views/ViewLists notify their parent after rendering
+   - `ui-value` updates on content-resizable elements (span, div, p, etc.) notify their parent
+   - Input elements (input, textarea, sl-input, sl-textarea) do NOT notify (fixed dimensions)
 2. Notifications bubble up through the variable hierarchy
 3. When a widget with `scrollOnOutput` is found, it calls `scrollToBottom()`
 4. Bubbling stops at the scrolling widget

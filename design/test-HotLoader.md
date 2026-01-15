@@ -580,3 +580,290 @@ local b = Bad:new()
 - fsnotify: Event handling, error handling
 
 **Gaps**: None identified
+
+---
+
+## Viewdef HotLoader Tests
+
+**Source Specs**: viewdefs.md (Hot-reload re-rendering), main.md (Hot-Loading System)
+**CRC Cards**: crc-ViewdefStore.md
+**Sequences**: seq-viewdef-hotload.md
+**Implementation**: `internal/viewdef/hotloader_test.go`
+
+### Test: Initialize viewdef hot loader
+
+**Purpose**: Verify viewdef hot loader creation with watcher
+
+**Input**:
+- NewHotLoader(config, viewdefDir, manager, sessions)
+
+**References**:
+- CRC: crc-ViewdefStore.md - "Knows: fileWatcher"
+
+**Expected Results**:
+- HotLoader instance created
+- fsnotify watcher initialized
+- viewdefDir stored correctly
+- manager and sessions callbacks stored
+
+---
+
+### Test: Start watching viewdef directory
+
+**Purpose**: Verify watcher starts monitoring viewdef directory
+
+**Input**:
+- hotLoader.Start()
+
+**References**:
+- CRC: crc-ViewdefStore.md - "Does: startWatching"
+- Sequence: seq-viewdef-hotload.md
+
+**Expected Results**:
+- Viewdef directory added to watch list
+- Event loop started
+- Debounce loop started
+- Log message indicates watching started
+
+---
+
+### Test: Detect .html file modification
+
+**Purpose**: Verify write events trigger reload
+
+**Input**:
+- Modify existing viewdefs/Contact.html file
+
+**References**:
+- CRC: crc-ViewdefStore.md - "Does: handleFileChange"
+- Sequence: seq-viewdef-hotload.md
+
+**Expected Results**:
+- Write event detected
+- File queued for reload
+- Only .html files processed
+
+---
+
+### Test: Ignore non-html files
+
+**Purpose**: Verify only .html files are processed
+
+**Input**:
+- Modify viewdefs/styles.css
+- Modify viewdefs/data.json
+
+**References**:
+- CRC: crc-ViewdefStore.md - "Does: handleFileChange"
+
+**Expected Results**:
+- Events ignored
+- No reload triggered
+- No errors logged
+
+---
+
+### Test: Scan for existing viewdef symlinks on start
+
+**Purpose**: Verify symlinks are detected during initialization
+
+**Input**:
+- viewdefs/Contact.html -> ../shared/Contact.html (symlink)
+- hotLoader.Start()
+
+**References**:
+- CRC: crc-ViewdefStore.md - "Does: resolveSymlinks"
+- CRC: crc-ViewdefStore.md - "Knows: symlinkTargets"
+
+**Expected Results**:
+- Symlink resolved to target
+- Target directory added to watch list
+- symlinkTargets map updated
+
+---
+
+### Test: Watch viewdef symlink target directory
+
+**Purpose**: Verify changes to symlink targets are detected
+
+**Input**:
+- viewdefs/Contact.html -> /real/path/Contact.html
+- Modify /real/path/Contact.html
+
+**References**:
+- CRC: crc-ViewdefStore.md - "Does: handleFileChange"
+- Sequence: seq-viewdef-hotload.md
+
+**Expected Results**:
+- Change detected in target directory
+- Resolved back to viewdefs/Contact.html
+- Reloaded as Contact (not /real/path/Contact)
+
+---
+
+### Test: Viewdef reference counting for shared targets
+
+**Purpose**: Verify multiple symlinks to same directory share watch
+
+**Input**:
+- viewdefs/A.html -> /shared/A.html
+- viewdefs/B.html -> /shared/B.html
+- Remove viewdefs/A.html
+
+**References**:
+- CRC: crc-ViewdefStore.md - "Knows: watchedDirs"
+
+**Expected Results**:
+- /shared/ watched once (refcount=2)
+- After removing A.html, refcount=1
+- /shared/ still watched (B.html needs it)
+
+---
+
+### Test: Debounce rapid viewdef changes
+
+**Purpose**: Verify multiple rapid changes result in single reload
+
+**Input**:
+- Modify viewdefs/Contact.html 5 times within 50ms
+
+**References**:
+- CRC: crc-ViewdefStore.md - "Does: handleFileChange"
+
+**Expected Results**:
+- Only one reload triggered
+- Reload occurs after debounce delay (100ms)
+- No duplicate reloads
+
+---
+
+### Test: Push only to sessions that received viewdef
+
+**Purpose**: Verify updates only go to affected sessions
+
+**Input**:
+- 3 active sessions
+- Session 1 and 2 have received Contact viewdef
+- Session 3 has not
+- Modify viewdefs/Contact.html
+
+**References**:
+- CRC: crc-ViewdefStore.md - "Knows: sentViewdefs"
+- CRC: crc-ViewdefStore.md - "Does: handleFileChange"
+- Sequence: seq-viewdef-hotload.md
+
+**Expected Results**:
+- Sessions 1 and 2 receive push
+- Session 3 does not receive push
+- Push includes updated viewdef content
+
+---
+
+### Test: Update viewdef manager on reload
+
+**Purpose**: Verify viewdef manager gets updated content
+
+**Input**:
+- Modify viewdefs/Contact.html
+
+**References**:
+- CRC: crc-ViewdefStore.md - "Does: handleFileChange"
+- CRC: crc-ViewdefStore.md - "Collaborators: ViewdefManager"
+
+**Expected Results**:
+- manager.updateViewdef() called
+- Viewdef key derived from filename (Contact)
+- New content stored in manager
+
+---
+
+### Test: Viewdef graceful shutdown
+
+**Purpose**: Verify Stop cleans up resources
+
+**Input**:
+- hotLoader.Stop()
+
+**References**:
+- CRC: crc-ViewdefStore.md - "Does: stopWatching"
+
+**Expected Results**:
+- done channel closed
+- Event loop exits
+- Debounce loop exits
+- Watcher closed
+- No goroutine leaks
+
+---
+
+### Test: Viewdef shutdown with pending reloads
+
+**Purpose**: Verify pending reloads are discarded on shutdown
+
+**Input**:
+- Modify viewdefs/Contact.html
+- Immediately call Stop() (before debounce fires)
+
+**References**:
+- CRC: crc-ViewdefStore.md - "Does: stopWatching"
+
+**Expected Results**:
+- Stop completes cleanly
+- Pending reload discarded
+- No race conditions
+
+---
+
+### Test: Handle deleted viewdef file
+
+**Purpose**: Verify deleted files don't cause errors
+
+**Input**:
+- Modify viewdefs/Contact.html
+- Delete viewdefs/Contact.html before debounce fires
+
+**References**:
+- CRC: crc-ViewdefStore.md - "Does: handleFileChange"
+
+**Expected Results**:
+- File read fails
+- Error logged
+- No crash
+- Continue processing other files
+
+---
+
+### Test: Resolve viewdef reload path for symlink target
+
+**Purpose**: Verify symlink target changes resolve to symlink path
+
+**Input**:
+- viewdefs/Contact.html -> /real/path/Contact.html
+- Modify /real/path/Contact.html
+
+**References**:
+- CRC: crc-ViewdefStore.md - "Does: handleFileChange"
+
+**Expected Results**:
+- Changed path is /real/path/Contact.html
+- Resolved to viewdefs/Contact.html
+- Viewdef key is "Contact"
+
+---
+
+## Viewdef Coverage Summary
+
+**Responsibilities Covered:**
+- ViewdefStore Knows: fileWatcher, sentViewdefs, symlinkTargets, watchedDirs
+- ViewdefStore Does: startWatching, stopWatching, handleFileChange, resolveSymlinks, updateSymlinkWatches
+
+**Scenarios Covered:**
+- seq-viewdef-hotload.md: File change detection, debouncing, selective session push
+
+**Collaborators Tested:**
+- ViewdefManager: updateViewdef() integration
+- SessionPusher: PushViewdefs() calls, GetSessionIDs() calls
+- Config: verbosity logging
+- fsnotify: Event handling, error handling
+
+**Gaps**: None identified

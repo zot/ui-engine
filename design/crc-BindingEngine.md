@@ -291,10 +291,16 @@ Widget is the sole owner of all bindings for an element. There is no separate Bi
 
 ## Scroll Notification Processing
 
-When Views/ViewLists render, they notify the BindingEngine so ancestor widgets with `scrollOnOutput` can scroll. This is batched to avoid multiple scrolls during a single update cycle.
+When content changes may affect element size, the BindingEngine is notified so ancestor widgets with `scrollOnOutput` can scroll. This is batched to avoid multiple scrolls during a single update cycle.
+
+**Triggers for scroll notifications:**
+- Views/ViewLists call `addScrollNotification(parentVarId)` after rendering
+- ValueBinding calls `addScrollNotification(parentVarId)` after updating **content-resizable elements** (span, div, p, etc.)
+
+**Non-triggers (do NOT add scroll notifications):**
+- ValueBinding updates to **input elements** (input, textarea, sl-input, sl-textarea) - these have fixed dimensions regardless of content
 
 **Adding notifications:**
-- Views/ViewLists call `addScrollNotification(parentVarId)` after rendering
 - The variable ID is added to `pendingScrollNotifications` set
 
 **Processing notifications (after batch completes):**

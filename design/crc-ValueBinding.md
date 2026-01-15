@@ -201,6 +201,42 @@ if (pathOptions.scrollOnOutput) {
 - Scroll happens after DOM update to ensure accurate scrollHeight
 - Works with any element that can have overflow (div, pre, textarea, etc.)
 
+## Parent Scroll Notifications
+
+When `ui-value` updates an element, it may trigger scrolling on an ancestor widget with `scrollOnOutput`. This depends on whether the element resizes when its content changes.
+
+**Content-resizable elements** (trigger parent scroll):
+- `<span>`, `<div>`, `<p>`, `<pre>`, `<label>`, etc.
+- These elements resize when their text content changes
+- After applying the value, call `bindingEngine.addScrollNotification(parentVarId)`
+
+**Fixed-size input elements** (do NOT trigger parent scroll):
+- `<input>`, `<textarea>`, `<sl-input>`, `<sl-textarea>`
+- These have fixed dimensions regardless of content value
+- Do not add scroll notification after value update
+
+**Detection:**
+```typescript
+const NON_RESIZING_ELEMENTS = new Set(['input', 'textarea', 'sl-input', 'sl-textarea']);
+
+function triggersParentScroll(element: Element): boolean {
+  return !NON_RESIZING_ELEMENTS.has(element.tagName.toLowerCase());
+}
+```
+
+**Implementation in update handler:**
+```typescript
+// After applying value to element
+if (triggersParentScroll(element)) {
+  bindingEngine.addScrollNotification(this.childVariable.parentId);
+}
+```
+
+**Rationale:**
+- Content-resizable elements may grow/shrink, potentially pushing content below the viewport
+- An ancestor scroll container with `scrollOnOutput` should scroll to show new content
+- Input elements don't resize, so updating them doesn't affect layout
+
 ## ui-keypress Attribute
 
 The `ui-keypress` attribute is a shorthand for `ui-value` with the `keypress` option:

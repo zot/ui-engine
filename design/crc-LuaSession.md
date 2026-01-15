@@ -33,7 +33,7 @@
 - ExecuteInSession: Execute function within session context (sets global 'session')
 - AfterBatch: Trigger change detection and return updates after message batch
 - Shutdown: Close executor channel, clean up Lua state
-- prototype(name, init): Declare/update prototype with instance field tracking (see below)
+- prototype(name, init, base): Declare/update prototype with instance field tracking (see below)
 - create(prototype, instance): Create tracked instance with weak reference (see below)
 - processMutationQueue: Process queued prototypes after file load (see seq-prototype-mutation.md)
 - RequireLuaFile(filename): Load Lua file using unified load tracker (skips if already loaded)
@@ -42,9 +42,11 @@
 
 **Prototype Management (Hot-Loading Support):**
 
-`session:prototype(name, init)`:
+`session:prototype(name, init, base)`:
+- `base` is optional; if nil, defaults to registered "Object" prototype (if exists), otherwise no metatable
 - Looks up `name` in `prototypeRegistry` (NOT Lua globals - enables dotted names like `"contacts.Contact"`)
-- If not in registry: creates new prototype with `type = name`, `__index` set, default `:new()` method, stores in registry
+- If not in registry: creates new prototype with `type = name`, metatable set to resolved base (if any), stores in registry
+- Adds default `:new()` only if no metatable (base provides `:new()` via inheritance)
 - Stores shallow copy of `init` for change detection (preserves EMPTY markers)
 - Creates instance tracking for this prototype (weak set)
 - If already in registry and `init` differs from stored copy: updates prototype in place, computes removed fields, queues for mutation
@@ -89,7 +91,8 @@
 - **Server Owns Sessions**: Server maintains `luaSessions map[string]*LuaSession` and creates/destroys sessions via callbacks
 - **Implements PathVariableHandler**: Server routes HandleFrontendCreate/Update to per-session LuaSession
 - **Hot-Loading Support**: Automatic prototype and instance management:
-  - `session:prototype(name, init)` - declare/update prototype, returns it for local assignment
+  - `session:prototype(name, init, base)` - declare/update prototype, returns it for local assignment
+  - `base` optional: defaults to "Object" prototype if registered, otherwise no inheritance
   - Prototypes stored in session registry (not globals), enabling dotted names like `"contacts.Contact"`
   - `session:create(prototype, instance)` - create tracked instance with weak reference
   - `Prototype:mutate()` - optional migration method called automatically on instances
