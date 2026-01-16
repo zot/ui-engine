@@ -68,3 +68,4 @@
 - Caching improves repeated resolution performance
 - **Nullish coalescing:** If any segment resolves to null/undefined, traversal stops and returns null/undefined (no error)
 - **Write direction:** When resolveForWrite encounters nullish intermediate, caller sends `error(varId, 'path-failure', description)` message. UI shows error indicator (e.g., `ui-error` class). Error clears on next successful update.
+- **Read/write methods (Lua only):** Paths ending in `()` with `access=rw` call the method with no args on read, with value arg on write. Uses Lua's optional argument support.

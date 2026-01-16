@@ -35,8 +35,11 @@ Nullish coalescing during path traversal is handled by PathNavigator (see crc-Pa
 - `method(_)` - call with the update message's value as the argument
 
 **Method path access constraints:**
-- Paths ending in `()` must have access `r` or `action`
+- Paths ending in `()` must have access `r`, `action`, or `rw`
 - Paths ending in `(_)` must have access `w` or `action`
+- Paths ending in `()` with `access=rw`: Read/write method (Lua only)
+  - On read: call with no arguments (just `self`)
+  - On write: call with the value as argument
 
 **Path property syntax:**
 

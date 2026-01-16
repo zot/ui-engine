@@ -405,6 +405,85 @@ func TestLuaResolverArrayConversion(t *testing.T) {
 	t.Log("Lua array conversion test passed!")
 }
 
+// TestLuaResolverRWMethod verifies that Call and CallWith work correctly
+// with Lua varargs methods for read/write access patterns.
+// Spec: viewdefs.md (Read/Write Methods section)
+// Design: crc-PathSyntax.md, seq-path-resolve.md
+func TestLuaResolverRWMethod(t *testing.T) {
+	L := golua.NewState()
+	defer L.Close()
+
+	// Create a minimal session for the resolver
+	sess := &LuaSession{State: L}
+	resolver := &LuaResolver{Session: sess}
+
+	// Create a Lua table with a varargs method that acts as getter/setter
+	err := L.DoString(`
+		obj = {
+			_value = "initial"
+		}
+		function obj:value(...)
+			if select('#', ...) > 0 then
+				self._value = select(1, ...)  -- write
+			end
+			return self._value  -- read
+		end
+	`)
+	if err != nil {
+		t.Fatalf("Lua error: %v", err)
+	}
+
+	objTbl := L.GetGlobal("obj").(*golua.LTable)
+
+	// Test 1: Call (read) - should return current value without modifying
+	result, err := resolver.Call(objTbl, "value")
+	if err != nil {
+		t.Fatalf("Call error: %v", err)
+	}
+	if result != "initial" {
+		t.Errorf("Call: expected 'initial', got %v", result)
+	}
+
+	// Verify _value unchanged
+	underlyingVal := L.GetField(objTbl, "_value")
+	if golua.LVAsString(underlyingVal) != "initial" {
+		t.Errorf("_value should still be 'initial' after Call")
+	}
+
+	// Test 2: CallWith (write) - should set the value
+	err = resolver.CallWith(objTbl, "value", "updated")
+	if err != nil {
+		t.Fatalf("CallWith error: %v", err)
+	}
+
+	// Verify _value changed
+	underlyingVal = L.GetField(objTbl, "_value")
+	if golua.LVAsString(underlyingVal) != "updated" {
+		t.Errorf("_value should be 'updated' after CallWith, got %v", golua.LVAsString(underlyingVal))
+	}
+
+	// Test 3: Call again (read) - should return the updated value
+	result, err = resolver.Call(objTbl, "value")
+	if err != nil {
+		t.Fatalf("Call error after write: %v", err)
+	}
+	if result != "updated" {
+		t.Errorf("Call after write: expected 'updated', got %v", result)
+	}
+
+	// Test 4: CallWith with different types
+	err = resolver.CallWith(objTbl, "value", float64(42))
+	if err != nil {
+		t.Fatalf("CallWith with number error: %v", err)
+	}
+	result, _ = resolver.Call(objTbl, "value")
+	if result != float64(42) {
+		t.Errorf("Expected float64(42), got %T(%v)", result, result)
+	}
+
+	t.Log("Lua resolver rw method test passed!")
+}
+
 // =============================================================================
 // Prototype Management Tests
 // Test Design: test-Lua.md (Prototype Management Tests section)

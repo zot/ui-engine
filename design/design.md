@@ -152,9 +152,12 @@ All hot-loading features (Lua files, viewdefs, etc.) must track symlinks. See sp
 - [x] `crc-LuaSession.md`: Prototype management API (prototypeRegistry, instanceRegistry, mutationQueue, prototype/create methods, EMPTY sentinel)
 
 ### Spec → Design Gaps
-(None currently tracked)
+- [ ] S1: `crc-LuaResolver.md` missing (referenced by `internal/lua/resolver.go`)
 
 ### Design → Code Gaps
 - [x] Viewdef hot-reload: Backend file watcher with symlink tracking, session tracking, push on change
 - [x] Viewdef hot-reload: Frontend `data-ui-viewdef` attribute, `rerenderViewsForKey()`
 - [x] Widget view reference for hot-reload (implemented as `widget.view` + `setViewForElement()`)
+
+### Oversights
+- [x] O1: Test coverage for rw method paths (`TestLuaResolverRWMethod` in `runtime_test.go`)

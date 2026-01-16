@@ -97,7 +97,7 @@ func isMethodCall(s string) bool {
 }
 
 // callMethod calls a method on a Lua table and returns the result.
-// Supports: method() - no args, method(_) - with value arg (not yet implemented)
+// Supports: method() - no args, method(_) - with value arg
 func (r *LuaResolver) callMethod(tbl *lua.LTable, methodCall string) (any, error) {
 	// Parse method name from "name()" or "name(_)"
 	var methodName string

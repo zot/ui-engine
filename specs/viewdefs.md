@@ -222,7 +222,8 @@ The binding engine must:
 - `ui-value="name"` - Binds to the `name` field of the presenter
 - `ui-value="father.name"` - Binds to the `name` field of the presenter's `father` object
 - `ui-value="addresses.0.city"` - Binds to the first address's city (array index)
-- `ui-value="getName()"` - Binds to a call on the persenter's `getName` method
+- `ui-value="getName()"` - Binds to a call on the presenter's `getName` method
+- `ui-value="value()?access=rw"` - Read/write method (Lua only, see below)
 
 **Nullish path handling:**
 
@@ -275,6 +276,34 @@ path?scrollOnOutput        <!-- equivalent to path?scrollOnOutput=true -->
 Path properties are parsed by the frontend and either:
 - Handled locally (e.g., `scrollOnOutput` sets widget property)
 - Sent to backend as variable properties (e.g., `wrapper`, `item`, `access`)
+
+### Read/Write Methods (Lua Only)
+
+Methods can be used as read/write properties by combining `()` syntax with `?access=rw`:
+
+```html
+<input ui-value="value()?access=rw">
+```
+
+**Behavior:**
+- On **read**: The resolver calls the method with no arguments (just `self`)
+- On **write**: The resolver calls the method with the value as an argument
+
+This works because Lua supports varargs - the same function can handle both cases:
+
+```lua
+function MyPresenter:value(...)
+    if select('#', ...) > 0 then
+        self._value = select(1, ...)  -- write
+    end
+    return self._value  -- read
+end
+```
+
+**Access mode constraints for methods:**
+- `method()` with `access=r` or `access=action`: Read-only method call
+- `method(_)` with `access=w` or `access=action`: Write-only method call (explicit argument)
+- `method()` with `access=rw`: Read/write method (Lua only, argument is optional)
 
 ## App View
 
