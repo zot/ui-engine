@@ -71,12 +71,19 @@ ValueBinding determines the default `access` property based on binding type and 
 
 | Binding Type | Element Type | Default Access |
 |--------------|--------------|----------------|
-| `value` | Interactive (input, textarea, select, sl-*) | `rw` |
+| `value` | Interactive native (input, textarea, select) | `rw` |
+| `value` | Interactive Shoelace (sl-input, sl-checkbox, etc.) | `rw` |
+| `value` | Read-only Shoelace (sl-progress-bar, sl-qr-code, etc.) | `r` |
 | `value` | Non-interactive (div, span, etc.) | `r` |
 | `attr` | Any | `r` |
 | `class` | Any | `r` |
 | `style` | Any | `r` |
 | `code` | Any | `r` |
+
+**Read-only Shoelace components** (from viewdefs.md table):
+- `sl-copy-button`, `sl-option`, `sl-progress-bar`, `sl-progress-ring`, `sl-qr-code`
+
+These components have a `value` property but no user-editable input, so they default to `access=r`.
 
 When creating the child variable, if no explicit `access` property is in pathOptions, the default is applied.
 

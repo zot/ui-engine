@@ -9,6 +9,17 @@ const READ_ONLY_WITH_VALUE = {
   'SL-BADGE': true
 }
 
+// Spec: viewdefs.md - Shoelace components with ui-value support that are read-only
+// These components have a value property but no user-editable input
+// CRC: crc-ValueBinding.md - Read-only Shoelace components
+const READONLY_SHOELACE_TAGS = new Set([
+  'SL-COPY-BUTTON',
+  'SL-OPTION',
+  'SL-PROGRESS-BAR',
+  'SL-PROGRESS-RING',
+  'SL-QR-CODE',
+])
+
 // Elements that don't resize when their content changes
 // These should NOT trigger parent scroll notifications on ui-value updates
 // CRC: crc-ValueBinding.md - Parent Scroll Notifications
@@ -35,11 +46,9 @@ export interface ParsedPath {
   options: PathOptions
 }
 
-function isSlInput(element: any) {
-  return (
-    element instanceof HTMLElement &&
-    (element.nodeName == 'SL-INPUT' || element.nodeName == 'SL-TEXTAREA')
-  )
+// Spec: viewdefs.md - Elements with tag names starting with sl- default to read-write
+function isShoelaceComponent(element: any) {
+  return element instanceof HTMLElement && element.nodeName.startsWith('SL-')
 }
 
 // Parse a path like "father.name?create=Person&wrapper=lua.ViewList&itemWrapper=ContactPresenter"
@@ -414,7 +423,7 @@ export class BindingEngine {
       (element instanceof HTMLInputElement ||
         element instanceof HTMLTextAreaElement ||
         element instanceof HTMLSelectElement ||
-        isSlInput(element) ||
+        isShoelaceComponent(element) ||
         ('value' in element && !(element.nodeName in READ_ONLY_WITH_VALUE)))
 
     // Capture element ID for closures to avoid holding DOM references
@@ -499,6 +508,9 @@ export class BindingEngine {
         return
       }
     } else if (!editableValue && properties['access'] === undefined) {
+      properties.access = 'r'
+    } else if (READONLY_SHOELACE_TAGS.has(element.nodeName) && properties['access'] === undefined) {
+      // Spec: viewdefs.md - Read-only Shoelace components default to access=r
       properties.access = 'r'
     }
 

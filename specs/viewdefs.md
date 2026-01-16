@@ -113,7 +113,64 @@ A **Widget** is the binding context for an element with `ui-*` bindings. Each el
 - `ui-value` - Bind a variable to the element's "value" (input field, file name, etc.)
   - For non-interactive elements (div, span, etc.), automatically adds `access=r` if no `access` property is specified
   - Interactive elements (input, textarea, select, etc.) default to read-write
+  - Shoelace components (`sl-*`): defaults depend on the component's read-only status (see table below)
+    - Components with `read-only=yes` default to `access=r`
+    - Other `ui-value` components default to read-write
+    - Explicit `access` in the path always overrides the default
   - Additional path property: `keypress` (see Path Properties section)
+
+**Shoelace Component Interactivity:**
+
+| Component        | property attribute | read-only | Notes                                            |
+|------------------|:------------------:|-----------|--------------------------------------------------|
+| sl-input         | ui-value           |           | Text input with change/input events              |
+| sl-textarea      | ui-value           |           | Multi-line text input                            |
+| sl-select        | ui-value           |           | Dropdown selection                               |
+| sl-checkbox      | ui-value           |           | Boolean toggle                                   |
+| sl-radio         | ui-value           |           | Single selection (use within sl-radio-group)     |
+| sl-radio-group   | ui-value           |           | Container for radio buttons                      |
+| sl-radio-button  | ui-value           |           | Styled radio option                              |
+| sl-switch        | ui-value           |           | Toggle switch                                    |
+| sl-range         | ui-value           |           | Slider input                                     |
+| sl-color-picker  | ui-value           |           | Color selection                                  |
+| sl-rating        | ui-value           |           | Star rating input                                |
+| sl-button        | ui-action          |           | Use `ui-action` instead                          |
+| sl-icon-button   | ui-action          |           | Use `ui-action` instead                          |
+| sl-copy-button   | ui-value           | yes       | Has internal copy behavior                       |
+| sl-details       | none               |           | Expandable panel (has toggle event but no value) |
+| sl-dialog        | none               |           | Modal dialog                                     |
+| sl-drawer        | none               |           | Slide-out panel                                  |
+| sl-dropdown      | none               |           | Popup container                                  |
+| sl-menu          | none               |           | Menu container                                   |
+| sl-menu-item     | ui-action          |           | Use `ui-action` for selection                    |
+| sl-tab-group     | none               |           | Tab container (has show event but no value)      |
+| sl-tab           | none               |           | Tab header                                       |
+| sl-tree          | none               |           | Tree container                                   |
+| sl-tree-item     | none               |           | Tree node                                        |
+| sl-alert         | none               |           | Notification (closable but no value)             |
+| sl-avatar        | none               |           | Display only                                     |
+| sl-badge         | none               |           | Display only; bind to child element              |
+| sl-breadcrumb    | none               |           | Display only                                     |
+| sl-card          | none               |           | Display only                                     |
+| sl-carousel      | none               |           | Display only                                     |
+| sl-divider       | none               |           | Display only                                     |
+| sl-format-bytes  | none               |           | Display only                                     |
+| sl-format-date   | none               |           | Display only                                     |
+| sl-format-number | none               |           | Display only                                     |
+| sl-icon          | none               |           | Display only                                     |
+| sl-option        | ui-value           | yes       | Used inside sl-select                            |
+| sl-progress-bar  | ui-value           | yes       | Display only                                     |
+| sl-progress-ring | ui-value           | yes       | Display only                                     |
+| sl-qr-code       | ui-value           | yes       | Display only                                     |
+| sl-relative-time | none               |           | Display only                                     |
+| sl-skeleton      | none               |           | Display only                                     |
+| sl-spinner       | none               |           | Display only                                     |
+| sl-tag           | none               |           | Display only                                     |
+| sl-tooltip       | none               |           | Display only                                     |
+
+**Shoelace tips:**
+- For non-interactive components, bind to a child element: `<sl-badge><span ui-value="count"></span></sl-badge>`
+- Use `ui-action` for button clicks: `<sl-button ui-action="save()">Save</sl-button>`
 - `ui-attr-*` - Bind a variable value to an HTML attribute (e.g., `ui-attr-disabled`); defaults to `access=r`
 - `ui-class-*` - Bind a variable value to CSS classes (value is a class string); defaults to `access=r`
 - `ui-style-*` - Bind a variable value to a CSS style property (e.g., `ui-style-background-color`); defaults to `access=r`

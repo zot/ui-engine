@@ -178,6 +178,31 @@ Paths can include properties: `path?property=value&other=value`
 - `create=TypeName` - create instance as variable value
 - `access=r|w|rw|action` - control read/write behavior
 
+**Default ui-value access by element type:**
+- Native inputs (`input`, `textarea`, `select`): `rw`
+- Interactive Shoelace (`sl-input`, `sl-textarea`, `sl-select`, `sl-checkbox`, `sl-radio`, `sl-radio-group`, `sl-radio-button`, `sl-switch`, `sl-range`, `sl-color-picker`, `sl-rating`): `rw`
+- Read-only Shoelace (`sl-progress-bar`, `sl-progress-ring`, `sl-qr-code`, `sl-option`, `sl-copy-button`): `r`
+- Non-interactive elements (`div`, `span`, etc.): `r`
+
+### Read/Write Method Paths
+
+Methods can act as read/write properties by ending the path in `()` with `access=rw`:
+
+```html
+<input ui-value="value()?access=rw">
+```
+
+On read, the method is called with no arguments. On write, the value is passed as an argument. In Lua, use varargs:
+
+```lua
+function MyPresenter:value(...)
+    if select('#', ...) > 0 then
+        self._value = select(1, ...)  -- write
+    end
+    return self._value  -- read
+end
+```
+
 ## Views and Namespaces
 
 ### Viewdef Naming
