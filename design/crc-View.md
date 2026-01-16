@@ -15,6 +15,7 @@
 - render: Render variable using 3-tier namespace resolution, set `data-ui-viewdef` attribute, returns boolean
 - setVariable: Update bound variable (triggers re-render)
 - clear: Remove rendered content from element (unbinds existing widgets)
+- destroy: Cleanup view - unwatch, remove from pending, clear DOM, destroy associated variable
 - getElement: Look up DOM element by elementId (via document.getElementById)
 - markPending: Add to pending views list (missing type or viewdef)
 - removePending: Remove from pending views list after successful render
@@ -81,6 +82,14 @@ After a view renders, it notifies its parent so ancestor widgets with `scrollOnO
 3. If an ancestor widget has `scrollOnOutput`, it scrolls to bottom
 
 This batched approach ensures multiple child renders cause only one scroll.
+
+## Variable Destruction
+
+When a View is destroyed, it must destroy its associated variable:
+1. The variable was created when the View was set up (via `setupChildView`)
+2. `destroy()` calls `VariableStore.destroy(varId)` to notify the backend
+3. Backend destruction is recursive - destroys all child variables
+4. This prevents variable leaks during hot-reload re-render cycles
 
 ## Sequences
 

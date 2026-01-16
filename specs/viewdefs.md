@@ -53,6 +53,14 @@ Viewdefs support hot-reloading for iterative development. See [Hot-Loading Syste
   3. Re-render each matching view using the updated viewdef
   4. Re-binding occurs automatically as part of the render process
 
+**Variable destruction on re-render:**
+
+When a View or ViewList is destroyed (during hot-reload re-render or explicit destruction), it must destroy its associated variable. This is critical for proper resource cleanup:
+- Child views/viewlists create variables via `VariableStore.create()`
+- When destroyed, they must call `VariableStore.destroy(varId)` to clean up
+- Backend destruction is recursive - destroying a parent variable also destroys children
+- This prevents variable leaks during hot-reload cycles
+
 ## Element References (Cross-Cutting Requirement)
 
 **Frontend code MUST NOT store direct references to DOM elements.**

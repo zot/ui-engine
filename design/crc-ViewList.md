@@ -30,6 +30,7 @@
 - removeItem: Destroy variable, remove element from DOM by ID
 - reorder: Reorder view elements to match array order
 - clear: Remove all items
+- destroy: Cleanup viewlist - unwatch, clear items, destroy associated variable
 - setDelegate: Set delegate for notifications
 - notifyAdd: Notify delegate of item addition
 - notifyRemove: Notify delegate of item removal
@@ -181,6 +182,14 @@ When `itemWrapper=PresenterType` is specified in path properties, ViewList creat
 Custom ViewListItems can have UI-specific methods like `delete()` that can:
 - Access the domain object via `self.item`
 - Remove itself via `self.list:removeAt(self.index)`
+
+## Variable Destruction
+
+When a ViewList is destroyed, it must destroy its associated variable:
+1. The variable was created when the ViewList was set up (via `setupViewList`)
+2. `destroy()` calls `VariableStore.destroy(varId)` to notify the backend
+3. Backend destruction is recursive - destroys all child variables (including item views)
+4. This prevents variable leaks during hot-reload re-render cycles
 
 ## Sequences
 

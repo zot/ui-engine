@@ -8,5 +8,4 @@ github.com/yuin/gopher-lua v1.1.1 h1:kYKnWBjvbNP4XLT3+bPEwAXJx262OhaHDWDVOPjL46M
 github.com/yuin/gopher-lua v1.1.1/go.mod h1:GBR0iDaNXjAgGg9zfCvksxSRnQx76gclCIb7kdAd1Pw=
 github.com/zot/change-tracker v0.0.0-20251214022352-e50ef78a5af4 h1:uhmhzE596ojsEVYZJGOjCRyDoZ8k4qnKv8Z95sRhMLg=
 github.com/zot/change-tracker v0.0.0-20251214022352-e50ef78a5af4/go.mod h1:V9pUIOLAIfmi+oNDrI2ObW2dHkkTXs/OzoYQ0VybnQQ=
-golang.org/x/sys v0.13.0 h1:Af8nKPmuFypiUBjVoU9V20FiaFXOcuZI21p0ycVYYGE=
-golang.org/x/sys v0.13.0/go.mod h1:oPkhp1MJrh7nUepCBck5+mAzfO9JrbApNNgaTdGDITg=
+golang.org/x/sys v0.40.0 h1:DBZZqJ2Rkml6QMQsZywtnjnnGvHza6BTfYFWY9kjEWQ=

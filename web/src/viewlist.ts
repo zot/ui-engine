@@ -364,13 +364,22 @@ export class ViewList {
     return [...this.viewIds];
   }
 
-  // Cleanup
+  // Cleanup - destroys viewlist and its associated variable
+  // Spec: viewdefs.md - Variable destruction on re-render
+  // CRC: crc-ViewList.md - destroy
   destroy(): void {
     if (this.unwatch) {
       this.unwatch();
       this.unwatch = null;
     }
     this.clear();
+
+    // Destroy the associated variable (notifies backend)
+    // Backend destruction is recursive - destroys all child variables
+    if (this.variableId !== null) {
+      this.variableStore.destroy(this.variableId);
+      this.variableId = null;
+    }
   }
 }
 

@@ -1047,13 +1047,75 @@ Tests for viewdef loading and validation, View/ViewList rendering, binding creat
 
 ---
 
+### Test: View destroy sends variable destroy message
+
+**Purpose**: Verify View.destroy() destroys its associated variable
+
+**Input**:
+- View created with variableId 5
+- View.destroy() called
+
+**References**:
+- CRC: crc-View.md - "Does: destroy", "Variable Destruction"
+- Spec: viewdefs.md - "Variable destruction on re-render"
+- Sequence: seq-viewdef-hotload.md
+
+**Expected Results**:
+- destroy(5) message sent to backend
+- View's variableId set to null
+- Backend recursively destroys child variables
+
+---
+
+### Test: ViewList destroy sends variable destroy message
+
+**Purpose**: Verify ViewList.destroy() destroys its associated variable
+
+**Input**:
+- ViewList created with variableId 7
+- ViewList.destroy() called
+
+**References**:
+- CRC: crc-ViewList.md - "Does: destroy", "Variable Destruction"
+- Spec: viewdefs.md - "Variable destruction on re-render"
+- Sequence: seq-viewdef-hotload.md
+
+**Expected Results**:
+- destroy(7) message sent to backend
+- ViewList's variableId set to null
+- Backend recursively destroys child variables (including item views)
+
+---
+
+### Test: Hot-reload re-render destroys old child variables
+
+**Purpose**: Verify viewdef hot-reload destroys child variables before re-rendering
+
+**Input**:
+- View with viewdefKey "Contact.DEFAULT" containing child ui-view (variableId 10)
+- Viewdef "Contact.DEFAULT" updated via hot-reload
+- View.forceRender() called
+
+**References**:
+- CRC: crc-View.md - "Does: rerender", "Variable Destruction"
+- Spec: viewdefs.md - "Variable destruction on re-render"
+- Sequence: seq-viewdef-hotload.md
+
+**Expected Results**:
+- clearChildren() called which calls childView.destroy()
+- destroy(10) message sent for old child variable
+- New child variable created with new variableId
+- No variable leak - old variables cleaned up on backend
+
+---
+
 ## Coverage Summary
 
 **Responsibilities Covered:**
 - Viewdef: getKey, getTemplate, parseBindings, hasBinding, clone
 - ViewdefStore: store, get, getForType, has, validate, batchUpdate, flushUpdates, addPendingView, processPendingViews, removePendingView
-- View: create, render, setVariable, clear, getHtmlId, markPending, removePending
-- ViewList: create, setExemplar, update, addItem, removeItem, reorder, clear, setDelegate, notifyAdd, notifyRemove
+- View: create, render, setVariable, clear, destroy (variable destruction), getHtmlId, markPending, removePending
+- ViewList: create, setExemplar, update, addItem, removeItem, reorder, clear, destroy (variable destruction), setDelegate, notifyAdd, notifyRemove
 - Widget: create, vendElementId, registerBinding, unregisterBinding, getVariableId, hasBinding, getElement, destroy
 - BindingEngine: bind, unbind, getOrCreateWidget, createValueBinding, createEventBinding, createKeypressEventBinding, parseKeypressAttribute, normalizeKeyName, parsePath, updateBinding, sendVariableUpdate, shouldSuppressUpdate
 - ValueBinding: apply, update, getElement, getTargetProperty, transformValue, executeCode (extended scope), shouldSuppressUpdate, destroy

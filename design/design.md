@@ -106,6 +106,7 @@ All hot-loading features (Lua files, viewdefs, etc.) must track symlinks. See sp
 
 ### Lua Runtime System
 - [x] crc-LuaSession.md → `internal/lua/runtime.go`, `internal/server/server.go`
+- [x] crc-LuaResolver.md → `internal/lua/resolver.go` *(implements change-tracker.Resolver)*
 - [x] crc-LuaVariable.md → `internal/lua/runtime.go`
 - [x] crc-LuaPresenterLogic.md → `lib/presenter_logic.lua`
 - [x] crc-LuaHotLoader.md → `internal/lua/hotloader.go`
@@ -149,15 +150,9 @@ All hot-loading features (Lua files, viewdefs, etc.) must track symlinks. See sp
 ## Gaps
 
 ### Incomplete Implementation
-- [x] `crc-LuaSession.md`: Prototype management API (prototypeRegistry, instanceRegistry, mutationQueue, prototype/create methods, EMPTY sentinel)
 
 ### Spec → Design Gaps
-- [ ] S1: `crc-LuaResolver.md` missing (referenced by `internal/lua/resolver.go`)
 
 ### Design → Code Gaps
-- [x] Viewdef hot-reload: Backend file watcher with symlink tracking, session tracking, push on change
-- [x] Viewdef hot-reload: Frontend `data-ui-viewdef` attribute, `rerenderViewsForKey()`
-- [x] Widget view reference for hot-reload (implemented as `widget.view` + `setViewForElement()`)
 
 ### Oversights
-- [x] O1: Test coverage for rw method paths (`TestLuaResolverRWMethod` in `runtime_test.go`)

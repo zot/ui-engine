@@ -529,7 +529,9 @@ export class View {
     return this.variableId;
   }
 
-  // Cleanup
+  // Cleanup - destroys view and its associated variable
+  // Spec: viewdefs.md - Variable destruction on re-render
+  // CRC: crc-View.md - destroy
   destroy(): void {
     if (this.unwatch) {
       this.unwatch();
@@ -537,6 +539,13 @@ export class View {
     }
     this.removePending();
     this.clear();
+
+    // Destroy the associated variable (notifies backend)
+    // Backend destruction is recursive - destroys all child variables
+    if (this.variableId !== null) {
+      this.variableStore.destroy(this.variableId);
+      this.variableId = null;
+    }
   }
 }
 

@@ -60,13 +60,16 @@ FileWatcher      ViewdefStore       Session        MessageBatcher        Fronten
     |                 |                |                 |                   |                 |               |
     |                 |                |                 |                   |                 |--rerender---->|
     |                 |                |                 |                   |                 |               |
-    |                 |                |                 |                   |                 |               |--clear()
-    |                 |                |                 |                   |                 |               |  unbind
-    |                 |                |                 |                   |                 |               |  widgets
+    |                 |                |                 |                   |                 |               |--clearChildren()
+    |                 |                |                 |                   |                 |               |  destroy child
+    |                 |                |                 |                   |                 |               |  views/viewlists
+    |                 |                |                 |                   |                 |               |  (each destroys
+    |                 |                |                 |                   |                 |               |  its variable)
     |                 |                |                 |                   |                 |               |
     |                 |                |                 |                   |                 |               |--render()
-    |                 |                |                 |                   |                 |               |  new
-    |                 |                |                 |                   |                 |               |  content
+    |                 |                |                 |                   |                 |               |  new content
+    |                 |                |                 |                   |                 |               |  (creates new
+    |                 |                |                 |                   |                 |               |  child variables)
     |                 |                |                 |                   |                 |               |
 ```
 
@@ -87,3 +90,4 @@ Symlink handling follows the same pattern as LuaHotLoader (see seq-lua-hotload.m
 - Frontend queries DOM by `data-ui-viewdef` attribute to find views
 - Each matching view is re-rendered with same variable, unbinding old widgets
 - ViewList item views also have `data-ui-viewdef` and are included in re-render
+- **Variable destruction**: When child views/viewlists are destroyed during re-render, they destroy their associated variables to prevent leaks
