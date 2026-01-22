@@ -2,7 +2,7 @@
 
 **Date:** 2026-01-19
 **CRC Cards:** 46 | **Sequences:** 40 | **UI Specs:** 2 | **Test Designs:** 7
-**Note:** MCP design elements moved to ui-mcp project
+**Note:** MCP design elements moved to frictionless project
 **External Package:** `change-tracker` (`github.com/zot/change-tracker`) provides variable tracking, change detection, object registry
 
 ## Summary

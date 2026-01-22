@@ -54,7 +54,7 @@ Enables backends/AIs to bring the UI to the user's attention by opening the sess
 
 - **REST API (HTTP)**: Standard request/response
 - **WebSocket**: Persistent real-time connection
-- **MCP (Model Context Protocol)**: For AI assistant integration (see ui-mcp project)
+- **MCP (Model Context Protocol)**: For AI assistant integration (see frictionless project)
 - **Command Line**: Mirrors the REST API for simple shell script integration
 - **Embedded Lua**: Backend logic in the `lua/` subdirectory runs within the UI server process
 

@@ -79,4 +79,4 @@ The reactive WebSocket architecture assumes low latency between client and serve
 
 ## Current Focus
 
-Embedded Lua backend for the [ui-mcp](https://github.com/zot/ui-mcp) project. The architecture supports other backends (Go, proxied external programs) but Lua is the priority.
+Embedded Lua backend for the [frictionless](https://github.com/zot/frictionless) project. The architecture supports other backends (Go, proxied external programs) but Lua is the priority.

@@ -12,7 +12,7 @@ Build reactive web UIs using only backend code and declarative HTML templates.
   - Works with Go and Lua; portable to any language with reflection (Python, Java, JS)
 - **Hot-reloading** - edit Lua or HTML, see changes instantly (state preserved)
 - **Backend is source of truth** - frontend just renders what backend provides
-- **Current focus**: embedded Lua (supports ui-mcp project)
+- **Current focus**: embedded Lua (supports frictionless project)
 
 ## Philosophy
 
