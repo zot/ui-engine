@@ -10,7 +10,7 @@ Build reactive web UIs using only backend code and declarative HTML templates.
   - Modify objects directly - UI updates automatically
   - No observer pattern required - no boilerplate
   - Works with Go and Lua; portable to any language with reflection (Python, Java, JS)
-- **Hot-reloading viewdefs** - edit HTML, see changes instantly (state preserved)
+- **Hot-reloading** - edit Lua or HTML, see changes instantly (state preserved)
 - **Backend is source of truth** - frontend just renders what backend provides
 - **Current focus**: embedded Lua (supports ui-mcp project)
 
@@ -319,18 +319,6 @@ ViewList is a built-in wrapper that handles arrays automatically.
 
 ## Development Workflow
 
-### Hot-Reloading Viewdefs
-
-Viewdefs reload automatically during development:
-- Edit an HTML viewdef file → UI updates immediately
-- No page refresh required
-- State is preserved (variables, form inputs, scroll positions)
-
-**Rapid iteration:**
-1. Open app in browser
-2. Edit viewdef HTML in your editor
-3. Save → see changes instantly
-
 ### Hot-Reloading Lua Code
 
 With `--hotload` enabled, Lua files reload automatically when saved. Use `session:prototype()` and `session:create()` for automatic state preservation.
@@ -425,6 +413,13 @@ end
 - Change metatable identity — instances keep same metatable reference (which is the point)
 
 See `HOT-LOADING.md` for design details and implementation notes.
+
+### Hot-Reloading Viewdefs
+
+Viewdefs also reload automatically during development:
+- Edit an HTML viewdef file → UI updates immediately
+- No page refresh required
+- State is preserved (variables, form inputs, scroll positions)
 
 ## Complete Example: Contact Manager
 

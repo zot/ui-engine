@@ -64,7 +64,7 @@ See [demo/README.md](demo/README.md) for details.
 
 - **Declarative bindings** — `ui-value`, `ui-action`, `ui-view`, `ui-html`, `ui-attr-*`, `ui-class-*`
 - **Automatic change detection** — no observer pattern, no boilerplate
-- **Hot-reloading** — edit templates, see changes instantly
+- **Hot-reloading** — edit backend code or templates, see changes instantly (state preserved)
 - **ViewList** — automatic presenter wrapping for collections
 - **Namespace system** — multiple views per type (list-item, detail, etc.)
 
