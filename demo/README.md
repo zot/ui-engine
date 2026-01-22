@@ -5,6 +5,7 @@
 From the project root:
 
 ```bash
+make demo
 ./build/ui-engine-demo --port 8000 --dir demo
 ```
 
