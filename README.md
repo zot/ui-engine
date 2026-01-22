@@ -1,5 +1,7 @@
 # ui-engine
 
+**Version: 0.9.0**
+
 **Write HTML and app logic for your desktop apps. Skip the rest.**
 
 No frontend JavaScript. No API layers. No state management boilerplate. Define your domain and presentation objects in backend code, add HTML templates with declarative bindings, and ui-engine handles the rest.

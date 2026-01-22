@@ -67,3 +67,15 @@ Use the mini-spec skill for all design and implementation work.
 - ❌ Wrong: `CRC: design/crc-Person.md`, `Spec: specs/main.md`
 
 See `.claude/skills/mini-spec/SKILL.md` for the full methodology.
+
+## Versioning and Releasing
+
+Release versions use semantic versioning in `README.md` (the `**Version: X.Y.Z**` line near the top).
+
+**To create a release:**
+1. Update `**Version: X.Y.Z**` in both `README.md` and `install/README.md`
+2. Commit: `git commit -am "Release vX.Y.Z"`
+3. Tag: `git tag vX.Y.Z`
+4. Build: `make release-bundled` (creates binaries in `release/` for Linux, macOS, Windows)
+5. Push: `git push && git push --tags`
+6. Create GitHub release: `gh release create vX.Y.Z release/* --title "vX.Y.Z" --notes "Release notes here"`
