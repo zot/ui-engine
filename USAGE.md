@@ -117,12 +117,25 @@ end
 
 <!-- Code bindings - execute JS when value changes -->
 <div ui-code="formatHandler"/>
+
+<!-- HTML bindings - inject HTML content -->
+<div ui-html="description"/>
+<div ui-html="renderedMarkdown?replace"/>
 ```
 
 **ui-code bindings:**
 - Execute JavaScript when the bound value changes
 - Code has access to: `element`, `value`, `variable`, `store`
 - Use for advanced DOM manipulation the declarative bindings can't handle
+
+**ui-html bindings:**
+- Inject HTML content from a variable into an element
+- Standard mode: sets `innerHTML` (element preserved)
+- Replace mode (`?replace`): replaces the element itself with the HTML content
+  - First element in HTML gets the original element's ID
+  - Multiple elements (fragments) are supported - additional elements get auto-vended IDs
+  - Empty content creates a hidden placeholder
+- Read-only by default (`access=r`)
 
 ## Actions and Events
 
@@ -177,6 +190,7 @@ Paths can include properties: `path?property=value&other=value`
 - `itemWrapper=TypeName` - wrap each list item with a presenter
 - `create=TypeName` - create instance as variable value
 - `access=r|w|rw|action` - control read/write behavior
+- `replace` - for `ui-html`, replace the element with the HTML content instead of setting innerHTML
 
 **Default ui-value access by element type:**
 - Native inputs (`input`, `textarea`, `select`): `rw`

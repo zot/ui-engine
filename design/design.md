@@ -59,6 +59,7 @@ All hot-loading features (Lua files, viewdefs, etc.) must track symlinks. See sp
 - [x] crc-BindingEngine.md → `web/src/binding.ts`
 - [x] crc-ValueBinding.md → `web/src/binding.ts`
 - [x] crc-EventBinding.md → `web/src/binding.ts`
+- [x] crc-HtmlBinding.md → `web/src/binding.ts`
 - [x] seq-load-viewdefs.md
 - [x] seq-viewdef-delivery.md
 - [x] seq-render-view.md *(set data-ui-viewdef)*

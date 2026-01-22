@@ -1,7 +1,7 @@
 # Test Design: Viewdef System
 
 **Source Specs**: viewdefs.md, libraries.md
-**CRC Cards**: crc-Viewdef.md, crc-ViewdefStore.md, crc-View.md, crc-ViewList.md, crc-Widget.md, crc-BindingEngine.md, crc-ValueBinding.md, crc-EventBinding.md
+**CRC Cards**: crc-Viewdef.md, crc-ViewdefStore.md, crc-View.md, crc-ViewList.md, crc-Widget.md, crc-BindingEngine.md, crc-ValueBinding.md, crc-EventBinding.md, crc-HtmlBinding.md
 **Sequences**: seq-load-viewdefs.md, seq-viewdef-delivery.md, seq-render-view.md, seq-viewlist-update.md, seq-bind-element.md, seq-handle-event.md (value sync, local value setting), seq-handle-keypress-event.md
 
 ## Overview
@@ -794,6 +794,197 @@ Tests for viewdef loading and validation, View/ViewList rendering, binding creat
 
 ---
 
+### Test: ui-html standard mode sets innerHTML
+
+**Purpose**: Verify ui-html binding sets innerHTML in standard mode
+
+**Input**:
+- `<div ui-html="description"></div>`
+- Variable value: `<strong>Bold</strong> and <em>italic</em>`
+
+**References**:
+- CRC: crc-HtmlBinding.md - "Standard Mode (innerHTML)"
+- CRC: crc-BindingEngine.md - "Does: createHtmlBinding"
+
+**Expected Results**:
+- Element innerHTML set to variable value
+- HTML rendered (not escaped)
+- Element itself unchanged
+- Scroll notification sent to parent
+
+---
+
+### Test: ui-html standard mode handles null value
+
+**Purpose**: Verify ui-html binding handles null/undefined gracefully
+
+**Input**:
+- `<div ui-html="content"></div>`
+- Variable value: null
+
+**References**:
+- CRC: crc-HtmlBinding.md - "Standard Mode (innerHTML)"
+
+**Expected Results**:
+- Element innerHTML set to empty string
+- No error thrown
+- Element remains in DOM
+
+---
+
+### Test: ui-html replace mode replaces element
+
+**Purpose**: Verify ui-html binding replaces element in replace mode
+
+**Input**:
+- `<div id="ui-5" ui-html="content?replace"></div>`
+- Variable value: `<p>Paragraph</p>`
+
+**References**:
+- CRC: crc-HtmlBinding.md - "Replace Mode (Element Replacement)"
+- CRC: crc-BindingEngine.md - "Does: createHtmlBinding"
+
+**Expected Results**:
+- Original div removed from DOM
+- New p element inserted at same position
+- New p element has id="ui-5" (original ID preserved)
+- Widget tracks new element ID
+
+---
+
+### Test: ui-html replace mode handles fragment
+
+**Purpose**: Verify ui-html binding handles multiple elements (fragment)
+
+**Input**:
+- `<div id="ui-5" ui-html="content?replace"></div>`
+- Variable value: `<p>First</p><p>Second</p><p>Third</p>`
+
+**References**:
+- CRC: crc-HtmlBinding.md - "Fragment Handling"
+
+**Expected Results**:
+- Original div removed
+- Three p elements inserted
+- First p has id="ui-5" (original ID)
+- Second and third p elements have vended IDs (e.g., ui-17, ui-18)
+- Widget tracks all three element IDs
+
+---
+
+### Test: ui-html replace mode handles empty content
+
+**Purpose**: Verify ui-html binding handles empty content in replace mode
+
+**Input**:
+- `<div id="ui-5" ui-html="content?replace"></div>`
+- Variable value: ""
+
+**References**:
+- CRC: crc-HtmlBinding.md - "Replace Mode", "Update Behavior"
+
+**Expected Results**:
+- Original div removed
+- Hidden placeholder span inserted with id="ui-5"
+- Placeholder has display:none style
+- Widget tracks placeholder ID
+
+---
+
+### Test: ui-html replace mode handles text-only content
+
+**Purpose**: Verify ui-html binding wraps text-only content in span
+
+**Input**:
+- `<div id="ui-5" ui-html="content?replace"></div>`
+- Variable value: `Just plain text`
+
+**References**:
+- CRC: crc-HtmlBinding.md - "Replace Mode", "Fragment Handling"
+
+**Expected Results**:
+- Original div removed
+- Span element inserted containing text
+- Span has id="ui-5"
+- Widget tracks span ID
+
+---
+
+### Test: ui-html replace mode update replaces all tracked elements
+
+**Purpose**: Verify ui-html binding replaces entire fragment on update
+
+**Input**:
+- Element with ui-html="content?replace" currently showing 3 p elements
+- Variable value changes to `<div>Single</div>`
+
+**References**:
+- CRC: crc-HtmlBinding.md - "Update Behavior"
+
+**Expected Results**:
+- All three p elements removed from DOM
+- Single div element inserted
+- Div has original ID (ui-5)
+- Widget now tracks only one element ID
+
+---
+
+### Test: ui-html replace mode cleanup removes all elements
+
+**Purpose**: Verify ui-html binding removes all tracked elements on unbind
+
+**Input**:
+- Element with ui-html="content?replace" showing 3 elements
+- Widget.unbindAll() called
+
+**References**:
+- CRC: crc-HtmlBinding.md - "Cleanup"
+- CRC: crc-Widget.md - "Does: unbindAll"
+
+**Expected Results**:
+- All three tracked elements removed from DOM
+- Child variable destroyed
+- No memory leaks
+
+---
+
+### Test: ui-html defaults to access=r
+
+**Purpose**: Verify ui-html binding defaults to read-only access
+
+**Input**:
+- `<div ui-html="content"></div>` (no explicit access)
+
+**References**:
+- CRC: crc-HtmlBinding.md - "Default Access Property"
+- CRC: crc-BindingEngine.md - "Default Access Property"
+
+**Expected Results**:
+- Child variable created with access=r property
+- No write events attached
+- Only receives updates from backend
+
+---
+
+### Test: ui-html with scrollOnOutput
+
+**Purpose**: Verify ui-html binding supports scrollOnOutput path property
+
+**Input**:
+- `<div ui-html="log?scrollOnOutput"></div>`
+- Variable value changes
+
+**References**:
+- CRC: crc-HtmlBinding.md - "Parent Scroll Notifications"
+- CRC: crc-Widget.md - "scrollOnOutput Behavior"
+
+**Expected Results**:
+- Widget.scrollOnOutput set to true
+- After innerHTML update, scroll notification sent
+- Ancestor with scrollOnOutput scrolls to bottom
+
+---
+
 ### Test: Render ui-content HTML
 
 **Purpose**: Verify HTML content rendering
@@ -1117,9 +1308,10 @@ Tests for viewdef loading and validation, View/ViewList rendering, binding creat
 - View: create, render, setVariable, clear, destroy (variable destruction), getHtmlId, markPending, removePending
 - ViewList: create, setExemplar, update, addItem, removeItem, reorder, clear, destroy (variable destruction), setDelegate, notifyAdd, notifyRemove
 - Widget: create, vendElementId, registerBinding, unregisterBinding, getVariableId, hasBinding, getElement, destroy
-- BindingEngine: bind, unbind, getOrCreateWidget, createValueBinding, createEventBinding, createKeypressEventBinding, parseKeypressAttribute, normalizeKeyName, parsePath, updateBinding, sendVariableUpdate, shouldSuppressUpdate
+- BindingEngine: bind, unbind, getOrCreateWidget, createValueBinding, createEventBinding, createKeypressEventBinding, createHtmlBinding, parseKeypressAttribute, normalizeKeyName, parsePath, updateBinding, sendVariableUpdate, shouldSuppressUpdate
 - ValueBinding: apply, update, getElement, getTargetProperty, transformValue, executeCode (extended scope), shouldSuppressUpdate, destroy
 - EventBinding: attach, detach, handleEvent, handleKeypressEvent, extractEventValue, matchesTargetKey, isAction, isKeypressBinding, syncValueBinding, destroy
+- HtmlBinding: createChildVariable, watchChildVariable, applyHtml, updateInnerHtml, replaceWithHtml, parseHtml, assignElementIds, createPlaceholder, wrapInSpan, insertNodesBeforeRef, cleanup
 
 **Scenarios Covered:**
 - seq-load-viewdefs.md: All paths (including validation)
@@ -1131,4 +1323,4 @@ Tests for viewdef loading and validation, View/ViewList rendering, binding creat
 - seq-handle-keypress-event.md: All paths (key matching, filtering, value setting)
 - seq-input-value-binding.md: All paths (including duplicate suppression)
 
-**Gaps**: None identified
+**Gaps**: None identified (ui-html tests added 2026-01-19)

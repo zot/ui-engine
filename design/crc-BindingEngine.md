@@ -20,6 +20,7 @@
 - createClassBinding: Create ui-class-* binding with child variable, register unbind handler with Widget
 - createStyleBinding: Create ui-style-* binding with child variable, register unbind handler with Widget
 - createCodeBinding: Create ui-code binding with child variable, register unbind handler with Widget
+- createHtmlBinding: Create ui-html binding with child variable, register unbind handler with Widget; handles replace mode with element replacement and fragment ID tracking
 - createEventBinding: Create ui-event-* binding, register unbind handler with Widget (passes widget reference)
 - createKeypressEventBinding: Create ui-event-keypress-* binding, register unbind handler with Widget
 - createActionBinding: Create ui-action binding, register unbind handler with Widget
@@ -60,7 +61,7 @@ Variable values sent to the frontend are **object references** (e.g., `{"obj": 1
 - All paths must be resolved by the backend, which has access to actual object data
 - Every binding creates a **child variable** with a `path` property that the backend resolves
 
-**Implementation pattern for ALL binding types (ui-value, ui-attr-*, ui-class-*, ui-style-*, ui-code):**
+**Implementation pattern for ALL binding types (ui-value, ui-attr-*, ui-class-*, ui-style-*, ui-code, ui-html):**
 
 1. Parse the path from the attribute value
 2. Create a **child variable** under the context variable with `path` property set
@@ -100,6 +101,7 @@ Bindings automatically set `access=r` (read-only) unless explicitly overridden:
 | `ui-class-*` | `r` | Class bindings are read-only |
 | `ui-style-*` | `r` | Style bindings are read-only |
 | `ui-code` | `r` | Code execution bindings are read-only |
+| `ui-html` | `r` | HTML content bindings are read-only |
 | `ui-view` | `r` | View bindings are read-only |
 | `ui-viewlist` | `r` | ViewList bindings are read-only |
 

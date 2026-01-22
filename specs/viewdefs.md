@@ -190,6 +190,37 @@ A **Widget** is the binding context for an element with `ui-*` bindings. Each el
     - `value` - The new value from the variable
     - `variable` - The variable for this binding (provides access to widget via properties)
     - `store` - The VariableStore for accessing/creating other variables
+- `ui-html` - Bind a variable to the element's innerHTML; defaults to `access=r`
+  - The attribute value is a path to a variable containing HTML markup
+  - When the variable's value changes, the HTML is rendered into the element
+  - Additional path property: `replace` (see below)
+
+**ui-html replace mode:**
+
+When `replace` is specified in the path (e.g., `ui-html="content?replace"`), the element is replaced with the HTML content instead of setting innerHTML:
+
+1. **ID preservation:** The first element in the HTML content receives the original view element's ID (since the original element will be removed from the DOM)
+
+2. **Fragment handling:** If the HTML produces multiple elements (a fragment):
+   - The first element gets the view element's original ID
+   - Subsequent elements get IDs from the global ID vendor
+   - The widget tracks the complete list of element IDs, not just the first one
+
+3. **Update behavior:** When the HTML content changes:
+   - All tracked elements (the entire fragment) are removed from the DOM
+   - The new HTML is inserted at the position of the first tracked element
+   - IDs are reassigned following the same rules (first gets original ID, rest get vended IDs)
+
+4. **Cleanup:** When the widget is unbound, all tracked elements are removed
+
+**Example:**
+```html
+<!-- Standard innerHTML mode -->
+<div ui-html="description"></div>
+
+<!-- Replace mode - element replaced with HTML content -->
+<div ui-html="renderedMarkdown?replace"></div>
+```
 
 Variable values are used directly; variable properties can specify transformations.
 
@@ -327,6 +358,7 @@ path?scrollOnOutput        <!-- equivalent to path?scrollOnOutput=true -->
 - `wrapper` - Specify a wrapper type (e.g., `wrapper=lua.ViewList`)
 - `item` - Specify item wrapper for lists (e.g., `item=ContactPresenter`)
 - `create` - Create a new object of specified type
+- `replace` - For `ui-html`, replace the element with the HTML content instead of setting innerHTML
 
 **Examples across binding types:**
 ```html
@@ -336,6 +368,8 @@ path?scrollOnOutput        <!-- equivalent to path?scrollOnOutput=true -->
 <div ui-viewlist="contacts?item=ContactPresenter"></div>
 <div ui-attr-disabled="isLocked?scrollOnOutput"></div>
 <div ui-class-active="isSelected?scrollOnOutput"></div>
+<div ui-html="description"></div>
+<div ui-html="renderedContent?replace"></div>
 ```
 
 Path properties are parsed by the frontend and either:

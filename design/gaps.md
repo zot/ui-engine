@@ -1,7 +1,7 @@
 # Gap Analysis
 
-**Date:** 2026-01-07
-**CRC Cards:** 45 | **Sequences:** 40 | **UI Specs:** 2 | **Test Designs:** 7
+**Date:** 2026-01-19
+**CRC Cards:** 46 | **Sequences:** 40 | **UI Specs:** 2 | **Test Designs:** 7
 **Note:** MCP design elements moved to ui-mcp project
 **External Package:** `change-tracker` (`github.com/zot/change-tracker`) provides variable tracking, change detection, object registry
 
@@ -179,7 +179,7 @@
 |--------|-----------|--------------|-------|
 | Variable Protocol | 5 | 5 | Complete |
 | Presenter | 3 | 3 | Complete |
-| Viewdef | 11 | 11 | Complete |
+| Viewdef | 12 | 12 | Complete (added HtmlBinding) |
 | Session | 3 | 3 | Complete |
 | Backend | 2 | 2 | Complete |
 | Communication | 6 | 6 | Complete |

@@ -1,9 +1,9 @@
 // Binding engine for ui-* attributes
-// CRC: crc-BindingEngine.md, crc-ValueBinding.md, crc-EventBinding.md
+// CRC: crc-BindingEngine.md, crc-ValueBinding.md, crc-EventBinding.md, crc-HtmlBinding.md
 // Spec: viewdefs.md
 
 import { VariableStore, VariableError } from './connection'
-import { ensureElementId } from './element_id_vendor'
+import { ensureElementId, vendElementId } from './element_id_vendor'
 
 const READ_ONLY_WITH_VALUE = {
   'SL-BADGE': true
@@ -355,6 +355,13 @@ export class BindingEngine {
     const uiCode = element.getAttribute('ui-code')
     if (uiCode) {
       this.createCodeBinding(contextVarId, uiCode, widget)
+      hasBindings = true
+    }
+
+    // ui-html binding (set innerHTML or replace element)
+    const uiHtml = element.getAttribute('ui-html')
+    if (uiHtml) {
+      this.createHtmlBinding(contextVarId, uiHtml, widget)
       hasBindings = true
     }
 
@@ -852,6 +859,148 @@ export class BindingEngine {
       })
       .catch((err) => {
         console.error('Failed to create code binding variable:', err)
+      })
+  }
+
+  // Create an HTML binding (sets innerHTML or replaces element)
+  // Spec: viewdefs.md - ui-html binding
+  // CRC: crc-HtmlBinding.md
+  private createHtmlBinding(
+    varId: number,
+    path: string,
+    widget: Widget
+  ): void {
+    const parsed = parsePath(path)
+    const properties = pathOptionsToProperties(parsed.options)
+    properties['path'] = parsed.segments.join('.')
+
+    if (parsed.options.props?.['scrollOnOutput'] === 'true') {
+      widget.scrollOnOutput = true
+    }
+
+    if (!properties['access']) {
+      properties['access'] = 'r'
+    }
+
+    const replaceMode = parsed.options.props?.['replace'] === 'true'
+    const originalElementId = widget.elementId
+    let trackedElementIds: string[] = [originalElementId]
+
+    // Parse HTML string into DOM nodes
+    function parseHtml(html: string): Node[] {
+      const container = document.createElement('div')
+      container.innerHTML = html
+      return Array.from(container.childNodes)
+    }
+
+    // Assign IDs to element nodes (first gets original ID, rest get vended IDs)
+    function assignElementIds(elements: Element[]): string[] {
+      return elements.map((el, index) => {
+        el.id = index === 0 ? originalElementId : vendElementId()
+        return el.id
+      })
+    }
+
+    // Create a hidden placeholder span with original ID
+    function createPlaceholder(): HTMLSpanElement {
+      const placeholder = document.createElement('span')
+      placeholder.id = originalElementId
+      placeholder.style.display = 'none'
+      return placeholder
+    }
+
+    // Wrap nodes in a span with original ID
+    function wrapInSpan(nodes: Node[]): HTMLSpanElement {
+      const wrapper = document.createElement('span')
+      wrapper.id = originalElementId
+      for (const node of nodes) {
+        wrapper.appendChild(node)
+      }
+      return wrapper
+    }
+
+    // Insert nodes before a reference node (preserves order)
+    function insertNodesBeforeRef(parent: Node, nodes: Node[], refNode: Node | null): void {
+      for (const node of nodes) {
+        parent.insertBefore(node, refNode)
+      }
+    }
+
+    // Standard mode: set innerHTML
+    const updateInnerHtml = (value: unknown): void => {
+      const el = document.getElementById(originalElementId)
+      if (!el) return
+      el.innerHTML = (value ?? '').toString()
+      this.addScrollNotification(varId)
+    }
+
+    // Replace mode: replace element(s) with new HTML
+    const updateReplaceHtml = (value: unknown): void => {
+      const html = (value ?? '').toString()
+
+      // Find anchor element and save insertion point before removal
+      const anchorEl = document.getElementById(trackedElementIds[0])
+      if (!anchorEl?.parentNode) return
+      const parent = anchorEl.parentNode
+      const insertionRef = anchorEl.nextSibling
+
+      // Remove all currently tracked elements
+      for (const id of trackedElementIds) {
+        document.getElementById(id)?.remove()
+      }
+
+      const nodes = parseHtml(html)
+      const elementNodes = nodes.filter((n): n is Element => n instanceof Element)
+
+      // Determine what to insert based on parsed content
+      if (nodes.length === 0) {
+        // Empty content: use hidden placeholder
+        parent.insertBefore(createPlaceholder(), insertionRef)
+        trackedElementIds = [originalElementId]
+      } else if (elementNodes.length === 0) {
+        // Text/comment nodes only: wrap in span
+        parent.insertBefore(wrapInSpan(nodes), insertionRef)
+        trackedElementIds = [originalElementId]
+      } else {
+        // Has element nodes: assign IDs and insert all nodes
+        trackedElementIds = assignElementIds(elementNodes)
+        insertNodesBeforeRef(parent, nodes, insertionRef)
+      }
+
+      this.addScrollNotification(varId)
+    }
+
+    const update = replaceMode ? updateReplaceHtml : updateInnerHtml
+
+    // Create a child variable for this path
+    this.store
+      .create({
+        parentId: varId,
+        properties,
+        widget,
+      })
+      .then((id) => {
+        const unbindValue = this.store.watch(id, (_v, value) => update(value))
+
+        // Initial update from cached value
+        const current = this.store.get(id)
+        if (current) update(current.value)
+
+        // Register with Widget
+        widget.registerBinding('ui-html', id, () => {
+          unbindValue()
+          this.store.destroy(id)
+          // For replace mode, remove all tracked elements
+          if (replaceMode) {
+            for (const elemId of trackedElementIds) {
+              const el = document.getElementById(elemId)
+              if (el) el.remove()
+            }
+          }
+        })
+      })
+      .catch((err) => {
+        console.error('Failed to create HTML binding variable:', err)
       })
   }
 

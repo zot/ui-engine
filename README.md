@@ -1,6 +1,6 @@
 # ui-engine
 
-**Build reactive desktop UIs with just backend code and HTML templates.**
+**Write HTML and app logic for your desktop apps. Skip the rest.**
 
 No frontend JavaScript. No API layers. No state management boilerplate. Define your domain and presentation objects in backend code, add HTML templates with declarative bindings, and ui-engine handles the rest.
 
@@ -60,7 +60,7 @@ See [demo/README.md](demo/README.md) for details.
 
 ## Key Features
 
-- **Declarative bindings** — `ui-value`, `ui-action`, `ui-view`, `ui-attr-*`, `ui-class-*`
+- **Declarative bindings** — `ui-value`, `ui-action`, `ui-view`, `ui-html`, `ui-attr-*`, `ui-class-*`
 - **Automatic change detection** — no observer pattern, no boilerplate
 - **Hot-reloading** — edit templates, see changes instantly
 - **ViewList** — automatic presenter wrapping for collections
