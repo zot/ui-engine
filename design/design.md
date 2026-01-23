@@ -134,6 +134,9 @@ All hot-loading features (Lua files, viewdefs, etc.) must track symlinks. See sp
 - [x] seq-render-view.md
 - [x] ui-app-shell.md
 
+### Bundle System
+- [x] crc-Bundle.md → `internal/bundle/bundle.go`, `internal/bundle/bundle_test.go`
+
 ### Cross-Cutting
 - [x] crc-Config.md → `internal/config/config.go`
 - [x] crc-ElementIdVendor.md → `web/src/element_id_vendor.ts`

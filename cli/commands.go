@@ -514,15 +514,19 @@ func runLs(args []string) int {
 		return 1
 	}
 
-	// List files
-	files, err := bundle.ListFiles()
+	// List files with metadata
+	files, err := bundle.ListFilesWithInfo()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: failed to list files: %v\n", err)
 		return 1
 	}
 
 	for _, file := range files {
-		fmt.Println(file)
+		if file.IsSymlink {
+			fmt.Printf("%s -> %s\n", file.Name, file.SymlinkTarget)
+		} else {
+			fmt.Println(file.Name)
+		}
 	}
 	return 0
 }
@@ -579,8 +583,8 @@ func runCp(args []string) int {
 		return 1
 	}
 
-	// List files and match pattern
-	files, err := bundle.ListFiles()
+	// List files with metadata for symlink detection
+	files, err := bundle.ListFilesWithInfo()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: failed to list files: %v\n", err)
 		return 1
@@ -588,31 +592,43 @@ func runCp(args []string) int {
 
 	copied := 0
 	for _, file := range files {
-		matched, _ := filepath.Match(pattern, filepath.Base(file))
+		// Match against basename first, then full path
+		matched, _ := filepath.Match(pattern, filepath.Base(file.Name))
 		if !matched {
-			matched, _ = filepath.Match(pattern, file)
+			matched, _ = filepath.Match(pattern, file.Name)
 		}
-		if matched {
-			content, err := bundle.ReadFile(file)
+		if !matched {
+			continue
+		}
+
+		destPath := filepath.Join(destDir, filepath.Base(file.Name))
+		if err := os.MkdirAll(filepath.Dir(destPath), 0755); err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: failed to create directory: %v\n", err)
+			continue
+		}
+
+		// Remove existing file/symlink to allow overwriting
+		os.Remove(destPath)
+
+		if file.IsSymlink {
+			if err := os.Symlink(file.SymlinkTarget, destPath); err != nil {
+				fmt.Fprintf(os.Stderr, "Warning: failed to create symlink %s: %v\n", destPath, err)
+				continue
+			}
+			fmt.Printf("Copied: %s -> %s (symlink to %s)\n", file.Name, destPath, file.SymlinkTarget)
+		} else {
+			content, err := bundle.ReadFile(file.Name)
 			if err != nil {
-				fmt.Fprintf(os.Stderr, "Warning: failed to read %s: %v\n", file, err)
+				fmt.Fprintf(os.Stderr, "Warning: failed to read %s: %v\n", file.Name, err)
 				continue
 			}
-
-			destPath := filepath.Join(destDir, filepath.Base(file))
-			if err := os.MkdirAll(filepath.Dir(destPath), 0755); err != nil {
-				fmt.Fprintf(os.Stderr, "Warning: failed to create directory: %v\n", err)
-				continue
-			}
-
 			if err := os.WriteFile(destPath, content, 0644); err != nil {
 				fmt.Fprintf(os.Stderr, "Warning: failed to write %s: %v\n", destPath, err)
 				continue
 			}
-
-			fmt.Printf("Copied: %s -> %s\n", file, destPath)
-			copied++
+			fmt.Printf("Copied: %s -> %s\n", file.Name, destPath)
 		}
+		copied++
 	}
 
 	if copied == 0 {

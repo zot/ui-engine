@@ -104,34 +104,49 @@ func CreateBundle(sourceBinary, siteDir, outputPath string) error {
 	return nil
 }
 
-// addDirToZip recursively adds directory contents to ZIP
+// addDirToZip recursively adds directory contents to ZIP, preserving relative symlinks
 func addDirToZip(zipWriter *zip.Writer, sourceDir, basePath string) error {
+	absSourceDir, err := filepath.Abs(sourceDir)
+	if err != nil {
+		return fmt.Errorf("failed to get absolute path of source: %w", err)
+	}
+
 	return filepath.Walk(sourceDir, func(filePath string, info os.FileInfo, err error) error {
 		if err != nil {
 			return err
 		}
 
-		// Skip directories
+		// Skip directories and ignored files
 		if info.IsDir() || IGNORE_FILES.MatchString(filePath) {
 			return nil
 		}
 
-		// Get relative path
+		// Get relative path within bundle
 		relPath, err := filepath.Rel(sourceDir, filePath)
 		if err != nil {
 			return err
 		}
 
-		// Create ZIP entry with forward slashes
+		// Create ZIP path with forward slashes
 		zipPath := filepath.Join(basePath, relPath)
 		zipPath = filepath.ToSlash(zipPath)
 
+		// Check if this is a symlink
+		linfo, err := os.Lstat(filePath)
+		if err != nil {
+			return err
+		}
+
+		if linfo.Mode()&os.ModeSymlink != 0 {
+			return addSymlinkToZip(zipWriter, filePath, zipPath, absSourceDir)
+		}
+
+		// Regular file
 		writer, err := zipWriter.Create(zipPath)
 		if err != nil {
 			return err
 		}
 
-		// Copy file content
 		file, err := os.Open(filePath)
 		if err != nil {
 			return err
@@ -141,6 +156,68 @@ func addDirToZip(zipWriter *zip.Writer, sourceDir, basePath string) error {
 		_, err = io.Copy(writer, file)
 		return err
 	})
+}
+
+// addSymlinkToZip adds a symlink to the ZIP archive
+func addSymlinkToZip(zipWriter *zip.Writer, filePath, zipPath, absSourceDir string) error {
+	// Read symlink target
+	target, err := os.Readlink(filePath)
+	if err != nil {
+		return fmt.Errorf("failed to read symlink %s: %w", filePath, err)
+	}
+
+	// Reject absolute symlinks
+	if filepath.IsAbs(target) {
+		return fmt.Errorf("absolute symlink not allowed: %s -> %s", filePath, target)
+	}
+
+	// Validate symlink stays within bundle
+	if err := validateSymlinkTarget(filePath, target, absSourceDir); err != nil {
+		return err
+	}
+
+	// Create ZIP header for symlink
+	header := &zip.FileHeader{
+		Name:   zipPath,
+		Method: zip.Store, // No compression for symlinks
+	}
+	// Set Unix symlink mode (0120000 = symlink type)
+	header.SetMode(os.ModeSymlink | 0777)
+
+	writer, err := zipWriter.CreateHeader(header)
+	if err != nil {
+		return err
+	}
+
+	// Store target path as content (converted to forward slashes for portability)
+	_, err = writer.Write([]byte(filepath.ToSlash(target)))
+	return err
+}
+
+// validateSymlinkTarget ensures a symlink target stays within the bundle root
+func validateSymlinkTarget(symlinkPath, target, absSourceDir string) error {
+	symlinkDir := filepath.Dir(symlinkPath)
+	resolvedTarget := filepath.Join(symlinkDir, target)
+
+	absTarget, err := filepath.Abs(resolvedTarget)
+	if err != nil {
+		return fmt.Errorf("failed to resolve symlink target: %w", err)
+	}
+
+	if !isWithinDir(absTarget, absSourceDir) {
+		return fmt.Errorf("symlink escapes bundle: %s -> %s (resolves to %s)", symlinkPath, target, absTarget)
+	}
+
+	return nil
+}
+
+// isWithinDir checks if absPath is within absDir
+func isWithinDir(absPath, absDir string) bool {
+	rel, err := filepath.Rel(absDir, absPath)
+	if err != nil {
+		return false
+	}
+	return !strings.HasPrefix(rel, "..")
 }
 
 // GetBinarySize returns the size of the executable portion (excluding bundle).
@@ -311,23 +388,36 @@ func ExtractBundle(targetDir string) error {
 	return nil
 }
 
-// extractZipFile extracts a single file from ZIP
+// extractZipFile extracts a single file or symlink from ZIP
 func extractZipFile(f *zip.File, targetDir string) error {
 	targetPath := filepath.Join(targetDir, f.Name)
 
-	// Create parent directories
+	absTargetDir, err := filepath.Abs(targetDir)
+	if err != nil {
+		return err
+	}
+	absTargetPath, err := filepath.Abs(targetPath)
+	if err != nil {
+		return err
+	}
+	if !isWithinDir(absTargetPath, absTargetDir) {
+		return fmt.Errorf("zip entry escapes target directory: %s", f.Name)
+	}
+
 	if err := os.MkdirAll(filepath.Dir(targetPath), 0755); err != nil {
 		return err
 	}
 
-	// Open ZIP file entry
+	if f.Mode()&os.ModeSymlink != 0 {
+		return extractSymlink(f, targetPath, absTargetDir)
+	}
+
 	rc, err := f.Open()
 	if err != nil {
 		return err
 	}
 	defer rc.Close()
 
-	// Create target file
 	outFile, err := os.OpenFile(targetPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, f.Mode())
 	if err != nil {
 		return err
@@ -336,6 +426,35 @@ func extractZipFile(f *zip.File, targetDir string) error {
 
 	_, err = io.Copy(outFile, rc)
 	return err
+}
+
+// extractSymlink extracts a symlink from ZIP
+func extractSymlink(f *zip.File, targetPath, absTargetDir string) error {
+	rc, err := f.Open()
+	if err != nil {
+		return err
+	}
+	defer rc.Close()
+
+	targetBytes, err := io.ReadAll(rc)
+	if err != nil {
+		return err
+	}
+
+	linkTarget := filepath.FromSlash(string(targetBytes))
+
+	resolvedTarget := filepath.Join(filepath.Dir(targetPath), linkTarget)
+	absResolvedTarget, err := filepath.Abs(resolvedTarget)
+	if err != nil {
+		return fmt.Errorf("failed to resolve symlink target: %w", err)
+	}
+
+	if !isWithinDir(absResolvedTarget, absTargetDir) {
+		return fmt.Errorf("symlink escapes target directory: %s -> %s", f.Name, linkTarget)
+	}
+
+	os.Remove(targetPath)
+	return os.Symlink(linkTarget, targetPath)
 }
 
 // ListFiles returns a list of files in the bundle.
@@ -353,6 +472,55 @@ func ListFiles() ([]string, error) {
 		files = append(files, f.Name)
 	}
 	return files, nil
+}
+
+// FileInfo contains metadata about a bundled file.
+type FileInfo struct {
+	Name          string // File path within bundle
+	IsSymlink     bool   // True if this is a symlink
+	SymlinkTarget string // Target path if symlink, empty otherwise
+}
+
+// ListFilesWithInfo returns files with metadata including symlink information.
+func ListFilesWithInfo() ([]FileInfo, error) {
+	zipReader, err := GetBundleReader()
+	if err != nil {
+		return nil, err
+	}
+	if zipReader == nil {
+		return nil, fmt.Errorf("binary is not bundled")
+	}
+
+	return listFilesWithInfoFromReader(zipReader), nil
+}
+
+// listFilesWithInfoFromReader extracts file info from a zip.Reader.
+func listFilesWithInfoFromReader(zipReader *zip.Reader) []FileInfo {
+	files := make([]FileInfo, 0, len(zipReader.File))
+	for _, f := range zipReader.File {
+		info := FileInfo{Name: f.Name}
+		if f.Mode()&os.ModeSymlink != 0 {
+			info.IsSymlink = true
+			info.SymlinkTarget = readSymlinkTarget(f)
+		}
+		files = append(files, info)
+	}
+	return files
+}
+
+// readSymlinkTarget reads the target path from a symlink zip entry.
+// Returns empty string if the target cannot be read.
+func readSymlinkTarget(f *zip.File) string {
+	rc, err := f.Open()
+	if err != nil {
+		return ""
+	}
+	defer rc.Close()
+	targetBytes, err := io.ReadAll(rc)
+	if err != nil {
+		return ""
+	}
+	return string(targetBytes)
 }
 
 // ReadFile reads a file from the bundle.

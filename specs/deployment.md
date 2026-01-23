@@ -28,9 +28,9 @@ The UI server functions as a web server, hosting the frontend webapp. By default
 **Site management subcommands:**
 - `extract` - Extract the bundled site to the filesystem for customization
 - `bundle` - Create a new binary with a custom site bundled in
-- `ls` - List files in the bundled site
+- `ls` - List files in the bundled site; symlinks are shown with `->` pointing to their target
 - `cat` - Display contents of a bundled file
-- `cp` - Copy files from the bundled site
+- `cp` - Copy files from the bundled site; symlinks are recreated as actual symlinks
 
 ### Bundle Format
 
@@ -52,6 +52,14 @@ Footer (24 bytes):
 - **Efficient**: ZIP data is read directly from the binary without extraction
 
 **Detection:** At startup, the server reads the last 24 bytes. If the magic marker matches, the ZIP is served directly. Otherwise, the binary is unbundled.
+
+**Symlink handling:**
+- Relative symlinks within the site directory are preserved in the bundle
+- Symlinks are stored using ZIP's standard symlink mode (Unix external attributes)
+- Target paths are stored as file content
+- Security: symlinks that resolve outside the bundle root are rejected during bundling
+- On extraction, symlinks are recreated as actual symlinks on the filesystem
+- Absolute symlinks and symlinks escaping the site directory cause bundling to fail with an error
 
 **Bundle command:**
 ```bash
