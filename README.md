@@ -1,6 +1,6 @@
 # ui-engine
 
-**Version: 0.10.0**
+**Version: 0.11.0**
 
 **Write HTML and app logic for your desktop apps. Skip the rest.**
 
