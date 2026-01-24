@@ -17,8 +17,10 @@
 - prototypeRegistry: Map of prototype name to stored init copy (for change detection)
 - instanceRegistry: Map of prototype to weak set of instances (for mutation)
 - mutationQueue: FIFO queue of (prototype, removedKeys) pairs pending mutation
-- loadedModules: Lua table tracking loaded files (shared by require() and RequireLuaFile)
+- config: Config object (baseDir accessed via config.Server.Dir)
+- loadedModules: Lua table tracking loaded files by baseDir-relative path (shared by require() and RequireLuaFile)
 - reloading: Boolean flag (on sessionTable) - true during hot-reload, false otherwise
+- luaDir: Path to lua/ directory (for loading files)
 
 ### Does
 - CreateLuaSession(vendedID): Initialize session, create session table, load main.lua
@@ -37,8 +39,10 @@
 - create(prototype, instance): Create tracked instance with weak reference (see below)
 - processMutationQueue: Process queued prototypes after file load (see seq-prototype-mutation.md)
 - RequireLuaFile(filename): Load Lua file using unified load tracker (skips if already loaded)
-- IsFileLoaded(filename): Check if a file has been loaded (used by hot-loader)
+- DirectRequireLuaFile(filename): Load file relative to baseDir, track by resolved baseDir-relative path
+- IsFileLoaded(trackingKey): Check if a file has been loaded by baseDir-relative key (used by hot-loader)
 - registerRequire: Set up custom require() using loadedModules table with circularity handling
+- resolveTrackingKey(path): Resolve symlinks and compute baseDir-relative path for file tracking
 
 **Prototype Management (Hot-Loading Support):**
 
@@ -98,6 +102,8 @@
   - `Prototype:mutate()` - optional migration method called automatically on instances
   - Post-load processing iterates mutation queue, calls mutate(), nils removed fields
 - **Unified Load Tracking**: `loadedModules` Lua table shared by `require()` and `RequireLuaFile()`:
+  - Files tracked by baseDir-relative resolved path (symlinks resolved to target)
   - Circularity handling: mark loaded before execute, unmark on error
   - `session.reloading` flag: true during reload, false after (Lua code can detect hot-reload)
-  - `IsFileLoaded(filename)` lets hot-loader skip files not yet loaded by session
+  - `IsFileLoaded(trackingKey)` lets hot-loader skip files not yet loaded by session
+  - Example keys: `lua/mcp.lua`, `apps/myapp/app.lua`, `apps/myapp/init.lua`

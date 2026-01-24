@@ -5,6 +5,7 @@
 ## Responsibilities
 
 ### Knows
+- config: Config object (baseDir accessed via config.Server.Dir)
 - luaDir: Path to the Lua scripts directory
 - watcher: fsnotify watcher instance
 - server: Reference to Server for session access
@@ -12,12 +13,13 @@
 - watchedDirs: Set of directories currently being watched
 
 ### Does
-- Start: Initialize file watcher on lua directory
+- Start: Initialize file watcher on lua directory and apps directory
 - Stop: Clean up watcher resources
 - handleFileChange(path): Re-execute modified Lua file in sessions that have loaded it
 - resolveSymlinks: Scan lua directory for symlinks, resolve and watch target directories
 - updateSymlinkWatches: When symlinks change, update watched directories accordingly
-- reloadFile(path, session): Check IsFileLoaded(), set reloading flag, reload via RequireLuaFile()
+- computeTrackingKey(absPath): Compute baseDir-relative path for file tracking (resolves symlinks)
+- reloadFile(path, session): Check IsFileLoaded(trackingKey), set reloading flag, reload via LoadCode()
 - triggerSessionRefresh(session): Execute empty function via ws.ExecuteInSession to run AfterBatch (pushes viewdef/variable changes)
 - recoverPanic: Wrap Lua execution in panic recovery, log errors instead of crashing server
 
@@ -37,8 +39,12 @@
 ## Notes
 
 - Only active when `--hotload` is enabled (lua.hotload = true)
-- Watches the lua directory (default: `lua/` or `<dir>/lua/`)
-- **Only reloads files already loaded by session**: Checks `IsFileLoaded()` before reloading (ignores new files)
+- Watches the lua directory (default: `lua/` or `<dir>/lua/`) and apps directory
+- **BaseDir-relative tracking**: Files tracked by resolved target path relative to baseDir
+  - `apps/myapp/app.lua` (for files in apps/)
+  - `lua/mcp.lua` (for files in lua/)
+  - Symlinks resolved to target before computing tracking key
+- **Only reloads files already loaded by session**: Checks `IsFileLoaded(trackingKey)` before reloading
 - **reloading flag**: Sets `session.reloading = true` before reload, `false` after (Lua code can detect)
 - **Symlink handling**: See cross-cutting concern "Hot-Loading Symlink Tracking" in design.md
 - Sessions maintain state between reloads (Lua code should use hot-loading conventions)

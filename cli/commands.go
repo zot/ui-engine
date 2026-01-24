@@ -622,7 +622,12 @@ func runCp(args []string) int {
 				fmt.Fprintf(os.Stderr, "Warning: failed to read %s: %v\n", file.Name, err)
 				continue
 			}
-			if err := os.WriteFile(destPath, content, 0644); err != nil {
+			// Use the original file mode (preserves executable bit)
+			mode := file.Mode.Perm()
+			if mode == 0 {
+				mode = 0644 // fallback for files without stored mode
+			}
+			if err := os.WriteFile(destPath, content, mode); err != nil {
 				fmt.Fprintf(os.Stderr, "Warning: failed to write %s: %v\n", destPath, err)
 				continue
 			}

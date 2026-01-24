@@ -165,6 +165,23 @@ When `--hotload` is enabled, the server watches directories for file changes and
 - Debounces rapid file changes to avoid multiple reloads
 - After reload, triggers session refresh to push changes to connected clients
 
+**File tracking (baseDir-relative paths):**
+
+Lua files are tracked by their resolved target path relative to `baseDir`. The `baseDir` is the site root directory from `config.Server.Dir` (e.g., `.ui/`). This enables consistent hot-loading for files anywhere under baseDir:
+
+- Files are tracked by their actual location (symlinks are resolved)
+- Example: `apps/myapp/app.lua` (resolved target, relative to baseDir)
+- Example: `lua/mcp.lua` (regular file, relative to baseDir)
+
+When a symlink like `lua/app.lua → ../apps/myapp/app.lua` is loaded:
+- Resolve the symlink to get the actual target path
+- Compute the target path relative to baseDir: `apps/myapp/app.lua`
+- Track the file using this resolved path
+
+The hot-loader uses the same resolution:
+- `apps/myapp/app.lua` changes → lookup `apps/myapp/app.lua` in loaded files
+- No symlink reverse-lookup needed - both loading and hot-loading use the same resolved path
+
 **Lua-specific behavior:**
 - Re-executes modified files in each active session
 - Sets `session.reloading = true` before reload, `false` after

@@ -44,10 +44,11 @@ func createTempLuaDir(t *testing.T) string {
 	return dir
 }
 
-// Helper to create a mock config
-func testConfig() *config.Config {
+// Helper to create a mock config with luaDir's parent as Server.Dir
+func testConfig(luaDir string) *config.Config {
 	cfg := config.DefaultConfig()
 	cfg.Logging.Verbosity = 0 // Quiet for tests
+	cfg.Server.Dir = filepath.Dir(luaDir) // baseDir is parent of lua/
 	return cfg
 }
 
@@ -57,7 +58,7 @@ func TestNewHotLoader(t *testing.T) {
 	luaDir := createTempLuaDir(t)
 	defer os.RemoveAll(luaDir)
 
-	cfg := testConfig()
+	cfg := testConfig(luaDir)
 	sessions := []*LuaSession{}
 	getSessions := func() []*LuaSession { return sessions }
 
@@ -82,7 +83,7 @@ func TestHotLoaderStart(t *testing.T) {
 	luaDir := createTempLuaDir(t)
 	defer os.RemoveAll(luaDir)
 
-	cfg := testConfig()
+	cfg := testConfig(luaDir)
 	h, err := NewHotLoader(cfg, luaDir, func() []*LuaSession { return nil }, nil)
 	if err != nil {
 		t.Fatalf("NewHotLoader failed: %v", err)
@@ -115,7 +116,7 @@ func TestDetectLuaFileModification(t *testing.T) {
 	var reloadCount atomic.Int32
 	mock := &mockLuaSession{ID: "1"}
 
-	cfg := testConfig()
+	cfg := testConfig(luaDir)
 	h, _ := NewHotLoader(cfg, luaDir, func() []*LuaSession {
 		reloadCount.Add(1)
 		return []*LuaSession{{ID: mock.ID}}
@@ -148,7 +149,7 @@ func TestIgnoreNonLuaFiles(t *testing.T) {
 
 	var reloadCount atomic.Int32
 
-	cfg := testConfig()
+	cfg := testConfig(luaDir)
 	h, _ := NewHotLoader(cfg, luaDir, func() []*LuaSession {
 		reloadCount.Add(1)
 		return nil
@@ -190,7 +191,7 @@ func TestScanExistingSymlinks(t *testing.T) {
 		t.Skipf("Cannot create symlinks: %v", err)
 	}
 
-	cfg := testConfig()
+	cfg := testConfig(luaDir)
 	h, _ := NewHotLoader(cfg, luaDir, func() []*LuaSession { return nil }, nil)
 	h.Start()
 	defer h.Stop()
@@ -227,7 +228,7 @@ func TestReferenceCountingForSharedTargets(t *testing.T) {
 	}
 	os.Symlink(filepath.Join(targetDir, "b.lua"), symlinkB)
 
-	cfg := testConfig()
+	cfg := testConfig(luaDir)
 	h, _ := NewHotLoader(cfg, luaDir, func() []*LuaSession { return nil }, nil)
 	h.Start()
 	defer h.Stop()
@@ -265,7 +266,7 @@ func TestDebounceRapidChanges(t *testing.T) {
 
 	var reloadCount atomic.Int32
 
-	cfg := testConfig()
+	cfg := testConfig(luaDir)
 	h, _ := NewHotLoader(cfg, luaDir, func() []*LuaSession {
 		reloadCount.Add(1)
 		return nil
@@ -302,7 +303,7 @@ func TestDebouncePerFile(t *testing.T) {
 
 	var reloadCount atomic.Int32
 
-	cfg := testConfig()
+	cfg := testConfig(luaDir)
 	h, _ := NewHotLoader(cfg, luaDir, func() []*LuaSession {
 		reloadCount.Add(1)
 		return nil
@@ -336,7 +337,7 @@ func TestReloadWithNoSessions(t *testing.T) {
 	luaFile := filepath.Join(luaDir, "app.lua")
 	os.WriteFile(luaFile, []byte("-- initial"), 0644)
 
-	cfg := testConfig()
+	cfg := testConfig(luaDir)
 	h, _ := NewHotLoader(cfg, luaDir, func() []*LuaSession {
 		return []*LuaSession{} // Empty
 	}, nil)
@@ -358,7 +359,7 @@ func TestGracefulShutdown(t *testing.T) {
 	luaDir := createTempLuaDir(t)
 	defer os.RemoveAll(luaDir)
 
-	cfg := testConfig()
+	cfg := testConfig(luaDir)
 	h, _ := NewHotLoader(cfg, luaDir, func() []*LuaSession { return nil }, nil)
 	h.Start()
 
@@ -384,7 +385,7 @@ func TestShutdownWithPendingReloads(t *testing.T) {
 	luaFile := filepath.Join(luaDir, "app.lua")
 	os.WriteFile(luaFile, []byte("-- initial"), 0644)
 
-	cfg := testConfig()
+	cfg := testConfig(luaDir)
 	h, _ := NewHotLoader(cfg, luaDir, func() []*LuaSession { return nil }, nil)
 	h.Start()
 
@@ -410,7 +411,7 @@ func TestHandleDeletedFile(t *testing.T) {
 	luaFile := filepath.Join(luaDir, "app.lua")
 	os.WriteFile(luaFile, []byte("-- initial"), 0644)
 
-	cfg := testConfig()
+	cfg := testConfig(luaDir)
 	h, _ := NewHotLoader(cfg, luaDir, func() []*LuaSession { return nil }, nil)
 	h.Start()
 	defer h.Stop()
@@ -433,7 +434,7 @@ func TestResolveReloadPathDirect(t *testing.T) {
 	luaFile := filepath.Join(luaDir, "app.lua")
 	os.WriteFile(luaFile, []byte("-- test"), 0644)
 
-	cfg := testConfig()
+	cfg := testConfig(luaDir)
 	h, _ := NewHotLoader(cfg, luaDir, func() []*LuaSession { return nil }, nil)
 	h.Start()
 	defer h.Stop()
@@ -459,14 +460,15 @@ func TestResolveReloadPathSymlinkTarget(t *testing.T) {
 		t.Skipf("Cannot create symlinks: %v", err)
 	}
 
-	cfg := testConfig()
+	cfg := testConfig(luaDir)
 	h, _ := NewHotLoader(cfg, luaDir, func() []*LuaSession { return nil }, nil)
 	h.Start()
 	defer h.Stop()
 
-	// Change in target dir should resolve to symlink path
+	// Change in target dir should resolve to target path (not symlink)
+	// With baseDir-relative tracking, we use the resolved target path directly
 	path := h.resolveReloadPath(targetFile)
-	if path != symlinkPath {
-		t.Errorf("resolveReloadPath(%q) = %q, want %q", targetFile, path, symlinkPath)
+	if path != targetFile {
+		t.Errorf("resolveReloadPath(%q) = %q, want %q", targetFile, path, targetFile)
 	}
 }

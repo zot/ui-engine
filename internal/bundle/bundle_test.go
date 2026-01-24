@@ -368,6 +368,164 @@ func TestListFilesWithInfo_ReturnsSymlinkMetadata(t *testing.T) {
 	}
 }
 
+func TestAddDirToZip_PreservesExecutableBit(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// Create test file structure
+	scriptsDir := filepath.Join(tmpDir, "scripts")
+	if err := os.MkdirAll(scriptsDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	// Create executable script
+	scriptContent := []byte("#!/bin/bash\necho hello")
+	scriptPath := filepath.Join(scriptsDir, "run.sh")
+	if err := os.WriteFile(scriptPath, scriptContent, 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	// Create non-executable file
+	dataContent := []byte("data")
+	dataPath := filepath.Join(scriptsDir, "data.txt")
+	if err := os.WriteFile(dataPath, dataContent, 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Create ZIP
+	var buf bytes.Buffer
+	zipWriter := zip.NewWriter(&buf)
+
+	if err := addDirToZip(zipWriter, tmpDir, ""); err != nil {
+		t.Fatalf("addDirToZip failed: %v", err)
+	}
+	zipWriter.Close()
+
+	// Verify ZIP contents
+	zipReader, err := zip.NewReader(bytes.NewReader(buf.Bytes()), int64(buf.Len()))
+	if err != nil {
+		t.Fatalf("failed to read ZIP: %v", err)
+	}
+
+	// Find and verify file modes
+	for _, f := range zipReader.File {
+		mode := f.Mode()
+		switch f.Name {
+		case "scripts/run.sh":
+			if mode.Perm()&0111 == 0 {
+				t.Errorf("run.sh should be executable, got mode %o", mode.Perm())
+			}
+		case "scripts/data.txt":
+			if mode.Perm()&0111 != 0 {
+				t.Errorf("data.txt should not be executable, got mode %o", mode.Perm())
+			}
+		}
+	}
+}
+
+func TestExtractBundle_PreservesExecutableBit(t *testing.T) {
+	// Create source directory with executable file
+	srcDir := t.TempDir()
+	scriptsDir := filepath.Join(srcDir, "scripts")
+	if err := os.MkdirAll(scriptsDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	scriptContent := []byte("#!/bin/bash\necho hello")
+	scriptPath := filepath.Join(scriptsDir, "run.sh")
+	if err := os.WriteFile(scriptPath, scriptContent, 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	// Create ZIP in memory
+	var buf bytes.Buffer
+	zipWriter := zip.NewWriter(&buf)
+	if err := addDirToZip(zipWriter, srcDir, ""); err != nil {
+		t.Fatal(err)
+	}
+	zipWriter.Close()
+
+	// Extract to new directory
+	extractDir := t.TempDir()
+	zipReader, err := zip.NewReader(bytes.NewReader(buf.Bytes()), int64(buf.Len()))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for _, f := range zipReader.File {
+		if err := extractZipFile(f, extractDir); err != nil {
+			t.Fatalf("extractZipFile(%s) failed: %v", f.Name, err)
+		}
+	}
+
+	// Verify extracted file is executable
+	extractedScript := filepath.Join(extractDir, "scripts", "run.sh")
+	info, err := os.Stat(extractedScript)
+	if err != nil {
+		t.Fatalf("failed to stat extracted script: %v", err)
+	}
+
+	if info.Mode().Perm()&0111 == 0 {
+		t.Errorf("extracted script should be executable, got mode %o", info.Mode().Perm())
+	}
+}
+
+func TestListFilesWithInfo_IncludesMode(t *testing.T) {
+	// Create a ZIP with files of different modes
+	var buf bytes.Buffer
+	zipWriter := zip.NewWriter(&buf)
+
+	// Add executable file
+	execHeader := &zip.FileHeader{
+		Name:   "scripts/run.sh",
+		Method: zip.Deflate,
+	}
+	execHeader.SetMode(0755)
+	execWriter, err := zipWriter.CreateHeader(execHeader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	execWriter.Write([]byte("#!/bin/bash"))
+
+	// Add regular file
+	regHeader := &zip.FileHeader{
+		Name:   "data.txt",
+		Method: zip.Deflate,
+	}
+	regHeader.SetMode(0644)
+	regWriter, err := zipWriter.CreateHeader(regHeader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	regWriter.Write([]byte("data"))
+
+	zipWriter.Close()
+
+	// Use listFilesWithInfoFromReader to test
+	zipReader, err := zip.NewReader(bytes.NewReader(buf.Bytes()), int64(buf.Len()))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	files := listFilesWithInfoFromReader(zipReader)
+
+	if len(files) != 2 {
+		t.Fatalf("expected 2 files, got %d", len(files))
+	}
+
+	for _, f := range files {
+		switch f.Name {
+		case "scripts/run.sh":
+			if f.Mode.Perm() != 0755 {
+				t.Errorf("run.sh mode = %o, want 0755", f.Mode.Perm())
+			}
+		case "data.txt":
+			if f.Mode.Perm() != 0644 {
+				t.Errorf("data.txt mode = %o, want 0644", f.Mode.Perm())
+			}
+		}
+	}
+}
+
 func TestValidateSymlinkTarget(t *testing.T) {
 	tmpDir := t.TempDir()
 	absDir, _ := filepath.Abs(tmpDir)

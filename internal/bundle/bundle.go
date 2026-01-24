@@ -1,5 +1,6 @@
 // Package bundle provides functionality for bundling site files into the binary.
-// Spec: deployment.md
+// Spec: deployment.md, executable-attrs.md
+// CRC: crc-Bundle.md
 package bundle
 
 import (
@@ -141,21 +142,32 @@ func addDirToZip(zipWriter *zip.Writer, sourceDir, basePath string) error {
 			return addSymlinkToZip(zipWriter, filePath, zipPath, absSourceDir)
 		}
 
-		// Regular file
-		writer, err := zipWriter.Create(zipPath)
-		if err != nil {
-			return err
-		}
-
-		file, err := os.Open(filePath)
-		if err != nil {
-			return err
-		}
-		defer file.Close()
-
-		_, err = io.Copy(writer, file)
-		return err
+		// Regular file - preserve mode
+		return addRegularFileToZip(zipWriter, filePath, zipPath, linfo.Mode())
 	})
+}
+
+// addRegularFileToZip adds a regular file to the ZIP archive with mode preservation
+func addRegularFileToZip(zipWriter *zip.Writer, filePath, zipPath string, mode fs.FileMode) error {
+	header := &zip.FileHeader{
+		Name:   zipPath,
+		Method: zip.Deflate,
+	}
+	header.SetMode(mode)
+
+	writer, err := zipWriter.CreateHeader(header)
+	if err != nil {
+		return err
+	}
+
+	file, err := os.Open(filePath)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+
+	_, err = io.Copy(writer, file)
+	return err
 }
 
 // addSymlinkToZip adds a symlink to the ZIP archive
@@ -476,9 +488,10 @@ func ListFiles() ([]string, error) {
 
 // FileInfo contains metadata about a bundled file.
 type FileInfo struct {
-	Name          string // File path within bundle
-	IsSymlink     bool   // True if this is a symlink
-	SymlinkTarget string // Target path if symlink, empty otherwise
+	Name          string      // File path within bundle
+	IsSymlink     bool        // True if this is a symlink
+	SymlinkTarget string      // Target path if symlink, empty otherwise
+	Mode          fs.FileMode // File mode (permissions)
 }
 
 // ListFilesWithInfo returns files with metadata including symlink information.
@@ -498,7 +511,7 @@ func ListFilesWithInfo() ([]FileInfo, error) {
 func listFilesWithInfoFromReader(zipReader *zip.Reader) []FileInfo {
 	files := make([]FileInfo, 0, len(zipReader.File))
 	for _, f := range zipReader.File {
-		info := FileInfo{Name: f.Name}
+		info := FileInfo{Name: f.Name, Mode: f.Mode()}
 		if f.Mode()&os.ModeSymlink != 0 {
 			info.IsSymlink = true
 			info.SymlinkTarget = readSymlinkTarget(f)

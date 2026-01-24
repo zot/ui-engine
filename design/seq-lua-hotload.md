@@ -17,9 +17,12 @@
      FileSystem        LuaHotLoader            Server         WebSocketEndpoint    LuaSession(s)
         |                   |                   |                   |                   |
         |---modify--------->|                   |                   |                   |
-        |   lua/app.lua     |                   |                   |                   |
+        | apps/myapp/app.lua|                   |                   |                   |
         |                   |                   |                   |                   |
         |                   |--[debounce 100ms]-|                   |                   |
+        |                   |                   |                   |                   |
+        |                   |--computeTrackingKey(absPath)          |                   |
+        |                   |   → "apps/myapp/app.lua"              |                   |
         |                   |                   |                   |                   |
         |                   |--GetLuaSessions()->|                   |                   |
         |                   |                   |                   |                   |
@@ -27,13 +30,13 @@
         |                   |                   |                   |                   |
         |                   |--[for each session, with panic recovery]                  |
         |                   |                   |                   |                   |
-        |                   |--IsFileLoaded(filename)-------------------------------------->|
+        |                   |--IsFileLoaded(trackingKey)---------------------------------->|
         |                   |                   |                   |                   |
         |                   |<--bool (skip if false)----------------------------------------|
         |                   |                   |                   |                   |
         |                   |--[set session.reloading = true]----------------------------->|
         |                   |                   |                   |                   |
-        |                   |--RequireLuaFile(filename)------------------------------------>|
+        |                   |--LoadCode(trackingKey, content)----------------------------->|
         |                   |                   |                   |                   |
         |                   |                   |                   |   [execute Lua    |
         |                   |                   |                   |    in session]    |
@@ -129,9 +132,10 @@ MyApp = MyApp or {type = "MyApp"}
 ## Notes
 
 - **Debouncing**: File changes are debounced (100ms) to handle editors that write files in multiple steps
-- **Only loaded files**: Checks `IsFileLoaded()` - skips files not yet loaded by session (new files ignored)
+- **BaseDir-relative tracking**: Files tracked by resolved path relative to baseDir (e.g., `apps/myapp/app.lua`)
+- **Only loaded files**: Checks `IsFileLoaded(trackingKey)` - skips files not yet loaded by session (new files ignored)
 - **reloading flag**: `session.reloading` set `true` before reload, `false` after - Lua code can detect hot-reload
-- **Symlink Transparency**: Changes to symlink targets reload as if the symlink file changed
+- **Symlink Transparency**: Symlinks resolved to target path; target path relative to baseDir is the tracking key
 - **Panic Recovery**: All Lua execution wrapped in recover() - panics logged as errors, server continues
 - **Session Refresh**: After reload, ExecuteInSession(empty func) triggers AfterBatch which pushes viewdef/variable changes to browser
 - **Prototype Management**: `session:prototype()` automatically:

@@ -135,7 +135,7 @@ All hot-loading features (Lua files, viewdefs, etc.) must track symlinks. See sp
 - [x] ui-app-shell.md
 
 ### Bundle System
-- [x] crc-Bundle.md → `internal/bundle/bundle.go`, `internal/bundle/bundle_test.go`
+- [x] crc-Bundle.md → `internal/bundle/bundle.go`, `internal/bundle/bundle_test.go`, `cli/commands.go`
 
 ### Cross-Cutting
 - [x] crc-Config.md → `internal/config/config.go`
@@ -160,3 +160,7 @@ All hot-loading features (Lua files, viewdefs, etc.) must track symlinks. See sp
 ### Design → Code Gaps
 
 ### Oversights
+
+- [x] O1: Consolidate baseDir across components
+  - ~~Currently derived as `filepath.Dir(luaDir)` in both LuaSession and HotLoader~~
+  - Now uses `config.Server.Dir` as single source of truth

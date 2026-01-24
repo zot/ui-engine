@@ -45,7 +45,7 @@ type WorkResult struct {
 type LuaSession struct {
 	// Lua VM state and execution
 	State          *lua.LState
-	loadedModules  *lua.LTable // Unified load tracker (shared by require() and hot-loader)
+	loadedModules  *lua.LTable // Unified load tracker, keyed by baseDir-relative paths
 	presenterTypes map[string]*PresenterType
 	luaDir         string
 	executorChan   chan WorkItem
@@ -131,7 +131,7 @@ func NewRuntime(cfg *config.Config, luaDir string, vdm *viewdef.ViewdefManager) 
 	s := &LuaSession{
 		config:            cfg,
 		State:             L,
-		loadedModules:     L.NewTable(), // Unified load tracker for require() and hot-loader
+		loadedModules:     L.NewTable(), // Unified load tracker, keyed by baseDir-relative paths
 		presenterTypes:    make(map[string]*PresenterType),
 		luaDir:            luaDir,
 		executorChan:      make(chan WorkItem, 100),
@@ -1590,14 +1590,21 @@ func (r *Runtime) loadFileInternal(path string) error {
 }
 
 // IsFileLoaded checks if a file has been loaded by this session.
+// The trackingKey should be a baseDir-relative path (e.g., "apps/myapp/app.lua").
 // Used by hot-loader to skip files not yet loaded.
-func (r *Runtime) IsFileLoaded(filename string) bool {
+// CRC: crc-LuaSession.md
+func (r *Runtime) IsFileLoaded(trackingKey string) bool {
 	var loaded bool
 	r.execute(func() (interface{}, error) {
-		loaded = r.State.GetField(r.loadedModules, filename) != lua.LNil
+		loaded = r.State.GetField(r.loadedModules, trackingKey) != lua.LNil
 		return nil, nil
 	})
 	return loaded
+}
+
+// BaseDir returns the site root directory from config.
+func (r *Runtime) BaseDir() string {
+	return r.config.Server.Dir
 }
 
 // RequireLuaFile loads a Lua file using the unified load tracker.
@@ -1610,33 +1617,73 @@ func (r *Runtime) RequireLuaFile(filename string) error {
 	return err
 }
 
+// DirectRequireLuaFile loads a Lua file and tracks it by baseDir-relative path.
+// The filename can be relative to luaDir (e.g., "mcp.lua") or relative to baseDir
+// (e.g., "apps/myapp/init.lua"). Symlinks are resolved to compute the tracking key.
+// CRC: crc-LuaSession.md
 func (r *Runtime) DirectRequireLuaFile(filename string) (any, error) {
 	L := r.State
 	loaded := r.loadedModules
 
-	// Check if already loaded
-	if L.GetField(loaded, filename) != lua.LNil {
+	// Determine the absolute file path
+	var absPath string
+	if filepath.IsAbs(filename) {
+		absPath = filename
+	} else {
+		// Try relative to luaDir first (backward compatible)
+		absPath = filepath.Join(r.luaDir, filename)
+		if _, err := os.Stat(absPath); err != nil {
+			// Try relative to baseDir
+			absPath = filepath.Join(r.config.Server.Dir, filename)
+		}
+	}
+
+	trackingKey, err := ComputeTrackingKey(r.config.Server.Dir, absPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to compute tracking key for %s: %w", filename, err)
+	}
+
+	// Check if already loaded by tracking key
+	if L.GetField(loaded, trackingKey) != lua.LNil {
 		return nil, nil // Already loaded
 	}
 
 	// Read file content
-	filePath := filepath.Join(r.luaDir, filename)
-	content, err := os.ReadFile(filePath)
+	content, err := os.ReadFile(absPath)
 	if err != nil {
-		return nil, fmt.Errorf("file not found: %s", filePath)
+		return nil, fmt.Errorf("file not found: %s", absPath)
 	}
 
 	// Mark as loaded BEFORE executing (handles circular dependencies)
-	L.SetField(loaded, filename, lua.LTrue)
+	L.SetField(loaded, trackingKey, lua.LTrue)
 
 	// Execute the code
 	if err := L.DoString(string(content)); err != nil {
 		// Unmark on error (allows retry)
-		L.SetField(loaded, filename, lua.LNil)
+		L.SetField(loaded, trackingKey, lua.LNil)
 		return nil, fmt.Errorf("failed to load %s: %w", filename, err)
 	}
 
 	return nil, nil
+}
+
+// ComputeTrackingKey computes a baseDir-relative tracking key for a file.
+// Symlinks are resolved to get the actual target path.
+// This is a package-level function used by both Runtime and HotLoader.
+// CRC: crc-LuaSession.md
+func ComputeTrackingKey(baseDir, absPath string) (string, error) {
+	// Resolve symlinks to get the actual target path
+	resolved, err := filepath.EvalSymlinks(absPath)
+	if err != nil {
+		resolved = absPath
+	}
+
+	relPath, err := filepath.Rel(baseDir, resolved)
+	if err != nil {
+		return "", fmt.Errorf("path %s is not under baseDir %s", resolved, baseDir)
+	}
+
+	return filepath.Clean(relPath), nil
 }
 
 // SetReloading sets the session.reloading flag.

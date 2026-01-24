@@ -16,12 +16,13 @@ import (
 )
 
 // HotLoader watches the lua directory for file changes and reloads modified files.
+// CRC: crc-LuaHotLoader.md
 type HotLoader struct {
 	config         *config.Config
 	luaDir         string
 	watcher        *fsnotify.Watcher
-	getSessions    func() []*LuaSession       // Callback to get active sessions
-	triggerRefresh func(sessionID string)     // Callback to trigger session refresh (runs AfterBatch)
+	getSessions    func() []*LuaSession   // Callback to get active sessions
+	triggerRefresh func(sessionID string) // Callback to trigger session refresh (runs AfterBatch)
 
 	// Symlink tracking
 	symlinkTargets map[string]string // lua file path -> resolved target dir
@@ -61,10 +62,20 @@ func NewHotLoader(cfg *config.Config, luaDir string, getSessions func() []*LuaSe
 }
 
 // Start begins watching for file changes.
+// Watches lua/ directory and apps/ directory for changes.
+// CRC: crc-LuaHotLoader.md
 func (h *HotLoader) Start() error {
 	// Watch the main lua directory
 	if err := h.addWatch(h.luaDir); err != nil {
 		return err
+	}
+
+	// Watch the apps directory if it exists
+	appsDir := filepath.Join(h.config.Server.Dir, "apps")
+	if info, err := os.Stat(appsDir); err == nil && info.IsDir() {
+		if err := h.addWatchRecursive(appsDir); err != nil {
+			h.config.Log(1, "HotLoader: error watching apps directory: %v", err)
+		}
 	}
 
 	// Scan for existing symlinks and watch their target directories
@@ -80,6 +91,21 @@ func (h *HotLoader) Start() error {
 
 	h.config.Log(1, "HotLoader: watching %s for changes", h.luaDir)
 	return nil
+}
+
+// addWatchRecursive adds a watch to a directory and all its subdirectories.
+func (h *HotLoader) addWatchRecursive(dir string) error {
+	return filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return nil // Skip directories we can't read
+		}
+		if info.IsDir() {
+			if err := h.addWatch(path); err != nil {
+				h.config.Log(2, "HotLoader: could not watch %s: %v", path, err)
+			}
+		}
+		return nil
+	})
 }
 
 // Stop stops the hot loader.
@@ -268,6 +294,7 @@ func (h *HotLoader) processPendingReloads() {
 // reloadFile reloads a Lua file in all active sessions.
 // Wraps execution in panic recovery to prevent crashing the server.
 // Triggers session refresh after reload to push viewdef/variable changes.
+// Seq: seq-lua-hotload.md
 func (h *HotLoader) reloadFile(filePath string) {
 	// Resolve the actual file to reload
 	reloadPath := h.resolveReloadPath(filePath)
@@ -284,30 +311,36 @@ func (h *HotLoader) reloadFile(filePath string) {
 		return
 	}
 
-	// Get the filename for the code name
-	codeName := filepath.Base(reloadPath)
+	trackingKey, err := ComputeTrackingKey(h.config.Server.Dir, reloadPath)
+	if err != nil {
+		h.config.Log(1, "HotLoader: error computing tracking key for %s: %v", reloadPath, err)
+		return
+	}
+
+	h.config.Log(2, "HotLoader: tracking key for %s is %s", reloadPath, trackingKey)
 
 	// Reload in all active sessions with panic recovery
 	sessions := h.getSessions()
 	for _, sess := range sessions {
-		h.reloadInSession(sess, codeName, string(content))
+		h.reloadInSession(sess, trackingKey, string(content))
 	}
 }
 
 // reloadInSession reloads code in a single session with panic recovery.
 // Only reloads files that have already been loaded by the session.
 // Sets session.reloading flag during reload.
-func (h *HotLoader) reloadInSession(sess *LuaSession, codeName, content string) {
+// Seq: seq-lua-hotload.md
+func (h *HotLoader) reloadInSession(sess *LuaSession, trackingKey, content string) {
 	// Check if file has been loaded by this session (skip if not)
-	if !sess.IsFileLoaded(codeName) {
-		h.config.Log(2, "HotLoader: skipping %s in session %s (not loaded)", codeName, sess.ID)
+	if !sess.IsFileLoaded(trackingKey) {
+		h.config.Log(2, "HotLoader: skipping %s in session %s (not loaded)", trackingKey, sess.ID)
 		return
 	}
 
 	// Panic recovery to prevent crashing the server
 	defer func() {
 		if r := recover(); r != nil {
-			h.config.Log(0, "HotLoader: PANIC reloading %s in session %s: %v", codeName, sess.ID, r)
+			h.config.Log(0, "HotLoader: PANIC reloading %s in session %s: %v", trackingKey, sess.ID, r)
 		}
 	}()
 
@@ -315,13 +348,13 @@ func (h *HotLoader) reloadInSession(sess *LuaSession, codeName, content string) 
 	sess.SetReloading(true)
 	defer sess.SetReloading(false)
 
-	_, err := sess.LoadCode(codeName, content)
+	_, err := sess.LoadCode(trackingKey, content)
 	if err != nil {
-		h.config.Log(1, "HotLoader: error reloading %s in session %s: %v", codeName, sess.ID, err)
+		h.config.Log(1, "HotLoader: error reloading %s in session %s: %v", trackingKey, sess.ID, err)
 		return
 	}
 
-	h.config.Log(2, "HotLoader: reloaded %s in session %s", codeName, sess.ID)
+	h.config.Log(2, "HotLoader: reloaded %s in session %s", trackingKey, sess.ID)
 
 	// Trigger session refresh to run AfterBatch and push changes to browser
 	if h.triggerRefresh != nil {
@@ -333,13 +366,20 @@ func (h *HotLoader) reloadInSession(sess *LuaSession, codeName, content string) 
 }
 
 // resolveReloadPath determines which file to reload based on the changed path.
+// Returns the absolute path to the file to reload, or empty string if not applicable.
 func (h *HotLoader) resolveReloadPath(changedPath string) string {
-	// If the change is directly in the lua directory, use it
-	if filepath.Dir(changedPath) == h.luaDir {
-		// Check if file exists (might have been deleted)
-		if _, err := os.Stat(changedPath); err != nil {
-			return ""
-		}
+	// Only process .lua files
+	if !strings.HasSuffix(changedPath, ".lua") {
+		return ""
+	}
+
+	// Check if file exists (might have been deleted)
+	if _, err := os.Stat(changedPath); err != nil {
+		return ""
+	}
+
+	// If the change is under baseDir, it's a candidate for reload
+	if strings.HasPrefix(changedPath, h.config.Server.Dir) {
 		return changedPath
 	}
 
