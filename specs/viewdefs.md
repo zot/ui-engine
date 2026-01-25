@@ -45,11 +45,11 @@ Viewdefs support hot-reloading for iterative development. See [Hot-Loading Syste
 - This enables editing viewdefs without restarting the server
 
 **Frontend behavior:**
-- Views are marked with a `data-ui-viewdef` attribute containing the viewdef key (e.g., `data-ui-viewdef="Contact.COMPACT"`)
+- Views are marked with a `ui-viewdef` attribute containing the viewdef key (e.g., `ui-viewdef="Contact.COMPACT"`)
 - Widgets store a reference to their containing view's element ID (if any)
 - When new viewdefs arrive via variable 1:
   1. Store the updated viewdefs
-  2. For each updated viewdef key, find all views with matching `data-ui-viewdef`
+  2. For each updated viewdef key, find all views with matching `ui-viewdef`
   3. Re-render each matching view using the updated viewdef
   4. Re-binding occurs automatically as part of the render process
 
@@ -471,7 +471,7 @@ The `address` view inherits `COMPACT` from the intermediate `<div>`, not from th
 **View properties:**
 - Unique HTML `id` (vended by the frontend)
 - Manages a container element (e.g., `<div>`, `<sl-option>`)
-- `data-ui-viewdef` attribute on the container element containing the viewdef key (e.g., `Contact.COMPACT`) for hot-reload targeting
+- `ui-viewdef` attribute on the first element containing the viewdef key (e.g., `Contact.COMPACT`) for hot-reload targeting
 
 **Example:**
 ```html
@@ -501,7 +501,7 @@ The frontend maintains a `render(element, variable, namespace)` function:
    - If variable has `namespace` property and `TYPE.{namespace}` exists, use it
    - Else if variable has `fallbackNamespace` property and `TYPE.{fallbackNamespace}` exists, use it
    - Else use `TYPE.DEFAULT`
-2. Set `data-ui-viewdef` attribute on the container element to the resolved viewdef key (e.g., `Contact.COMPACT`)
+2. Set `ui-viewdef` attribute on the first element to the resolved viewdef key (e.g., `Contact.COMPACT`)
 3. Clear the element's children (unbinding existing widgets)
 4. Deep clone the template's contents (returns DocumentFragment, not yet in DOM)
 5. Collect all `<script>` elements from the cloned content (store for later activation)
@@ -526,7 +526,7 @@ If a view cannot render (missing `type` or viewdef), it's added to a pending vie
 
 When updated viewdefs arrive (viewdefs that were already sent):
 1. For each updated viewdef key (e.g., `Contact.COMPACT`):
-   - Query `document.querySelectorAll('[data-ui-viewdef="Contact.COMPACT"]')`
+   - Query `document.querySelectorAll('[ui-viewdef="Contact.COMPACT"]')`
    - For each matching view element, re-render using the updated viewdef
 2. Re-rendering reuses the same variable and container element
 3. Widgets within the view are unbound and recreated during re-render
@@ -656,7 +656,7 @@ Developers can specify a custom `ui-namespace` on the ViewList to use a differen
 
 The frontend ViewList widget:
 - Has an **exemplar element** that gets cloned for each ViewListItem (default: `<div>`)
-- Each cloned element is rendered as a View using standard `render()` (gets `data-ui-viewdef` attribute, supports hot-reload)
+- Each cloned element is rendered as a View using standard `render()` (gets `ui-viewdef` attribute, supports hot-reload)
 - Maintains a parallel array of View elements for the ViewListItems
 - When ViewListItems are added/removed, updates the DOM accordingly
 

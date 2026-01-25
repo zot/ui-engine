@@ -9,7 +9,7 @@
 **Frontend (DOM management):**
 - elementId: ID of container element for the list (NOT direct DOM reference)
 - exemplarHtml: HTML string for cloning items (default: `<div></div>`)
-- viewIds: Parallel array of View element IDs (NOT direct element references)
+- itemViews: Array of View instances for child items (enables multi-element cleanup)
 - delegate: Optional delegate for add/remove notifications
 
 **Backend (Wrapper behavior):**
@@ -25,7 +25,7 @@
 - create: Initialize from element with ui-viewlist attribute, vend element ID if needed, register widget
 - setExemplarHtml: Set HTML string for cloning items (e.g., `<sl-option></sl-option>`)
 - getElement: Look up DOM element by elementId (via document.getElementById)
-- update: Sync viewIds array with bound variable array
+- update: Sync itemViews array with bound variable array
 - addItem: Clone exemplar HTML, create variable with inherited namespace properties, render and append
 - removeItem: Destroy variable, remove element from DOM by ID
 - reorder: Reorder view elements to match array order

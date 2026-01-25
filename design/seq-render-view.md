@@ -106,10 +106,13 @@
   - If no attribute, `namespace` is inherited from parent variable
   - `fallbackNamespace` is always inherited from parent variable
   - ViewList wrapper sets `fallbackNamespace: "list-item"` on its variable
-- **DOM insertion:**
-  - cloneTemplate: Deep clones template content, returns DocumentFragment
-  - appendToElement: Appends cloned nodes to container element (now in DOM)
-  - Scripts must be activated after appendToElement (nodes must be DOM-connected)
+- **Element replacement model:**
+  - Views replace their element(s) rather than adding children to a container
+  - cloneTemplate: Deep clones template content, returns DocumentFragment (may have multiple root elements)
+  - On re-render: destroy old children first, remove old elements, insert new elements at same position
+  - First new element gets stable `elementId`, additional elements get vended IDs
+  - `lastElementId` tracks last element for multi-element templates
+  - Scripts must be activated after insertion (nodes must be DOM-connected)
 - **Script activation:**
   - Scripts in cloned template content don't execute automatically (browser security)
   - collectScripts: Query all `<script>` elements from cloned content, store references

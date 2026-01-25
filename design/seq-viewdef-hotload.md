@@ -11,7 +11,7 @@
 - MessageBatcher: Priority-based message batching
 - Frontend: Browser client
 - ViewdefStore (FE): Frontend viewdef cache
-- View: Rendered view with data-ui-viewdef attribute
+- View: Rendered view with ui-viewdef attribute
 
 ## Sequence
 
@@ -87,7 +87,7 @@ Symlink handling follows the same pattern as LuaHotLoader (see seq-lua-hotload.m
 - Only sessions that have received the viewdef get the update (tracked in sentViewdefs)
 - Push uses variable 1's `viewdefs` property with `:high` priority
 - afterBatch triggers immediate flush to connected clients
-- Frontend queries DOM by `data-ui-viewdef` attribute to find views
+- Frontend queries DOM by `ui-viewdef` attribute to find views
 - Each matching view is re-rendered with same variable, unbinding old widgets
-- ViewList item views also have `data-ui-viewdef` and are included in re-render
+- ViewList item views also have `ui-viewdef` and are included in re-render
 - **Variable destruction**: When child views/viewlists are destroyed during re-render, they destroy their associated variables to prevent leaks

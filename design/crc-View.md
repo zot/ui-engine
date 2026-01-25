@@ -5,22 +5,24 @@
 ## Responsibilities
 
 ### Knows
-- elementId: ID of container element for this view (NOT direct DOM reference)
+- elementId: ID of first element for this view (NOT direct DOM reference)
+- lastElementId: ID of last element for multi-element templates (same as elementId for single-element)
 - variable: Variable bound to this view (object reference)
 - rendered: Whether view has been successfully rendered
-- viewdefKey: The resolved viewdef key (e.g., "Contact.COMPACT") stored as `data-ui-viewdef` attribute
+- viewdefKey: The resolved viewdef key (e.g., "Contact.COMPACT") stored as `ui-viewdef` attribute on first element
 
 ### Does
 - create: Initialize view from element with ui-view attribute, vend element ID if needed, set variable namespace properties, register widget
-- render: Render variable using 3-tier namespace resolution, set `data-ui-viewdef` attribute, returns boolean
+- render: Render variable by replacing view's element(s) with template content, supports multi-element templates, returns boolean
 - setVariable: Update bound variable (triggers re-render)
-- clear: Remove rendered content from element (unbinds existing widgets)
+- clear: Remove all view elements from DOM (from elementId to lastElementId), destroy child views
 - destroy: Cleanup view - unwatch, remove from pending, clear DOM, destroy associated variable
-- getElement: Look up DOM element by elementId (via document.getElementById)
+- getElement: Look up first DOM element by elementId (via document.getElementById)
+- getElements: Look up all DOM elements owned by this view (from elementId to lastElementId siblings)
 - markPending: Add to pending views list (missing type or viewdef)
 - removePending: Remove from pending views list after successful render
 - resolveNamespace: Apply 3-tier resolution (namespace -> fallbackNamespace -> DEFAULT)
-- rerender: Hot-reload re-render using updated viewdef (unbinds old widgets, re-binds new)
+- rerender: Hot-reload re-render using updated viewdef (destroys old widgets/children, re-renders)
 - notifyParentRendered: After rendering, add parent variable ID to BindingEngine's pendingScrollNotifications set
 
 ## Collaborators
@@ -55,14 +57,22 @@ This allows custom namespaces to fall back gracefully when specific viewdefs don
 
 ## Notes
 
+### Element Replacement Model
+
+Views replace their element(s) in the DOM rather than adding children to a container:
+1. Template content replaces the view's current element(s)
+2. First new element gets the stable `elementId`, additional elements get vended IDs
+3. `lastElementId` tracks the last element for multi-element templates
+4. On re-render: destroy old children first, remove old elements, insert new elements at same position
+
 ### Hot-Reload Support
 
 Views support hot-reload re-rendering:
-1. `data-ui-viewdef` attribute on container element stores the resolved viewdef key
-2. When updated viewdefs arrive, ViewdefStore queries `[data-ui-viewdef="KEY"]` to find views
-3. Each matching view's `rerender()` method is called with the updated viewdef
-4. Re-rendering reuses the same variable and container element
-5. Widgets within the view are unbound via `clear()` and recreated during re-render
+1. `ui-viewdef` attribute on first element stores the resolved viewdef key
+2. When updated viewdefs arrive, ViewdefStore queries `[ui-viewdef="KEY"]` to find views
+3. Each matching view's `forceRender()` method is called
+4. Re-rendering reuses the same variable; old elements are replaced with new ones
+5. Old child views/viewlists are destroyed before new elements are inserted (widgets keyed by elementId)
 
 ## Widget Registration
 

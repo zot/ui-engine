@@ -7,7 +7,7 @@ import { cloneViewdefContent, collectScripts, activateScripts } from './viewdef'
 import { VariableStore } from './connection';
 import { ViewList, createViewList } from './viewlist';
 import { parsePath, BindingEngine } from './binding';
-import { ensureElementId } from './element_id_vendor';
+import { ensureElementId, vendElementId } from './element_id_vendor';
 
 // Inject CSS for flash-free hot-reload re-rendering
 // The marker and everything after it is hidden until the swap completes
@@ -28,6 +28,7 @@ const RENDER_MARKER_STYLE = `
 
 export class View {
   readonly elementId: string;
+  private lastElementId: string;  // Tracks last element for multi-element templates
 
   private valueType: string = '';
   private variableId: number | null = null;
@@ -47,16 +48,37 @@ export class View {
     binding?: BindingEngine
   ) {
     this.elementId = ensureElementId(element);
+    this.lastElementId = this.elementId;  // Initially same as first
 
     this.viewdefStore = viewdefStore;
     this.variableStore = variableStore;
     this.binding = binding;
   }
 
-  // Get the element by ID lookup (no stored reference)
+  // Get the first element by ID lookup (no stored reference)
   // Spec: viewdefs.md - Element References (Cross-Cutting Requirement)
   getElement(): HTMLElement | null {
     return document.getElementById(this.elementId) as HTMLElement | null;
+  }
+
+  // Get all elements owned by this view (from elementId to lastElementId)
+  // For multi-element templates, this returns all siblings in the range
+  getElements(): HTMLElement[] {
+    const first = this.getElement();
+    if (!first) return [];
+
+    // Single element case - most common path
+    if (this.elementId === this.lastElementId) return [first];
+
+    // Multi-element case - walk siblings until we hit lastElementId
+    const elements: HTMLElement[] = [first];
+    let current = first.nextElementSibling;
+    while (current instanceof HTMLElement) {
+      elements.push(current);
+      if (current.id === this.lastElementId) break;
+      current = current.nextElementSibling;
+    }
+    return elements;
   }
 
   // Set scrollOnOutput flag (will be applied to widget on render)
@@ -128,7 +150,6 @@ export class View {
     this.variableId = variableId;
     this.rendered = false;
 
-    console.log('SET VIEW VARIABLE', this, this.variableStore.get(this.variableId!))
     // Watch the variable
     this.unwatch = this.variableStore.watch(variableId, (_v, _value, _props) => {
       this.render();
@@ -136,16 +157,6 @@ export class View {
 
     // Initial render
     this.render();
-  }
-
-  // Set variable from an object reference value
-  setVariableFromRef(_value: unknown): void {
-    console.error('THIS IS ERRONEOUS CODE')
-    //if (isObjectReference(value)) {
-    //  this.setVariable(value.obj);
-    //} else {
-    //  this.clear();
-    //}
   }
 
   // Get the resolved viewdef key for this view
@@ -163,115 +174,112 @@ export class View {
   }
 
   // Render the view using TYPE.NAMESPACE viewdef
+  // Views replace their element(s) in the DOM rather than adding children
   // Returns true if rendered successfully
   // Spec: viewdefs.md - Render process
   // CRC: crc-View.md
   render(): boolean {
-    console.log('1')
-    if (this.variableId === null) {
-      return false;
-    }
+    if (this.variableId === null) return false;
+
     const data = this.variableStore.get(this.variableId);
     if (!data) {
-      // Variable not in cache yet, wait for update
-      this.markPending();
+      this.markPending();  // Variable not in cache yet
       return false;
     }
-    console.log('2')
+
     const type = data.properties['type'];
     if (!type) {
-      // No type property yet, wait for it
-      this.markPending();
+      this.markPending();  // No type property yet
       return false;
     }
+
     // 3-tier namespace resolution: namespace -> fallbackNamespace -> DEFAULT
     const namespace = this.getNamespace();
     const fallbackNamespace = this.getFallbackNamespace();
     const viewdef = this.viewdefStore.get(type, namespace, fallbackNamespace);
     if (!viewdef) {
-      // Viewdef not loaded yet, wait for it
-      this.markPending();
+      this.markPending();  // Viewdef not loaded yet
       return false;
     }
-    console.log('3')
+
     if (this.rendered && type === this.valueType) {
-      // no need to re-render
-      return false
+      return false;  // No need to re-render
     }
 
-    console.log('RENDER VIEW', this)
-
-    // Get element by ID lookup
-    const element = this.getElement();
-    if (!element) {
+    // Get first element by ID lookup
+    const firstElement = this.getElement();
+    if (!firstElement) {
       console.error('View element not found:', this.elementId);
       return false;
     }
 
-    // Flash-free re-render: use marker to hide new content until swap completes
-    // Only needed when re-rendering (element already has children)
-    const hasExistingContent = element.childNodes.length > 0;
-    let marker: HTMLElement | null = null;
-
-    if (hasExistingContent) {
-      // Insert marker - CSS hides marker and everything after it
-      marker = document.createElement('div');
-      marker.className = 'ui-render-marker';
-      element.appendChild(marker);
-    } else {
-      // Initial render - just clear any stale state
-      this.clear();
+    // Remember insertion point before destroying old content
+    const parent = firstElement.parentNode;
+    if (!parent) {
+      console.error('View element has no parent:', this.elementId);
+      return false;
     }
 
-    // Clone template content (returns DocumentFragment, not yet in DOM)
+    // For re-render: get all old elements and remember position
+    // Use lastElementId to check for multi-element (not rendered flag, which forceRender clears)
+    const isMultiElement = this.lastElementId !== this.elementId;
+    const oldElements = isMultiElement ? this.getElements() : [firstElement];
+    const lastOldElement = oldElements[oldElements.length - 1];
+    const insertBefore = lastOldElement.nextSibling;
+
+    // CRITICAL: Destroy old child views/viewlists FIRST
+    // Widgets are keyed by elementId, so we must clear them before reusing IDs
+    this.clearChildren();
+
+    // Remove old elements from DOM (all but we'll reuse the ID)
+    for (const el of oldElements) {
+      el.remove();
+    }
+
+    // Clone template content (returns DocumentFragment)
     const fragment = cloneViewdefContent(viewdef);
 
-    // Collect scripts before appending (store for later activation)
+    // Collect scripts before inserting (store for later activation)
     const scripts = collectScripts(fragment);
 
-    // Set data-ui-viewdef attribute for hot-reload targeting
+    // Get root elements from fragment and assign IDs
+    const rootElements = Array.from(fragment.children) as HTMLElement[];
+    if (rootElements.length === 0) {
+      console.error('Viewdef has no root elements:', viewdef.key);
+      return false;
+    }
+
+    // First element gets the stable elementId, rest get vended IDs
+    rootElements[0].id = this.elementId;
+    for (let i = 1; i < rootElements.length; i++) {
+      rootElements[i].id = vendElementId();
+    }
+    this.lastElementId = rootElements[rootElements.length - 1].id;
+
+    // Set ui-viewdef attribute on first element for hot-reload targeting
     // Spec: viewdefs.md - Hot-reloading
     // CRC: crc-View.md - viewdefKey
-    element.setAttribute('data-ui-viewdef', viewdef.key);
+    rootElements[0].setAttribute('ui-viewdef', viewdef.key);
 
-    // Append to element (after marker if present, so hidden by CSS)
-    element.appendChild(fragment);
+    // Insert new elements at the remembered position
+    // Note: insertBefore with null appends to the end
+    parent.insertBefore(fragment, insertBefore);
 
-    // Process ui-viewlist elements before binding
+    // Process ui-viewlist and ui-view elements in each root element
     // Spec: viewdefs.md - Path Resolution: Server-Side Only
-    // Note: fragment is now empty after appendChild, query element
-    this.processViewLists(element, this.variableId!);
+    for (const el of rootElements) {
+      this.processViewLists(el, this.variableId!);
+      this.processChildViews(el, this.variableId!);
+    }
 
-    // Process ui-view elements before binding
-    this.processChildViews(element, this.variableId!);
-
-    // Apply bindings to cloned content (only bind new content after marker)
+    // Apply bindings to each root element
     if (this.binding) {
-      let pastMarker = !marker;
-      for (const child of element.children) {
-        if (child === marker) {
-          pastMarker = true;
-          continue;
-        }
-        if (pastMarker && child instanceof HTMLElement) {
-          this.binding.bindElement(child, this.variableId!);
-        }
+      for (const el of rootElements) {
+        this.binding.bindElement(el, this.variableId!);
       }
     }
 
-    // Swap: remove old content (before marker) and marker itself
-    if (marker) {
-      // Destroy old child views/viewlists (but don't clear DOM - we handle that below)
-      this.clearChildren();
-      // Remove everything before the marker
-      while (element.firstChild !== marker) {
-        element.removeChild(element.firstChild!);
-      }
-      // Remove the marker - new content now visible
-      element.removeChild(marker);
-    }
-
-    // Activate scripts (after content is visible)
+    // Activate scripts (after content is in DOM)
     activateScripts(scripts);
 
     this.rendered = true;
@@ -308,14 +316,55 @@ export class View {
     return true;
   }
 
-  // Process ui-viewlist elements in an element
+  // Process ui-viewlist elements in an element (including the element itself)
   // Spec: viewdefs.md - Path Resolution: Server-Side Only
   private processViewLists(container: Element, contextVarId: number): void {
-    const viewListElements = container.querySelectorAll('[ui-viewlist]');
-    for (const el of viewListElements) {
+    this.processAttributeElements(container, 'ui-viewlist', (el) => {
+      this.setupViewList(el, contextVarId);
+    });
+  }
+
+  // Generic helper to process elements with a given attribute
+  // Checks container first, then descendants (but not both)
+  private processAttributeElements(
+    container: Element,
+    attribute: string,
+    handler: (el: HTMLElement) => void
+  ): void {
+    // Check if the container itself has the attribute
+    if (container instanceof HTMLElement && container.hasAttribute(attribute)) {
+      handler(container);
+      return; // Don't process descendants if container itself matches
+    }
+
+    // Otherwise process matching descendants
+    for (const el of container.querySelectorAll(`[${attribute}]`)) {
       if (el instanceof HTMLElement) {
-        this.setupViewList(el, contextVarId);
+        handler(el);
       }
+    }
+  }
+
+  // Build common namespace properties for child variables
+  // Spec: viewdefs.md - Namespace variable properties
+  private buildNamespaceProperties(
+    element: HTMLElement,
+    contextVarId: number,
+    properties: Record<string, string>
+  ): void {
+    const namespace = this.resolveNamespace(element, contextVarId);
+    if (namespace) {
+      properties['namespace'] = namespace;
+    }
+
+    const parentData = this.variableStore.get(contextVarId);
+    if (parentData?.properties['fallbackNamespace']) {
+      properties['fallbackNamespace'] = parentData.properties['fallbackNamespace'];
+    }
+
+    // Default to read-only access for views/viewlists
+    if (!properties['access']) {
+      properties['access'] = 'r';
     }
   }
 
@@ -329,42 +378,18 @@ export class View {
       this.binding
     );
 
-    // Get path and create child variable for backend path resolution
     const path = element.getAttribute('ui-viewlist');
     if (path) {
-      // Get the base path and additional properties from ViewList
       const basePath = viewList.getBasePath();
-      const props = viewList.getVariableProperties();
-
-      // Ensure element has an ID for tracking
-      // Spec: viewdefs.md - Variable Element Tracking
       const elId = ensureElementId(element);
 
-      // Create child variable with path and ViewList properties (wrapper, item, etc.)
       const properties: Record<string, string> = {
         path: basePath,
         elementId: elId,
-        ...props,
+        ...viewList.getVariableProperties(),
       };
 
-      // Resolve namespace using closest ui-namespace element
-      // Spec: viewdefs.md - Namespace variable properties
-      const namespace = this.resolveNamespace(element, contextVarId);
-      if (namespace) {
-        properties['namespace'] = namespace;
-      }
-
-      // Always inherit fallbackNamespace from parent variable
-      const parentData = this.variableStore.get(contextVarId);
-      if (parentData?.properties['fallbackNamespace']) {
-        properties['fallbackNamespace'] = parentData.properties['fallbackNamespace'];
-      }
-
-      // Default to access=r for ui-viewlist (read-only binding)
-      // Spec: viewdefs.md - ViewLists
-      if (!properties['access']) {
-        properties['access'] = 'r';
-      }
+      this.buildNamespaceProperties(element, contextVarId, properties);
 
       this.variableStore.create({
         parentId: contextVarId,
@@ -379,14 +404,11 @@ export class View {
     this.viewLists.push(viewList);
   }
 
-  // Process ui-view elements in an element
+  // Process ui-view elements in an element (including the element itself)
   private processChildViews(container: Element, contextVarId: number): void {
-    const viewElements = container.querySelectorAll('[ui-view]');
-    for (const el of viewElements) {
-      if (el instanceof HTMLElement) {
-        this.setupChildView(el, contextVarId);
-      }
-    }
+    this.processAttributeElements(container, 'ui-view', (el) => {
+      this.setupChildView(el, contextVarId);
+    });
   }
 
   // Setup a ui-view element
@@ -399,66 +421,37 @@ export class View {
       this.binding
     );
 
-    // Get path and create child variable for backend path resolution
     const path = element.getAttribute('ui-view');
     if (path) {
-      // Parse path to extract base path (without query params)
-      const [basePath, ] = path.split('?');
-      const props = parsePath(path)
+      const [basePath] = path.split('?');
+      const parsed = parsePath(path);
 
-      console.log('CREATING VIEW FOR ', path, ' parent: ', contextVarId)
-      let extra = props.options.props
-      if (extra) {
-        delete props.options.props
-      } else {
-        extra = {}
-      }
+      // Extract extra props (handled locally, not sent to backend)
+      const extra = parsed.options.props ?? {};
+      delete parsed.options.props;
 
-      // Set scrollOnOutput on View if specified (will be applied to widget on render)
+      // Set scrollOnOutput on View if specified
       // Spec: viewdefs.md - scrollOnOutput (universal property on widget)
-      // CRC: crc-Widget.md - scrollOnOutput property
       if (extra['scrollOnOutput'] === 'true') {
         view.setScrollOnOutput(true);
       }
-      delete extra['scrollOnOutput'];  // Don't send to backend (handled locally)
+      delete extra['scrollOnOutput'];
 
-      // Ensure element has an ID for tracking
-      // Spec: viewdefs.md - Variable Element Tracking
       const elId = ensureElementId(element);
 
-      // Build properties with namespace inheritance
       const properties: Record<string, string> = {
         path: basePath,
         elementId: elId,
-        ...(props.options as any),
+        ...(parsed.options as Record<string, string>),
         ...extra,
       };
 
-      // Resolve namespace using closest ui-namespace element
-      // Spec: viewdefs.md - Namespace variable properties
-      const namespace = this.resolveNamespace(element, contextVarId);
-      if (namespace) {
-        properties['namespace'] = namespace;
-      }
+      this.buildNamespaceProperties(element, contextVarId, properties);
 
-      // Always inherit fallbackNamespace from parent variable
-      const parentData = this.variableStore.get(contextVarId);
-      if (parentData?.properties['fallbackNamespace']) {
-        properties['fallbackNamespace'] = parentData.properties['fallbackNamespace'];
-      }
-
-      // Default to access=r for ui-view (read-only binding)
-      // Spec: viewdefs.md - Views
-      if (!properties['access']) {
-        properties['access'] = 'r';
-      }
-
-      // Create child variable with path property
       this.variableStore.create({
         parentId: contextVarId,
         properties,
       }).then((childVarId) => {
-        console.log("GET VIEW VARIABLE ", childVarId, " props: ", JSON.stringify(this.variableStore.get(childVarId)?.properties))
         view.setVariable(childVarId);
       }).catch((err) => {
         console.error('Failed to create view variable:', err);
@@ -482,16 +475,14 @@ export class View {
     this.childViews = [];
   }
 
-  // Clear rendered content (destroys children AND clears DOM)
+  // Clear rendered content (destroys children AND removes view elements from DOM)
   clear(): void {
     this.clearChildren();
 
-    // Clear DOM
-    const element = this.getElement();
-    if (element) {
-      while (element.firstChild) {
-        element.removeChild(element.firstChild);
-      }
+    // Remove all elements from elementId to lastElementId
+    const elements = this.getElements();
+    for (const el of elements) {
+      el.remove();
     }
     this.rendered = false;
   }

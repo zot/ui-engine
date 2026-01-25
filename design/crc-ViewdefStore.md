@@ -30,7 +30,7 @@
 - handleFileChange: (backend) Reload viewdef, queue re-push for sessions that received it
 - resolveSymlinks: (backend) Scan viewdef directory for symlinks, resolve and watch target directories
 - updateSymlinkWatches: (backend) When symlinks change, update watched directories accordingly
-- rerenderViewsForKey: (frontend) Query `[data-ui-viewdef="KEY"]`, call rerender() on each
+- rerenderViewsForKey: (frontend) Query `[ui-viewdef="KEY"]`, call rerender() on each
 
 ## Collaborators
 

@@ -51,7 +51,7 @@ All hot-loading features (Lua files, viewdefs, etc.) must track symlinks. See sp
 ### Viewdef System
 - [x] crc-Viewdef.md → `internal/viewdef/viewdef.go`, `web/src/viewdef.ts`
 - [x] crc-ViewdefStore.md → `internal/viewdef/store.go`, `internal/viewdef/hotloader.go`, `web/src/viewdef_store.ts` *(hot-reload)*
-- [x] crc-View.md → `web/src/view.ts` *(data-ui-viewdef, rerender)*
+- [x] crc-View.md → `web/src/view.ts` *(ui-viewdef, rerender)*
 - [x] crc-ViewList.md → `web/src/viewlist.ts`, `internal/lua/viewlist.go`
 - [x] crc-ViewListItem.md → `internal/lua/viewlistitem.go`
 - [x] crc-AppView.md → `web/src/app_view.ts`
@@ -62,7 +62,7 @@ All hot-loading features (Lua files, viewdefs, etc.) must track symlinks. See sp
 - [x] crc-HtmlBinding.md → `web/src/binding.ts`
 - [x] seq-load-viewdefs.md
 - [x] seq-viewdef-delivery.md
-- [x] seq-render-view.md *(set data-ui-viewdef)*
+- [x] seq-render-view.md *(set ui-viewdef)*
 - [x] seq-viewlist-update.md
 - [x] seq-viewlist-presenter-sync.md
 - [x] seq-bind-element.md *(pass viewElementId)*

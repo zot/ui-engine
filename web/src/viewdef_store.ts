@@ -73,7 +73,7 @@ export class ViewdefStore {
   }
 
   // Re-render all views using a specific viewdef key
-  // Queries DOM for elements with data-ui-viewdef attribute matching the key
+  // Queries DOM for elements with ui-viewdef attribute matching the key
   // Uses widget.view.forceRender() to trigger re-render
   // Spec: viewdefs.md - Hot-reload re-rendering
   // CRC: crc-ViewdefStore.md - rerenderViewsForKey
@@ -83,7 +83,7 @@ export class ViewdefStore {
       return;
     }
 
-    const selector = `[data-ui-viewdef="${key}"]`;
+    const selector = `[ui-viewdef="${key}"]`;
     const elements = document.querySelectorAll(selector);
 
     console.log(`[ViewdefStore] Hot-reload: re-rendering ${elements.length} views for ${key}`);
