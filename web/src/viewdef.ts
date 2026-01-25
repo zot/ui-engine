@@ -88,6 +88,9 @@ export function activateScripts(scripts: HTMLScriptElement[]): void {
     const newScript = document.createElement('script');
     newScript.type = 'text/javascript';
     newScript.textContent = original.textContent;
+    if (original.id) {
+      newScript.id = original.id;
+    }
     original.replaceWith(newScript);
   }
 }
