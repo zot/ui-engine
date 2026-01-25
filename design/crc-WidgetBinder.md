@@ -35,6 +35,16 @@ For `sl-input` and `sl-textarea`, the `keypress` option determines the event:
 - `keypress` absent or `false`: Listen to `sl-change` (fires on blur)
 - `keypress` present or `true`: Listen to `sl-input` (fires on every keystroke)
 
+## Value Type Conversions
+
+Some widgets require value type conversion when applying variable values:
+
+| Widget | Conversion | Rationale |
+|--------|------------|-----------|
+| `sl-select` | `String(value)`, `null`/`undefined` → `""` | Select needs string value; empty string shows "no selection" |
+
+Conversion is applied in the value binding's update handler before setting the element property.
+
 ## Collaborators
 
 - BindingEngine: General binding coordination (calls bindWidget for Shoelace elements)

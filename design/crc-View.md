@@ -10,6 +10,7 @@
 - variable: Variable bound to this view (object reference)
 - rendered: Whether view has been successfully rendered
 - viewdefKey: The resolved viewdef key (e.g., "Contact.COMPACT") stored as `ui-viewdef` attribute on first element
+- viewUnbindHandlers: Array of cleanup handlers called when widget unbinds
 
 ### Does
 - create: Initialize view from element with ui-view attribute, vend element ID if needed, set variable namespace properties, register widget
@@ -24,6 +25,7 @@
 - resolveNamespace: Apply 3-tier resolution (namespace -> fallbackNamespace -> DEFAULT)
 - rerender: Hot-reload re-render using updated viewdef (destroys old widgets/children, re-renders)
 - notifyParentRendered: After rendering, add parent variable ID to BindingEngine's pendingScrollNotifications set
+- onWidgetUnbind: Callback for view-level cleanup when widget unbinds (runs viewUnbindHandlers)
 
 ## Collaborators
 

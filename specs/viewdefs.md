@@ -176,6 +176,9 @@ A **Widget** is the binding context for an element with `ui-*` bindings. Each el
 | sl-tag           | none               |           | Display only                                     |
 | sl-tooltip       | none               |           | Display only                                     |
 
+**Value type conversions:**
+- `sl-select`: Converts variable value to string; `null`/`undefined` becomes `""` (empty string). This ensures the select shows "no selection" state when the bound value is nullish.
+
 **Shoelace tips:**
 - For non-interactive components, bind to a child element: `<sl-badge><span ui-value="count"></span></sl-badge>`
 - Use `ui-action` for button clicks: `<sl-button ui-action="save()">Save</sl-button>`
