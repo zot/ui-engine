@@ -458,8 +458,19 @@ export class BindingEngine {
           // Preserve number type for components like sl-rating, sl-range
           if (typeof value === 'number') {
             (el as any).value = value
+          } else if (value === null || value === undefined || value === '') {
+            // sl-select: set empty string and clear displayLabel after component updates
+            if (el.tagName.toLowerCase() === 'sl-select') {
+              (el as any).value = ''
+              // Clear displayLabel after component's update cycle
+              setTimeout(() => {
+                (el as any).displayLabel = ''
+              }, 0)
+            } else {
+              (el as any).value = ''
+            }
           } else {
-            (el as any).value = value?.toString() ?? ''
+            (el as any).value = value.toString()
           }
           scrollToBottom()
           // Content-resizable elements notify parent for scrollOnOutput
@@ -567,7 +578,7 @@ export class BindingEngine {
       element instanceof HTMLSelectElement
     const tagLower = element.tagName.toLowerCase()
     const isShoelaceInput =
-      tagLower === 'sl-input' || tagLower === 'sl-textarea'
+      tagLower === 'sl-input' || tagLower === 'sl-textarea' || tagLower === 'sl-select'
 
     let nativeEventType: string | null = null
     let shoelaceEventType: string | null = null

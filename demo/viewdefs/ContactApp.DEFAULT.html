@@ -53,6 +53,13 @@
       color: var(--sl-color-neutral-500);
       font-size: var(--sl-font-size-small);
     }
+    .contact-emergency {
+      color: var(--sl-color-danger-600);
+      font-size: var(--sl-font-size-small);
+      display: flex;
+      align-items: center;
+      gap: var(--sl-spacing-2x-small);
+    }
     .contact-actions {
       display: flex;
       gap: var(--sl-spacing-x-small);
@@ -170,6 +177,16 @@
           ui-value="editPhone">
           <sl-icon name="telephone" slot="prefix"></sl-icon>
         </sl-input>
+      </div>
+
+      <div class="form-row">
+        <sl-select
+          label="Emergency Contact"
+          ui-value="editEmergencyContactId"
+          clearable>
+          <sl-icon name="heart-pulse" slot="prefix"></sl-icon>
+          <span ui-view="emergencyContactOptions()?wrapper=lua.ViewList" ui-namespace="emergency-option"></span>
+        </sl-select>
       </div>
 
       <div class="form-row full-width">

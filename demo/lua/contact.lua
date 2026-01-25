@@ -10,6 +10,7 @@ Contact = session:prototype("Contact", {
                                email = "",
                                phone = "",
                                notes = "",
+                               emergencyContact = nil,  -- reference to another Contact
 })
 
 function Contact:fullName()
@@ -20,6 +21,21 @@ function Contact:fullName()
        result = first .. " " .. last
     end
     return result
+end
+
+function Contact:emergencyContactName()
+    if self.emergencyContact then
+        return self.emergencyContact:fullName()
+    end
+    return ""
+end
+
+function Contact:hasEmergencyContact()
+    return self.emergencyContact ~= nil
+end
+
+function Contact:noEmergencyContact()
+    return self.emergencyContact == nil
 end
 
 -- ContactPresenter - wraps Contact for UI interactions
@@ -68,6 +84,7 @@ ContactApp = session:prototype("ContactApp", {
                                   editEmail = "",
                                   editPhone = "",
                                   editNotes = "",
+                                  editEmergencyContactId = "",  -- "" or index string
                                   -- Currently editing contact (nil = creating new)
                                   _editingContact = nil,
 
@@ -90,6 +107,7 @@ function ContactApp:new(tbl)
     tbl.editEmail = ""
     tbl.editPhone = ""
     tbl.editNotes = ""
+    tbl.editEmergencyContactId = ""
     -- Currently editing contact (nil = creating new)
     tbl._editingContact = nil
     return tbl
@@ -105,6 +123,7 @@ function ContactApp:addContact()
     self.editEmail = ""
     self.editPhone = ""
     self.editNotes = ""
+    self.editEmergencyContactId = ""
     self._editingContact = nil
     self.error = nil
 end
@@ -121,6 +140,18 @@ function ContactApp:editContact(contact)
         self.editPhone = contact.phone or ""
         self.editNotes = contact.notes or ""
         self._editingContact = contact
+        -- Find the index of the emergency contact in filtered options
+        -- Note: Lua index is 1-based, JS expects 0-based
+        self.editEmergencyContactId = ""
+        if contact.emergencyContact then
+            local options = self:emergencyContactOptions()
+            for i, c in ipairs(options) do
+                if c == contact.emergencyContact then
+                    self.editEmergencyContactId = tostring(i - 1)  -- Convert to 0-based
+                    break
+                end
+            end
+        end
         self.error = nil
     end
 end
@@ -137,6 +168,20 @@ function ContactApp:saveContact()
         return
     end
 
+    -- Convert emergency contact id to reference (index into filtered options)
+    -- Note: editEmergencyContactId is 0-based (from JS), Lua tables are 1-indexed
+    local emergencyContact = nil
+    if self.editEmergencyContactId ~= "" then
+        local idx = tonumber(self.editEmergencyContactId)
+        if idx then
+            idx = idx + 1  -- Convert from 0-based (JS) to 1-based (Lua)
+        end
+        local options = self:emergencyContactOptions()
+        if idx and options[idx] then
+            emergencyContact = options[idx]
+        end
+    end
+
     if self._editingContact then
         -- Update existing contact directly
         self._editingContact.firstName = self.editFirstName
@@ -144,6 +189,7 @@ function ContactApp:saveContact()
         self._editingContact.email = self.editEmail
         self._editingContact.phone = self.editPhone
         self._editingContact.notes = self.editNotes
+        self._editingContact.emergencyContact = emergencyContact
     else
         -- Create new contact
         local contact = Contact:new({
@@ -151,7 +197,8 @@ function ContactApp:saveContact()
             lastName = self.editLastName,
             email = self.editEmail,
             phone = self.editPhone,
-            notes = self.editNotes
+            notes = self.editNotes,
+            emergencyContact = emergencyContact
         })
         table.insert(self._allContacts, contact)
     end
@@ -218,6 +265,18 @@ function ContactApp:selectFirstContact()
     if #filtered > 0 then
         self:editContact(filtered[1])
     end
+end
+
+-- Get emergency contact options for dropdown (excludes contact being edited)
+-- Returns filtered contacts list; ViewList provides index via ViewListItem
+function ContactApp:emergencyContactOptions()
+    local options = {}
+    for _, contact in ipairs(self._allContacts) do
+        if contact ~= self._editingContact then
+            table.insert(options, contact)
+        end
+    end
+    return options
 end
 
 

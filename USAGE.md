@@ -219,12 +219,26 @@ end
 
 ## Views and Namespaces
 
+### Multi-Element Templates
+
+View templates can contain multiple top-level elements. The first element receives the variable's ID; additional elements get auto-vended IDs. This is essential for `<sl-select>` options and other components requiring sibling elements:
+
+```html
+<!-- lua.ViewListItem.my-options.html -->
+<template>
+  <sl-option ui-attr-value="index">
+    <span ui-value="item.name"></span>
+  </sl-option>
+</template>
+```
+
+When used inside `<sl-select>`, each list item becomes a direct `<sl-option>` child—no wrapper divs needed.
+
 ### Viewdef Naming
 
 Viewdefs are named `Type.Namespace.html`:
 - `Contact.DEFAULT.html` - full detail view
 - `Contact.list-item.html` - compact list row
-- `Contact.OPTION.html` - for `<sl-select>` options
 
 ### Namespace Resolution (3-tier)
 
@@ -274,6 +288,45 @@ ViewItem viewdef uses ui-view="item" to display the presenter
 2. **Flexibility** - same domain list can have different presenters in different views
 3. **Simpler backend** - no presenter management code in Lua
 4. **Automatic sync** - ViewList keeps presenters in sync with domain array changes
+
+### ViewList for `<sl-select>` Options
+
+Use `ui-view` with `wrapper=lua.ViewList` to populate select dropdowns. The ViewListItem viewdef renders `<sl-option>` elements directly:
+
+**HTML (inside the select):**
+```html
+<sl-select ui-value="selectedContactId" label="Contact">
+  <span ui-view="contacts()?wrapper=lua.ViewList" ui-namespace="contact-option"></span>
+</sl-select>
+```
+
+**Viewdef (`lua.ViewListItem.contact-option.html`):**
+```html
+<template>
+  <sl-option ui-attr-value="index">
+    <span ui-value="item.fullName()"></span>
+  </sl-option>
+</template>
+```
+
+**Key points:**
+- Use a `<span>` as the container (it gets replaced by the options)
+- The viewdef is for `lua.ViewListItem`, not your domain type
+- Use an app-centric namespace prefix (e.g., `contact-option` not just `option`)
+- `index` is the 0-based position (use as the option value)
+- `item` is the wrapped domain object (or presenter if `itemWrapper` is set)
+- `baseItem` is always the unwrapped domain object
+
+**Backend stores the selected index (0-based):**
+```lua
+function ContactApp:saveContact()
+    local idx = tonumber(self.selectedContactId)
+    if idx then
+        local contact = self:contacts()[idx + 1]  -- Lua is 1-based
+        -- use contact...
+    end
+end
+```
 
 ## Variable Wrappers
 
