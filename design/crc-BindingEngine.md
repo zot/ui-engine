@@ -107,6 +107,28 @@ Bindings automatically set `access=r` (read-only) unless explicitly overridden:
 
 The `determineDefaultAccess` method checks the binding type and element tag to determine the appropriate default.
 
+## Method Path Access Validation
+
+Method paths (ending with `()` or `(_)`) have specific access constraints:
+
+| Path Form | Allowed Access | Notes |
+|-----------|----------------|-------|
+| `method()` | `r`, `action`, `rw` | `rw` enables read/write methods (Lua only) |
+| `method(_)` | `w`, `action` | Write-only with explicit argument |
+
+**Validation behavior:**
+- For `method()` paths: defaults to `access=r`, validates only `r`, `action`, or `rw` allowed
+- For `method(_)` paths: used with `ui-action`/`ui-event`, always sets `access=action`
+- Invalid access values log error and abort binding creation
+
+**Read/write methods (Lua only):**
+```html
+<input ui-value="value()?access=rw">
+```
+- On read: method called with no arguments
+- On write: method called with the value as argument
+- Works because Lua supports varargs in method signatures
+
 ## ui-code Binding
 
 The `ui-code` binding executes JavaScript code when the bound variable's value changes.

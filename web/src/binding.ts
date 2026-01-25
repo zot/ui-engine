@@ -123,13 +123,14 @@ export function pathOptionsToProperties(
 // Forward declaration for View type (avoid circular import)
 export interface ViewLike {
   forceRender(): void;
+  onWidgetUnbind?(): void;  // Callback for view-level cleanup when widget unbinds
 }
 
 export class Widget {
   readonly elementId: string
   private variables: Map<string, number> = new Map()  // binding name → variable ID
   private unbindHandlers: Map<string, () => void> = new Map()  // binding name → cleanup fn
-  view?: ViewLike  // Optional reference to containing View (for hot-reload)
+  views: ViewLike[] = []  // Views sharing this widget (ancestor-to-descendant order)
   scrollOnOutput = false  // CRC: crc-Widget.md - scrollOnOutput property
 
   constructor(element: Element) {
@@ -138,6 +139,21 @@ export class Widget {
       element.id = ensureElementId(element)
     }
     this.elementId = element.id
+  }
+
+  // Add a view to the views array (maintains ancestor-to-descendant order)
+  addView(view: ViewLike): void {
+    if (!this.views.includes(view)) {
+      this.views.push(view)
+    }
+  }
+
+  // Remove a view from the views array
+  removeView(view: ViewLike): void {
+    const idx = this.views.indexOf(view)
+    if (idx >= 0) {
+      this.views.splice(idx, 1)
+    }
   }
 
   // Scroll element to bottom if scrollable
@@ -171,12 +187,20 @@ export class Widget {
   }
 
   // Call all unbind handlers and clean up
+  // Notifies views in reverse order (descendant first, then ancestor)
   unbindAll(): void {
+    // 1. Call binding handlers
     for (const handler of this.unbindHandlers.values()) {
       handler()
     }
     this.unbindHandlers.clear()
     this.variables.clear()
+
+    // 2. Notify views in reverse order (descendant first)
+    for (let i = this.views.length - 1; i >= 0; i--) {
+      this.views[i].onWidgetUnbind?.()
+    }
+    this.views = []
   }
 }
 
@@ -271,25 +295,36 @@ export class BindingEngine {
     return this.widgets.get(elementId)
   }
 
-  // Get view for an element (via widget.view, for hot-reload)
+  // Get view for an element (via widget.views, for hot-reload)
+  // Returns the first (ancestor) view for backwards compatibility
   // Spec: viewdefs.md - Hot-reload re-rendering
   getView(elementId: string): ViewLike | undefined {
     const widget = this.widgets.get(elementId)
-    return widget?.view
+    return widget?.views[0]
+  }
+
+  // Get or create widget for an element
+  getOrCreateWidget(elementId: string): Widget | undefined {
+    let widget = this.widgets.get(elementId)
+    if (!widget) {
+      const element = document.getElementById(elementId)
+      if (element) {
+        widget = new Widget(element)
+        this.widgets.set(elementId, widget)
+      }
+    }
+    return widget
   }
 
   // Set view for a widget (creating widget if needed)
   // Used by View to register itself for hot-reload
+  // Adds view to widget's views array (ancestor-to-descendant order)
   // Spec: viewdefs.md - Hot-reload re-rendering
   setViewForElement(elementId: string, view: ViewLike): void {
-    let widget = this.widgets.get(elementId)
-    if (!widget) {
-      const element = document.getElementById(elementId)
-      if (!element) return
-      widget = new Widget(element)
-      this.widgets.set(elementId, widget)
+    const widget = this.getOrCreateWidget(elementId)
+    if (widget) {
+      widget.addView(view)
     }
-    widget.view = view
   }
 
   // Bind all ui-* attributes on an element
@@ -455,20 +490,22 @@ export class BindingEngine {
       ? (value: unknown) => {
           const el = document.getElementById(elementId)
           if (!el) return
-          // Preserve number type for components like sl-rating, sl-range
-          if (typeof value === 'number') {
-            (el as any).value = value
-          } else if (value === null || value === undefined || value === '') {
-            // sl-select: set empty string and clear displayLabel after component updates
-            if (el.tagName.toLowerCase() === 'sl-select') {
-              (el as any).value = ''
-              // Clear displayLabel after component's update cycle
+          const isSlSelect = el.tagName.toLowerCase() === 'sl-select'
+          // Spec: viewdefs.md - sl-select converts value to string, null/undefined to ""
+          if (isSlSelect) {
+            const strValue = value == null ? '' : String(value)
+            ;(el as any).value = strValue
+            // Clear displayLabel when empty to show "no selection" state
+            if (strValue === '') {
               setTimeout(() => {
                 (el as any).displayLabel = ''
               }, 0)
-            } else {
-              (el as any).value = ''
             }
+          } else if (typeof value === 'number') {
+            // Preserve number type for components like sl-rating, sl-range
+            (el as any).value = value
+          } else if (value === null || value === undefined || value === '') {
+            (el as any).value = ''
           } else {
             (el as any).value = value.toString()
           }
@@ -516,13 +553,14 @@ export class BindingEngine {
       }
     }
 
-    // Method calls (paths ending with ()) require access 'r' or 'action'
+    // Method calls (paths ending with ()) allow access 'r', 'action', or 'rw'
+    // Spec: viewdefs.md - method() with access=rw is read/write method (Lua only)
     const isMethodCall = parsed.segments[parsed.segments.length - 1]?.endsWith('()')
     if (isMethodCall) {
       if (properties['access'] === undefined) {
         properties.access = 'r'
-      } else if (properties['access'] !== 'r' && properties['access'] !== 'action') {
-        console.error(`Invalid access '${properties['access']}' for method call path '${path}' - must be 'r' or 'action'`)
+      } else if (properties['access'] !== 'r' && properties['access'] !== 'action' && properties['access'] !== 'rw') {
+        console.error(`Invalid access '${properties['access']}' for method call path '${path}' - must be 'r', 'action', or 'rw'`)
         return
       }
     } else if (!editableValue && properties['access'] === undefined) {

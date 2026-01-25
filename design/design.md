@@ -117,7 +117,7 @@ All hot-loading features (Lua files, viewdefs, etc.) must track symlinks. See sp
 - [x] seq-load-lua-code.md
 - [x] seq-lua-handle-action.md
 - [x] seq-lua-hotload.md
-- [ ] seq-prototype-mutation.md
+- [x] seq-prototype-mutation.md
 
 ### Backend Library System
 - [x] crc-PathNavigator.md → `lib/go/path.go`, `lib/lua/path.lua`, `web/src/path.ts`
@@ -148,19 +148,34 @@ All hot-loading features (Lua files, viewdefs, etc.) must track symlinks. See sp
 - [x] seq-app-startup.md
 
 ### Test Designs
-- [ ] test-HotLoader.md
-- [ ] test-Lua.md
+- [x] test-HotLoader.md
+- [x] test-Lua.md
 
 ## Gaps
 
 ### Incomplete Implementation
 
+None identified.
+
 ### Spec → Design Gaps
 
+None identified.
+
 ### Design → Code Gaps
+
+- [x] D1: Method path access validation incomplete
+  - ~~**Spec**: viewdefs.md defines `method()` with `access=rw` for read/write methods (Lua only)~~
+  - ~~**Code**: `web/src/binding.ts:559` rejected `access=rw` for method paths~~
+  - Fixed: Now allows `r`, `action`, or `rw` for `method()` paths
 
 ### Oversights
 
 - [x] O1: Consolidate baseDir across components
   - ~~Currently derived as `filepath.Dir(luaDir)` in both LuaSession and HotLoader~~
   - Now uses `config.Server.Dir` as single source of truth
+- [ ] O2: Frontend test coverage
+  - No TypeScript unit tests (`*.test.ts`) for web/src/ components
+  - Test designs exist (test-Frontend.md) but no implementation
+- [ ] O3: ChanSvc utility undocumented
+  - `internal/server/svc.go` provides channel-based service pattern
+  - Used for concurrency but has no CRC card (minor - utility code)

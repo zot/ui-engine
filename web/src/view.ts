@@ -40,6 +40,7 @@ export class View {
   private viewLists: ViewList[] = [];
   private childViews: View[] = [];
   private _scrollOnOutput = false;  // Pending scrollOnOutput to set on widget
+  private viewUnbindHandlers: (() => void)[] = [];  // View-specific cleanup handlers
 
   constructor(
     element: HTMLElement,
@@ -113,30 +114,35 @@ export class View {
     return data?.properties['fallbackNamespace'];
   }
 
-  // Resolve namespace for a child element
+  // Resolve namespace for a child element (when element doesn't have ui-namespace directly)
   // Spec: viewdefs.md - Namespace variable properties
-  // Uses closest('[ui-namespace]') and checks if parent variable's element contains it
+  // Uses closest('[ui-namespace]') and checks containment with parent variable's element
   private resolveNamespace(element: HTMLElement, parentVarId: number): string | undefined {
-    // Find closest element with ui-namespace attribute
-    const closestNsElement = element.closest('[ui-namespace]');
-    if (!closestNsElement) {
-      // No ui-namespace found, inherit from parent variable
-      const parentData = this.variableStore.get(parentVarId);
-      return parentData?.properties['namespace'];
-    }
+    const closest = element.closest('[ui-namespace]') as HTMLElement | null;
 
-    // Get the parent variable's element
     const parentData = this.variableStore.get(parentVarId);
+    const parentNs = parentData?.properties['namespace'];
     const parentElementId = parentData?.properties['elementId'];
     const parentElement = parentElementId ? document.getElementById(parentElementId) : null;
 
-    // If no parent variable or parent element contains the found namespace element, use it
-    if (!parentElement || parentElement.contains(closestNsElement)) {
-      return closestNsElement.getAttribute('ui-namespace') || undefined;
+    if (closest && parentElement && parentNs) {
+      // Both exist: check containment
+      // If closest is inside parent element, use closest's namespace
+      // Otherwise, parent's namespace is "closer" in view hierarchy
+      if (parentElement.contains(closest)) {
+        return closest.getAttribute('ui-namespace') || undefined;
+      } else {
+        return parentNs;
+      }
+    } else if (closest) {
+      // Only closest DOM element exists
+      return closest.getAttribute('ui-namespace') || undefined;
+    } else if (parentNs) {
+      // Only parent variable namespace exists
+      return parentNs;
     }
 
-    // Otherwise, inherit namespace from parent variable
-    return parentData?.properties['namespace'];
+    return undefined;
   }
 
   // Set the bound variable (object reference)
@@ -227,6 +233,24 @@ export class View {
     const lastOldElement = oldElements[oldElements.length - 1];
     const insertBefore = lastOldElement.nextSibling;
 
+    // CRITICAL: Capture OLD descendant views BEFORE any new children are added
+    // Views sharing this widget are stored ancestor-to-descendant order
+    // CRC: crc-View.md - descendant view cleanup on re-render
+    type ViewLikeWithUnbind = { onWidgetUnbind?(): void };
+    let oldDescendantViews: ViewLikeWithUnbind[] = [];
+    if (this.binding) {
+      const widget = this.binding.getWidget(this.elementId);
+      if (widget) {
+        const myIndex = widget.views.indexOf(this);
+        if (myIndex >= 0) {
+          // All views after this one are OLD descendants
+          oldDescendantViews = widget.views.slice(myIndex + 1);
+          // Truncate now so new children get added after this view
+          widget.views.length = myIndex + 1;
+        }
+      }
+    }
+
     // CRITICAL: Destroy old child views/viewlists FIRST
     // Widgets are keyed by elementId, so we must clear them before reusing IDs
     this.clearChildren();
@@ -277,6 +301,12 @@ export class View {
       for (const el of rootElements) {
         this.binding.bindElement(el, this.variableId!);
       }
+    }
+
+    // AFTER new content is added, unbind the OLD descendants
+    // This ensures new children are NOT in oldDescendantViews
+    for (const descendant of oldDescendantViews) {
+      descendant.onWidgetUnbind?.();
     }
 
     // Activate scripts (after content is in DOM)
@@ -346,19 +376,28 @@ export class View {
   }
 
   // Build common namespace properties for child variables
+  // Namespace is recorded BEFORE element replacement to preserve container's ui-namespace
   // Spec: viewdefs.md - Namespace variable properties
   private buildNamespaceProperties(
     element: HTMLElement,
     contextVarId: number,
     properties: Record<string, string>
   ): void {
-    const namespace = this.resolveNamespace(element, contextVarId);
-    if (namespace) {
-      properties['namespace'] = namespace;
+    // 1. If element has ui-namespace, use it directly
+    const elementNs = element.getAttribute('ui-namespace');
+    if (elementNs) {
+      properties['namespace'] = elementNs;
+    } else {
+      // 2. Otherwise resolve via DOM/parent hierarchy
+      const namespace = this.resolveNamespace(element, contextVarId);
+      if (namespace) {
+        properties['namespace'] = namespace;
+      }
     }
 
+    // 3. Inherit fallbackNamespace from parent if not already set
     const parentData = this.variableStore.get(contextVarId);
-    if (parentData?.properties['fallbackNamespace']) {
+    if (!properties['fallbackNamespace'] && parentData?.properties['fallbackNamespace']) {
       properties['fallbackNamespace'] = parentData.properties['fallbackNamespace'];
     }
 
@@ -513,6 +552,15 @@ export class View {
     this.rendered = false;
     this.valueType = '';
     this.render();
+  }
+
+  // Callback from Widget.unbindAll() - runs view-specific cleanup
+  // CRC: crc-View.md - onWidgetUnbind
+  onWidgetUnbind(): void {
+    for (const handler of this.viewUnbindHandlers) {
+      handler();
+    }
+    this.viewUnbindHandlers = [];
   }
 
   // Get the variable ID

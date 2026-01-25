@@ -25,7 +25,7 @@ export class Connection {
   // Callback for response handling (create responses)
   // Map of requestId -> callback for correlating out-of-order responses
   private createCallbacks: Map<number, (resp: Response<CreateResponse>) => void> = new Map();
-  // Outgoing message batcher (200ms throttle, priority sorting)
+  // Outgoing message batcher (50ms debounce, priority sorting)
   // Spec: protocol.md - Frontend outgoing batching
   private batcher: FrontendOutgoingBatcher;
 
@@ -123,20 +123,21 @@ export class Connection {
     }
   }
 
-  // Send a message, routing through batcher for throttling
-  // Create messages bypass batching and are sent immediately
+  // Send a message, routing through batcher for debouncing
+  // Set immediate=true for user events that need instant feedback
   // Spec: protocol.md - Frontend outgoing batching
-  send(msg: Message, priority: Priority = 'medium'): void {
+  // CRC: crc-FrontendOutgoingBatcher.md - debounce vs immediate flush
+  send(msg: Message, priority: Priority = 'medium', immediate = false): void {
     if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
       console.error('WebSocket not connected');
       return;
     }
 
-    //if (this.batcher.shouldBypassBatch(msg)) {
-    //  this.batcher.sendImmediate(msg);
-    //} else {
+    if (immediate) {
+      this.batcher.enqueueAndFlush(msg, priority);
+    } else {
       this.batcher.enqueue(msg, priority);
-    //}
+    }
   }
 
   // Send a message and wait for a response (for create operations)
@@ -390,14 +391,16 @@ export class VariableStore {
   // Spec: viewdefs.md - Frontend Update Behavior
   // MUST set local value before sending to backend
   // Spec: viewdefs.md - Duplicate update suppression
+  // CRC: crc-FrontendOutgoingBatcher.md - actions flush immediately
   update(varId: number, value?: unknown, properties?: Record<string, string>): void {
     const variable = this.variables.get(varId);
 
     // Duplicate update suppression: bindings without access=action or access=w
     // should not send an update if the value hasn't changed
+    const access = variable?.properties?.access;
+    const isAction = access === 'action';
     if (variable && value !== undefined) {
-      const access = variable.properties?.access;
-      const shouldAlwaysSend = access === 'action' || access === 'w';
+      const shouldAlwaysSend = isAction || access === 'w';
       if (!shouldAlwaysSend && variable.value === value) {
         // Value unchanged and not an action/write-only binding - skip update
         return;
@@ -413,8 +416,8 @@ export class VariableStore {
         variable.properties = { ...variable.properties, ...properties };
       }
     }
-    // Then send to backend
-    this.connection.send({ type: 'update', data: { varId, value, properties } });
+    // Send to backend - actions flush immediately for responsive UI
+    this.connection.send({ type: 'update', data: { varId, value, properties } }, 'medium', isAction);
   }
 
   destroy(varId: number): void {

@@ -1,9 +1,9 @@
-// Frontend outgoing message batcher with throttling and priority sorting
+// Frontend outgoing message batcher with debouncing and priority sorting
 // CRC: crc-FrontendOutgoingBatcher.md
 // Spec: protocol.md
 // Sequence: seq-frontend-outgoing-batch.md
 
-import { Message, encodeMessage } from './protocol';
+import { Message } from './protocol';
 
 export type Priority = 'high' | 'medium' | 'low';
 
@@ -21,34 +21,35 @@ const PRIORITY_ORDER: Record<Priority, number> = {
 
 export class FrontendOutgoingBatcher {
   private pendingMessages: QueuedMessage[] = [];
-  private throttleTimer: ReturnType<typeof setTimeout> | null = null;
+  private debounceTimer: ReturnType<typeof setTimeout> | null = null;
   private insertionOrder = 0;
   private sendFn: (data: string) => void;
 
-  readonly throttleInterval = 200; // ms
+  readonly debounceInterval = 50; // ms
 
   constructor(sendFn: (data: string) => void) {
     this.sendFn = sendFn;
   }
 
-  // Check if message type bypasses batching
-  shouldBypassBatch(msg: Message): boolean {
-    return msg.type === 'create';
-  }
-
-  // Add message to pending queue with priority
+  // Add message to pending queue with priority (debounced send)
   enqueue(msg: Message, priority: Priority = 'medium'): void {
     this.pendingMessages.push({
       message: msg,
       priority,
       order: this.insertionOrder++,
     });
-    this.startThrottle();
+    this.startDebounce();
   }
 
-  // Send message immediately, bypassing batch queue
-  sendImmediate(msg: Message): void {
-    this.sendFn(encodeMessage(msg));
+  // Add message to queue then flush immediately (for user events)
+  // CRC: crc-FrontendOutgoingBatcher.md - enqueueAndFlush
+  enqueueAndFlush(msg: Message, priority: Priority = 'high'): void {
+    this.pendingMessages.push({
+      message: msg,
+      priority,
+      order: this.insertionOrder++,
+    });
+    this.flushNow();
   }
 
   // Sort by priority (high -> medium -> low), FIFO within priority, send batch
@@ -73,28 +74,26 @@ export class FrontendOutgoingBatcher {
     this.sendFn(JSON.stringify(messages));
   }
 
-  // Start 200ms timer if not running
-  private startThrottle(): void {
-    if (this.throttleTimer !== null) {
-      return; // Timer already running
-    }
-    this.throttleTimer = setTimeout(() => {
-      this.throttleTimer = null;
+  // Start/restart 50ms debounce timer (resets on each call)
+  private startDebounce(): void {
+    this.cancelDebounce();
+    this.debounceTimer = setTimeout(() => {
+      this.debounceTimer = null;
       this.flush();
-    }, this.throttleInterval);
+    }, this.debounceInterval);
   }
 
   // Cancel pending timer
-  cancelThrottle(): void {
-    if (this.throttleTimer !== null) {
-      clearTimeout(this.throttleTimer);
-      this.throttleTimer = null;
+  cancelDebounce(): void {
+    if (this.debounceTimer !== null) {
+      clearTimeout(this.debounceTimer);
+      this.debounceTimer = null;
     }
   }
 
   // Flush immediately and cancel timer (for cleanup/disconnect)
   flushNow(): void {
-    this.cancelThrottle();
+    this.cancelDebounce();
     this.flush();
   }
 

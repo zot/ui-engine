@@ -10,6 +10,7 @@
 - unbindHandlers: Map of binding name to cleanup function (`Map<string, () => void>`)
 - autoVendedId: Boolean indicating if ID was auto-assigned (for cleanup)
 - scrollOnOutput: If true, scroll element to bottom when child content renders (set via path property)
+- views: Array of views sharing this widget (ancestor-to-descendant order)
 
 ### Does
 - create: Create a Widget for an element with ui-* bindings
@@ -17,8 +18,10 @@
 - registerBinding: Add a binding name to variable ID mapping
 - unregisterBinding: Remove a binding from the variables map
 - addUnbindHandler: Register a cleanup function for a binding (`addUnbindHandler(name, fn)`)
-- unbindAll: Call all unbind handlers and clear the unbindHandlers map
+- unbindAll: Call all unbind handlers, clear maps, notify views in reverse order (descendant first)
 - getVariableId: Get variable ID for a binding name
+- addView: Add view to views array (maintains ancestor-to-descendant order)
+- removeView: Remove view from views array
 - hasBinding: Check if a binding exists by name (e.g., "ui-value")
 - getElement: Look up DOM element by elementId (via document.getElementById)
 - scrollToBottom: Scroll element to bottom if scrollable (`scrollHeight > clientHeight`)
