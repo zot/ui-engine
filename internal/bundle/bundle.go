@@ -564,8 +564,18 @@ func ReadFile(name string) ([]byte, error) {
 	return nil, fmt.Errorf("file not found: %s", name)
 }
 
-// ListFilesInDir returns files in a subdirectory of the bundle.
+// ListFilesInDir returns files in a subdirectory of the bundle (non-recursive).
 func ListFilesInDir(dir string) ([]string, error) {
+	return listFilesInDir(dir, false)
+}
+
+// ListFilesInDirRecursive returns all files in a subdirectory of the bundle (recursive).
+func ListFilesInDirRecursive(dir string) ([]string, error) {
+	return listFilesInDir(dir, true)
+}
+
+// listFilesInDir is the shared implementation for directory listing.
+func listFilesInDir(dir string, recursive bool) ([]string, error) {
 	zipReader, err := GetBundleReader()
 	if err != nil {
 		return nil, err
@@ -574,25 +584,34 @@ func ListFilesInDir(dir string) ([]string, error) {
 		return nil, fmt.Errorf("binary is not bundled")
 	}
 
-	// Clean and normalize the directory path
+	dir = normalizeDirPath(dir)
+
+	var files []string
+	for _, f := range zipReader.File {
+		if !strings.HasPrefix(f.Name, dir) || f.FileInfo().IsDir() {
+			continue
+		}
+		if recursive {
+			files = append(files, f.Name)
+			continue
+		}
+		// Non-recursive: only include files directly in this directory
+		relPath := strings.TrimPrefix(f.Name, dir)
+		if relPath != "" && !strings.Contains(relPath, "/") {
+			files = append(files, f.Name)
+		}
+	}
+	return files, nil
+}
+
+// normalizeDirPath cleans and normalizes a directory path for bundle lookup.
+func normalizeDirPath(dir string) string {
 	dir = path.Clean(dir)
 	dir = strings.TrimPrefix(dir, "/")
 	if dir != "" && !strings.HasSuffix(dir, "/") {
 		dir += "/"
 	}
-
-	var files []string
-	for _, f := range zipReader.File {
-		if strings.HasPrefix(f.Name, dir) && !f.FileInfo().IsDir() {
-			// Get filename relative to the directory
-			relPath := strings.TrimPrefix(f.Name, dir)
-			// Only include files directly in this directory, not subdirectories
-			if !strings.Contains(relPath, "/") && relPath != "" {
-				files = append(files, f.Name)
-			}
-		}
-	}
-	return files, nil
+	return dir
 }
 
 // ZipFileSystem implements fs.FS for serving files from a ZIP archive.

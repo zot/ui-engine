@@ -29,10 +29,15 @@ var (
 
 // Re-export bundle functions for MCP integration
 var (
-	IsBundled        = bundle.IsBundled
-	BundleListFiles  = bundle.ListFilesInDir
-	BundleReadFile   = bundle.ReadFile
+	IsBundled                   = bundle.IsBundled
+	BundleListFiles             = bundle.ListFilesInDir
+	BundleListFilesRecursive    = bundle.ListFilesInDirRecursive
+	BundleListFilesWithInfo     = bundle.ListFilesWithInfo
+	BundleReadFile              = bundle.ReadFile
 )
+
+// Re-export bundle types
+type BundleFileInfo = bundle.FileInfo
 
 // Re-export Lua utilities
 var (
