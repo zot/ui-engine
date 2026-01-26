@@ -1,26 +1,21 @@
 # ui-engine
 
-**Version: 0.14.2**
+**Version: 0.14.3**
 
-**Write HTML and app logic for your desktop apps. Skip the rest.**
+**Objects present themselves. You write HTML templates.**
 
-No frontend JavaScript. No API layers. No state management boilerplate. Define your domain and presentation objects in backend code, add HTML templates with declarative bindings, and ui-engine handles the rest.
+This is not your grandfather's web framework. Traditional frameworks build UIs from pages, routes, and components. ui-engine builds UIs from **objects that present themselves**—a `Contact` renders as a detail view, a list row, an editor, or a dropdown option depending on context. Same object, different presentations.
 
-## The Problem
+```
+Contact object → presents as:
+  ├── Contact.DEFAULT.html      (full detail view)
+  ├── Contact.list-item.html    (compact row)
+  └── Contact.option.html       (dropdown option)
+```
 
-Traditional web apps require massive amounts of non-application code:
+No frontend JavaScript. No API layers. No state management. Objects ARE the state.
 
-- API endpoints and OpenAPI specs
-- Data fetching, serialization, DTOs
-- State management (Redux, Vuex, etc.)
-- Form handling and validation
-- Real-time sync infrastructure
-
-Your actual domain logic becomes a fraction of the codebase.
-
-## The Solution
-
-ui-engine eliminates the client/server boundary for application code:
+## How It Works
 
 ```lua
 -- Backend: domain objects + presenters
