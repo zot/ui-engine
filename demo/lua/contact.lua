@@ -308,3 +308,6 @@ if not session.reloading then
    
    ui.log("Contact Manager initialized for session")
 end
+
+x = 123
+print("X = "..x)

@@ -275,6 +275,7 @@ func (s *LuaSession) CreateLuaSession(vendedID string) (*LuaSession, error) {
 
 // loadMainLua loads main.lua from filesystem or cached bundle code.
 // Registers the file in loadedModules for hot-reload tracking.
+// Uses ComputeTrackingKey to handle symlinks correctly.
 func (r *Runtime) loadMainLua(L *lua.LState) error {
 	// Try cached bundle code first
 	if r.mainLuaCode != "" {
@@ -290,10 +291,17 @@ func (r *Runtime) loadMainLua(L *lua.LState) error {
 	// Try filesystem
 	mainPath := filepath.Join(r.luaDir, "main.lua")
 	if _, err := os.Stat(mainPath); err == nil {
+		// Compute tracking key for hot-reload (resolves symlinks)
+		trackingKey := "main.lua" // fallback
+		if r.config != nil && r.config.Server.Dir != "" {
+			if key, err := ComputeTrackingKey(r.config.Server.Dir, mainPath); err == nil {
+				trackingKey = key
+			}
+		}
 		// Mark as loaded for hot-reload tracking
-		L.SetField(r.loadedModules, "main.lua", lua.LTrue)
+		L.SetField(r.loadedModules, trackingKey, lua.LTrue)
 		if err := L.DoFile(mainPath); err != nil {
-			L.SetField(r.loadedModules, "main.lua", lua.LNil) // Unmark on error
+			L.SetField(r.loadedModules, trackingKey, lua.LNil) // Unmark on error
 			return fmt.Errorf("failed to load main.lua: %w", err)
 		}
 		return nil
@@ -1385,6 +1393,7 @@ func (r *Runtime) HandleFrontendUpdate(sessionID string, varID int64, value json
 // filesystem (--dir mode) and embedded bundle.
 // Uses unified loadedModules table shared with hot-loader.
 // Handles circular dependencies by marking as loaded before executing.
+// Stores under both module name (for require lookups) and tracking key (for hot-reload).
 func (r *Runtime) registerRequire() {
 	L := r.State
 	loaded := r.loadedModules // Use unified load tracker
@@ -1402,18 +1411,26 @@ func (r *Runtime) registerRequire() {
 		filename := strings.ReplaceAll(modName, ".", string(filepath.Separator)) + ".lua"
 
 		var code string
+		var trackingKey string // baseDir-relative path for hot-reload tracking
 
 		// Try filesystem first (works for --dir mode)
 		filePath := filepath.Join(r.luaDir, filename)
 		content, fsErr := os.ReadFile(filePath)
 		if fsErr == nil {
 			code = string(content)
+			// Compute tracking key for hot-reload (baseDir-relative path)
+			if r.config != nil && r.config.Server.Dir != "" {
+				if key, err := ComputeTrackingKey(r.config.Server.Dir, filePath); err == nil {
+					trackingKey = key
+				}
+			}
 		} else {
 			// Try bundle (works for bundled binaries)
 			bundlePath := "lua/" + strings.ReplaceAll(modName, ".", "/") + ".lua"
 			bundleContent, bundleErr := bundle.ReadFile(bundlePath)
 			if bundleErr == nil {
 				code = string(bundleContent)
+				// No tracking key for bundle (no hot-reload)
 			} else {
 				L.RaiseError("module '%s' not found:\n\tno file '%s'\n\tno bundled file '%s'",
 					modName, filePath, bundlePath)
@@ -1423,11 +1440,17 @@ func (r *Runtime) registerRequire() {
 
 		// Mark as loaded BEFORE executing (handles circular dependencies)
 		L.SetField(loaded, modName, lua.LTrue)
+		if trackingKey != "" && trackingKey != modName {
+			L.SetField(loaded, trackingKey, lua.LTrue)
+		}
 
 		// Execute the module code
 		if err := L.DoString(code); err != nil {
 			// Unmark on error (allows retry)
 			L.SetField(loaded, modName, lua.LNil)
+			if trackingKey != "" && trackingKey != modName {
+				L.SetField(loaded, trackingKey, lua.LNil)
+			}
 			L.RaiseError("error loading module '%s': %v", modName, err)
 			return 0
 		}
@@ -1438,8 +1461,11 @@ func (r *Runtime) registerRequire() {
 			result = lua.LTrue
 		}
 
-		// Update cache with actual result
+		// Update cache with actual result (both keys for require lookup and hot-reload)
 		L.SetField(loaded, modName, result)
+		if trackingKey != "" && trackingKey != modName {
+			L.SetField(loaded, trackingKey, result)
+		}
 		L.Push(result)
 		return 1
 	})
