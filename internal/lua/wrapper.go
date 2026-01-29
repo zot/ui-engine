@@ -85,6 +85,13 @@ func (r *WrapperRegistry) Register(typeName string, factory WrapperFactory) {
 	r.wrappers[typeName] = factory
 }
 
+// Remove removes a wrapper from the registry.
+func (r *WrapperRegistry) Remove(typeName string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	delete(r.wrappers, typeName)
+}
+
 // Get retrieves a wrapper factory by type name.
 func (r *WrapperRegistry) Get(typeName string) (WrapperFactory, bool) {
 	r.mu.RLock()

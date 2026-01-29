@@ -1,6 +1,6 @@
-// CRC: crc-LuaSession.md, crc-LuaRuntime.md (alias), crc-LuaVariable.md
-// Spec: interfaces.md, deployment.md, libraries.md, protocol.md
-// Sequence: seq-lua-executor-init.md, seq-lua-execute.md, seq-lua-handle-action.md, seq-lua-session-init.md, seq-session-create-backend.md
+// CRC: crc-LuaSession.md, crc-LuaRuntime.md (alias), crc-LuaVariable.md, crc-Module.md
+// Spec: interfaces.md, deployment.md, libraries.md, protocol.md, module-tracking.md
+// Sequence: seq-lua-executor-init.md, seq-lua-execute.md, seq-lua-handle-action.md, seq-lua-session-init.md, seq-session-create-backend.md, seq-unload-module.md, seq-require-lua-file.md
 //
 // LuaSession provides per-session Lua isolation. Each frontend session gets its own
 // LuaSession with a separate Lua VM state. Server owns luaSessions map and creates
@@ -73,6 +73,12 @@ type LuaSession struct {
 	prototypeRegistry map[string]*prototypeInfo      // name -> stored init copy for change detection
 	instanceRegistry  map[*lua.LTable][]weakInstance // prototype -> weak list of instances
 	mutationQueue     []mutationEntry                // FIFO queue of prototypes pending mutation
+
+	// Module tracking for unloading
+	modules           map[string]*Module   // tracking key -> Module instance
+	moduleDirectories map[string][]*Module // directory path -> modules in that directory
+	currentModule     *Module              // module being loaded (for resource tracking)
+	hotLoaderCleanup  func(path string)    // callback to clean up HotLoader state
 }
 
 // prototypeInfo stores information about a registered prototype for change detection.
@@ -139,6 +145,8 @@ func NewRuntime(cfg *config.Config, luaDir string, vdm *viewdef.ViewdefManager) 
 		viewdefManager:    vdm,
 		prototypeRegistry: make(map[string]*prototypeInfo),
 		instanceRegistry:  make(map[*lua.LTable][]weakInstance),
+		modules:           make(map[string]*Module),
+		moduleDirectories: make(map[string][]*Module),
 	}
 
 	// Load standard libraries
@@ -756,6 +764,49 @@ func (r *Runtime) addGoSessionMethods(L *lua.LState, session *lua.LTable, vended
 		L.Push(instance)
 		return 1
 	}))
+
+	// removePrototype - remove a prototype from the registry
+	// session:removePrototype(name, children) -> nil
+	// CRC: crc-LuaSession.md
+	L.SetField(session, "removePrototype", L.NewFunction(func(L *lua.LState) int {
+		name := L.CheckString(2)
+		children := false
+		if L.GetTop() >= 3 {
+			children = L.ToBool(3)
+		}
+
+		luaSess, ok := r.GetLuaSession(vendedID)
+		if ok {
+			luaSess.RemovePrototype(name, children)
+		}
+		return 0
+	}))
+
+	// unloadModule - remove all tracking related to a module
+	// session:unloadModule(moduleName) -> nil
+	// Seq: seq-unload-module.md
+	L.SetField(session, "unloadModule", L.NewFunction(func(L *lua.LState) int {
+		moduleName := L.CheckString(2)
+
+		luaSess, ok := r.GetLuaSession(vendedID)
+		if ok {
+			luaSess.UnloadModule(moduleName)
+		}
+		return 0
+	}))
+
+	// unloadDirectory - unload all modules in a directory
+	// session:unloadDirectory(dirPath) -> nil
+	// Seq: seq-unload-module.md
+	L.SetField(session, "unloadDirectory", L.NewFunction(func(L *lua.LState) int {
+		dirPath := L.CheckString(2)
+
+		luaSess, ok := r.GetLuaSession(vendedID)
+		if ok {
+			luaSess.UnloadDirectory(dirPath)
+		}
+		return 0
+	}))
 }
 
 // prototypeImpl implements session:prototype(name, init, base).
@@ -823,6 +874,11 @@ func (r *Runtime) prototypeImpl(L *lua.LState, name string, init *lua.LTable, ba
 
 		// Initialize instance tracking for this prototype
 		r.instanceRegistry[prototype] = nil
+
+		// Track prototype in current module
+		if r.currentModule != nil {
+			r.currentModule.AddPrototype(name)
+		}
 
 		return prototype
 	}
@@ -1023,6 +1079,130 @@ func (r *Runtime) processMutationEntry(L *lua.LState, entry mutationEntry) {
 			L.SetField(instance, key, lua.LNil)
 		}
 	}
+}
+
+// RemovePrototype removes a prototype from the registry.
+// If children is true, also removes prototypes whose name starts with "name." (dot-separated children).
+// CRC: crc-LuaSession.md
+func (r *Runtime) RemovePrototype(name string, children bool) {
+	if info, exists := r.prototypeRegistry[name]; exists {
+		delete(r.instanceRegistry, info.prototype)
+		delete(r.prototypeRegistry, name)
+	}
+
+	if !children {
+		return
+	}
+
+	prefix := name + "."
+	for childName, info := range r.prototypeRegistry {
+		if strings.HasPrefix(childName, prefix) {
+			delete(r.instanceRegistry, info.prototype)
+			delete(r.prototypeRegistry, childName)
+		}
+	}
+}
+
+// SetHotLoaderCleanup sets the callback for cleaning up HotLoader state during unload.
+func (r *Runtime) SetHotLoaderCleanup(cleanup func(path string)) {
+	r.hotLoaderCleanup = cleanup
+}
+
+// UnloadModule removes all tracking related to a module.
+// This removes prototypes, presenter types, wrappers, and loadedModules entry.
+// It also cleans up HotLoader state via the cleanup callback.
+func (r *Runtime) UnloadModule(moduleName string) {
+	module, exists := r.modules[moduleName]
+	if !exists {
+		return
+	}
+
+	// Remove prototypes registered by this module
+	for _, protoName := range module.Prototypes {
+		r.RemovePrototype(protoName, false)
+	}
+
+	// Remove presenter types registered by this module
+	for _, ptName := range module.PresenterTypes {
+		delete(r.presenterTypes, ptName)
+	}
+
+	// Remove wrappers registered by this module
+	if r.wrapperRegistry != nil {
+		for _, wrapperName := range module.Wrappers {
+			r.wrapperRegistry.Remove(wrapperName)
+		}
+	}
+
+	// Remove from loadedModules
+	r.loadedModules.RawSetString(moduleName, lua.LNil)
+
+	// Clean up HotLoader state
+	if r.hotLoaderCleanup != nil {
+		r.hotLoaderCleanup(moduleName)
+	}
+
+	// Remove from moduleDirectories
+	if mods, ok := r.moduleDirectories[module.Directory]; ok {
+		for i, m := range mods {
+			if m.Name == moduleName {
+				r.moduleDirectories[module.Directory] = slices.Delete(mods, i, i+1)
+				break
+			}
+		}
+		// Clean up empty directory entry
+		if len(r.moduleDirectories[module.Directory]) == 0 {
+			delete(r.moduleDirectories, module.Directory)
+		}
+	}
+
+	// Remove module entry
+	delete(r.modules, moduleName)
+}
+
+// UnloadDirectory unloads all modules in a directory and cleans up HotLoader state.
+func (r *Runtime) UnloadDirectory(dirPath string) {
+	modules, exists := r.moduleDirectories[dirPath]
+	if !exists {
+		return
+	}
+
+	// Make a copy of module names to avoid modifying slice while iterating
+	moduleNames := make([]string, len(modules))
+	for i, m := range modules {
+		moduleNames[i] = m.Name
+	}
+
+	// Unload each module
+	for _, name := range moduleNames {
+		r.UnloadModule(name)
+	}
+
+	// Clean up HotLoader directory state
+	if r.hotLoaderCleanup != nil {
+		r.hotLoaderCleanup(dirPath)
+	}
+
+	// Remove directory entry (should already be gone, but be safe)
+	delete(r.moduleDirectories, dirPath)
+}
+
+// SetCurrentModule sets the module being loaded for resource tracking.
+func (r *Runtime) SetCurrentModule(trackingKey, directory string) {
+	module := NewModule(trackingKey, directory)
+	r.modules[trackingKey] = module
+	r.moduleDirectories[directory] = append(r.moduleDirectories[directory], module)
+	r.currentModule = module
+}
+
+// ClearCurrentModule clears the current module after load completes.
+func (r *Runtime) ClearCurrentModule() {
+	r.currentModule = nil
+}
+
+// GetCurrentModule returns the module currently being loaded, if any.
+func (r *Runtime) GetCurrentModule() *Module {
+	return r.currentModule
 }
 
 // extractTypeProperty extracts type from metatable or direct field (frictionless convention).
@@ -1444,16 +1624,36 @@ func (r *Runtime) registerRequire() {
 			L.SetField(loaded, trackingKey, lua.LTrue)
 		}
 
+		// Set current module for resource tracking (use tracking key if available)
+		moduleKey := trackingKey
+		if moduleKey == "" {
+			moduleKey = modName
+		}
+		directory := filepath.Dir(moduleKey)
+		r.SetCurrentModule(moduleKey, directory)
+
 		// Execute the module code
 		if err := L.DoString(code); err != nil {
+			r.ClearCurrentModule()
 			// Unmark on error (allows retry)
 			L.SetField(loaded, modName, lua.LNil)
 			if trackingKey != "" && trackingKey != modName {
 				L.SetField(loaded, trackingKey, lua.LNil)
 			}
+			// Clean up module tracking on error
+			delete(r.modules, moduleKey)
+			if mods, ok := r.moduleDirectories[directory]; ok {
+				for i, m := range mods {
+					if m.Name == moduleKey {
+						r.moduleDirectories[directory] = slices.Delete(mods, i, i+1)
+						break
+					}
+				}
+			}
 			L.RaiseError("error loading module '%s': %v", modName, err)
 			return 0
 		}
+		r.ClearCurrentModule()
 
 		// Get the return value (module table) or keep the true marker
 		result := L.Get(-1)
@@ -1496,6 +1696,10 @@ func (r *Runtime) registerUIModule() {
 			Name:    name,
 			Methods: make(map[string]*lua.LFunction),
 			Table:   tbl,
+		}
+		// Track presenter type in current module
+		if r.currentModule != nil {
+			r.currentModule.AddPresenterType(name)
 		}
 		r.mu.Unlock()
 
@@ -1566,6 +1770,11 @@ func (r *Runtime) registerUIModule() {
 		r.wrapperRegistry.Register(name, func(session *LuaSession, variable *TrackerVariableAdapter) interface{} {
 			return NewLuaWrapper(session, tbl, variable)
 		})
+
+		// Track wrapper in current module
+		if r.currentModule != nil {
+			r.currentModule.AddWrapper(name)
+		}
 
 		r.Log(2, "LuaRuntime: registered wrapper type %s", name)
 
@@ -1683,10 +1892,25 @@ func (r *Runtime) DirectRequireLuaFile(filename string) (any, error) {
 	// Mark as loaded BEFORE executing (handles circular dependencies)
 	L.SetField(loaded, trackingKey, lua.LTrue)
 
+	// Set current module for resource tracking
+	directory := filepath.Dir(trackingKey)
+	r.SetCurrentModule(trackingKey, directory)
+	defer r.ClearCurrentModule()
+
 	// Execute the code
 	if err := L.DoString(string(content)); err != nil {
 		// Unmark on error (allows retry)
 		L.SetField(loaded, trackingKey, lua.LNil)
+		// Clean up module tracking on error
+		delete(r.modules, trackingKey)
+		if mods, ok := r.moduleDirectories[directory]; ok {
+			for i, m := range mods {
+				if m.Name == trackingKey {
+					r.moduleDirectories[directory] = slices.Delete(mods, i, i+1)
+					break
+				}
+			}
+		}
 		return nil, fmt.Errorf("failed to load %s: %w", filename, err)
 	}
 

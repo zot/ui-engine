@@ -22,6 +22,8 @@
 - reloadFile(path, session): Check IsFileLoaded(trackingKey), set reloading flag, reload via LoadCode()
 - triggerSessionRefresh(session): Execute empty function via ws.ExecuteInSession to run AfterBatch (pushes viewdef/variable changes)
 - recoverPanic: Wrap Lua execution in panic recovery, log errors instead of crashing server
+- CleanupModule(trackingKey): Remove watches, symlinkTargets, pendingReloads for a module file
+- CleanupDirectory(dirPath): Remove watches, symlinkTargets, pendingReloads for all files in a directory
 
 ## Collaborators
 

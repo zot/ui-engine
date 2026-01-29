@@ -1330,3 +1330,211 @@ func TestUILog(t *testing.T) {
 		t.Fatalf("Lua execution failed: %v", err)
 	}
 }
+
+// CRC: crc-LuaSession.md
+func TestRemovePrototype(t *testing.T) {
+	rt, err := NewRuntime(config.DefaultConfig(), "/tmp", nil)
+	if err != nil {
+		t.Fatalf("Failed to create runtime: %v", err)
+	}
+	defer rt.Shutdown()
+
+	store := newMockStore()
+	rt.SetVariableStore(store)
+
+	sess, err := rt.CreateLuaSession("1")
+	if err != nil {
+		t.Fatalf("Failed to create Lua session: %v", err)
+	}
+
+	// Create some prototypes
+	_, err = rt.execute(func() (interface{}, error) {
+		L := rt.State
+		L.SetGlobal("session", sess.sessionTable)
+
+		code := `
+			Person = session:prototype("Person", {name = ""})
+			ContactPerson = session:prototype("contacts.Person", {phone = ""})
+			ContactAddress = session:prototype("contacts.Address", {street = ""})
+			Animal = session:prototype("Animal", {species = ""})
+		`
+		return nil, L.DoString(code)
+	})
+	if err != nil {
+		t.Fatalf("Lua execution error: %v", err)
+	}
+
+	// Verify all prototypes exist
+	if sess.prototypeRegistry["Person"] == nil {
+		t.Error("Expected Person prototype to be registered")
+	}
+	if sess.prototypeRegistry["contacts.Person"] == nil {
+		t.Error("Expected contacts.Person prototype to be registered")
+	}
+	if sess.prototypeRegistry["contacts.Address"] == nil {
+		t.Error("Expected contacts.Address prototype to be registered")
+	}
+	if sess.prototypeRegistry["Animal"] == nil {
+		t.Error("Expected Animal prototype to be registered")
+	}
+
+	// Test removing single prototype (children=false)
+	sess.RemovePrototype("Person", false)
+	if sess.prototypeRegistry["Person"] != nil {
+		t.Error("Expected Person prototype to be removed")
+	}
+	// Others should still exist
+	if sess.prototypeRegistry["contacts.Person"] == nil {
+		t.Error("Expected contacts.Person to still exist")
+	}
+
+	// Test removing with children=true
+	sess.RemovePrototype("contacts", true)
+	if sess.prototypeRegistry["contacts.Person"] != nil {
+		t.Error("Expected contacts.Person to be removed")
+	}
+	if sess.prototypeRegistry["contacts.Address"] != nil {
+		t.Error("Expected contacts.Address to be removed")
+	}
+
+	// Animal should still exist
+	if sess.prototypeRegistry["Animal"] == nil {
+		t.Error("Expected Animal prototype to still exist")
+	}
+
+	// Test removing non-existent prototype (should not error)
+	sess.RemovePrototype("NonExistent", false)
+	sess.RemovePrototype("AlsoNonExistent", true)
+}
+
+
+// TestModuleTracking verifies that module tracking works correctly
+func TestModuleTracking(t *testing.T) {
+	rt, err := NewRuntime(config.DefaultConfig(), "/tmp", nil)
+	if err != nil {
+		t.Fatalf("Failed to create runtime: %v", err)
+	}
+	defer rt.Shutdown()
+
+	store := newMockStore()
+	rt.SetVariableStore(store)
+	rt.SetWrapperRegistry(NewWrapperRegistry())
+
+	sess, err := rt.CreateLuaSession("1")
+	if err != nil {
+		t.Fatalf("Failed to create Lua session: %v", err)
+	}
+
+	// Simulate loading a module by setting current module
+	sess.SetCurrentModule("apps/contacts/app.lua", "apps/contacts")
+
+	// Register a prototype while module is active
+	_, err = rt.execute(func() (interface{}, error) {
+		L := rt.State
+		L.SetGlobal("session", sess.sessionTable)
+
+		code := `
+			Contact = session:prototype("Contact", {name = ""})
+			ui.registerPresenter("ContactPresenter", {})
+		`
+		return nil, L.DoString(code)
+	})
+	if err != nil {
+		t.Fatalf("Lua execution error: %v", err)
+	}
+
+	sess.ClearCurrentModule()
+
+	// Verify module tracking
+	module, exists := sess.modules["apps/contacts/app.lua"]
+	if !exists {
+		t.Fatal("Expected module to be tracked")
+	}
+	if len(module.Prototypes) != 1 || module.Prototypes[0] != "Contact" {
+		t.Errorf("Expected prototype 'Contact' to be tracked, got: %v", module.Prototypes)
+	}
+	if len(module.PresenterTypes) != 1 || module.PresenterTypes[0] != "ContactPresenter" {
+		t.Errorf("Expected presenter type 'ContactPresenter' to be tracked, got: %v", module.PresenterTypes)
+	}
+
+	// Verify directory tracking
+	mods, exists := sess.moduleDirectories["apps/contacts"]
+	if !exists || len(mods) != 1 {
+		t.Fatalf("Expected directory to have 1 module, got: %v", mods)
+	}
+
+	// Unload the module
+	sess.UnloadModule("apps/contacts/app.lua")
+
+	// Verify cleanup
+	if _, exists := sess.modules["apps/contacts/app.lua"]; exists {
+		t.Error("Expected module to be removed after unload")
+	}
+	if sess.prototypeRegistry["Contact"] != nil {
+		t.Error("Expected Contact prototype to be removed after unload")
+	}
+	if sess.presenterTypes["ContactPresenter"] != nil {
+		t.Error("Expected ContactPresenter to be removed after unload")
+	}
+}
+
+// TestUnloadDirectory verifies that directory unloading works correctly
+func TestUnloadDirectory(t *testing.T) {
+	rt, err := NewRuntime(config.DefaultConfig(), "/tmp", nil)
+	if err != nil {
+		t.Fatalf("Failed to create runtime: %v", err)
+	}
+	defer rt.Shutdown()
+
+	store := newMockStore()
+	rt.SetVariableStore(store)
+
+	sess, err := rt.CreateLuaSession("1")
+	if err != nil {
+		t.Fatalf("Failed to create Lua session: %v", err)
+	}
+
+	// Simulate loading multiple modules from the same directory
+	sess.SetCurrentModule("apps/myapp/module1.lua", "apps/myapp")
+	_, err = rt.execute(func() (interface{}, error) {
+		L := rt.State
+		L.SetGlobal("session", sess.sessionTable)
+		return nil, L.DoString(`M1 = session:prototype("Module1Type", {})`)
+	})
+	if err != nil {
+		t.Fatalf("Lua execution error: %v", err)
+	}
+	sess.ClearCurrentModule()
+
+	sess.SetCurrentModule("apps/myapp/module2.lua", "apps/myapp")
+	_, err = rt.execute(func() (interface{}, error) {
+		L := rt.State
+		return nil, L.DoString(`M2 = session:prototype("Module2Type", {})`)
+	})
+	if err != nil {
+		t.Fatalf("Lua execution error: %v", err)
+	}
+	sess.ClearCurrentModule()
+
+	// Verify both modules are tracked
+	if len(sess.moduleDirectories["apps/myapp"]) != 2 {
+		t.Fatalf("Expected 2 modules in directory, got: %d", len(sess.moduleDirectories["apps/myapp"]))
+	}
+
+	// Unload the directory
+	sess.UnloadDirectory("apps/myapp")
+
+	// Verify all modules and prototypes are removed
+	if len(sess.modules) != 0 {
+		t.Errorf("Expected no modules after directory unload, got: %v", sess.modules)
+	}
+	if sess.prototypeRegistry["Module1Type"] != nil {
+		t.Error("Expected Module1Type to be removed")
+	}
+	if sess.prototypeRegistry["Module2Type"] != nil {
+		t.Error("Expected Module2Type to be removed")
+	}
+	if _, exists := sess.moduleDirectories["apps/myapp"]; exists {
+		t.Error("Expected directory entry to be removed")
+	}
+}

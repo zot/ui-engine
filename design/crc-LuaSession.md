@@ -1,6 +1,7 @@
 # LuaSession
 
-**Source Spec:** libraries.md, interfaces.md, protocol.md, deployment.md
+**Source Spec:** libraries.md, interfaces.md, protocol.md, deployment.md, remove-prototype.md, module-tracking.md
+**Requirements:** R1, R2, R3, R4, R5, R6, R7, R9, R10, R11, R12, R13, R14, R15, R16, R17, R18, R19, R20, R21
 
 ## Responsibilities
 
@@ -21,6 +22,10 @@
 - loadedModules: Lua table tracking loaded files by baseDir-relative path (shared by require() and RequireLuaFile)
 - reloading: Boolean flag (on sessionTable) - true during hot-reload, false otherwise
 - luaDir: Path to lua/ directory (for loading files)
+- modules: Map of tracking key to Module instance (tracks per-module resources)
+- moduleDirectories: Map of directory path to list of Module instances
+- currentModule: The Module currently being loaded (set during require/RequireLuaFile)
+- hotLoaderCleanup: Callback function to clean up HotLoader state for a module/directory
 
 ### Does
 - CreateLuaSession(vendedID): Initialize session, create session table, load main.lua
@@ -38,11 +43,16 @@
 - prototype(name, init, base): Declare/update prototype with instance field tracking (see below)
 - create(prototype, instance): Create tracked instance with weak reference (see below)
 - processMutationQueue: Process queued prototypes after file load (see seq-prototype-mutation.md)
-- RequireLuaFile(filename): Load Lua file using unified load tracker (skips if already loaded)
-- DirectRequireLuaFile(filename): Load file relative to baseDir, track by resolved baseDir-relative path
+- RemovePrototype(name, children): Remove prototype from registry; if children=true, also removes NAME.* children
+- RequireLuaFile(filename): Load Lua file using unified load tracker (skips if already loaded); sets currentModule for resource tracking
+- DirectRequireLuaFile(filename): Load file relative to baseDir, track by resolved baseDir-relative path; sets currentModule for resource tracking
 - IsFileLoaded(trackingKey): Check if a file has been loaded by baseDir-relative key (used by hot-loader)
 - registerRequire: Set up custom require() using loadedModules table with circularity handling
 - resolveTrackingKey(path): Resolve symlinks and compute baseDir-relative path for file tracking
+- unloadDirectory(name): Unload all modules in a directory and clean up HotLoader state
+- unloadModule(moduleName): Remove all tracking related to a module (Lua exposed as session:unloadModule)
+- setCurrentModule(trackingKey): Set the module being loaded for resource tracking
+- clearCurrentModule(): Clear the current module after load completes
 
 **Prototype Management (Hot-Loading Support):**
 
@@ -63,6 +73,13 @@
 - Registers instance in prototype's weak set for tracking
 - Returns the instance
 
+`RemovePrototype(name string, children bool)`:
+- Removes prototype with `name` from `prototypeRegistry`
+- Removes corresponding entry from `instanceRegistry`
+- If `children` is true, also removes prototypes whose name starts with `NAME.` (e.g., "contacts.Person", "contacts.Address")
+- Returns silently if prototype doesn't exist (no error)
+- Existing instances retain their metatables (no instance destruction)
+
 **Deprecated Methods (replaced by automatic prototype mutation):**
 - ~~newVersion~~: No longer needed - prototype queuing handles versioning
 - ~~getVersion~~: No longer needed
@@ -74,7 +91,8 @@
 - LuaBackend: Per-session backend for watch management and change detection
 - luaTrackerAdapter: Implements VariableStore interface, routes to per-session tracker
 - WrapperRegistry: Provides wrapper factories for ui.registerWrapper
-- LuaHotLoader: Re-executes modified Lua files via RequireLuaFile(), checks IsFileLoaded()
+- LuaHotLoader: Re-executes modified Lua files via RequireLuaFile(), checks IsFileLoaded(), provides cleanup callback
+- Module: Tracks resources registered by each module for cleanup during unload
 
 ## Sequences
 
@@ -83,6 +101,8 @@
 - seq-lua-handle-action.md: Action handling via path-based method dispatch
 - seq-lua-hotload.md: Hot-loading re-executes modified Lua files with prototype management
 - seq-prototype-mutation.md: Post-load mutation processing for schema migrations
+- seq-require-lua-file.md: require() and RequireLuaFile flow with module tracking
+- seq-unload-module.md: Module and directory unloading
 
 ## Notes
 
@@ -107,3 +127,14 @@
   - `session.reloading` flag: true during reload, false after (Lua code can detect hot-reload)
   - `IsFileLoaded(trackingKey)` lets hot-loader skip files not yet loaded by session
   - Example keys: `lua/mcp.lua`, `apps/myapp/app.lua`, `apps/myapp/init.lua`
+- **Module Tracking**: Per-module resource tracking for clean unloading:
+  - `modules` map: tracking key → Module instance
+  - `moduleDirectories` map: directory path → list of Module instances
+  - `currentModule`: Set during file load to track resource registration
+  - Resources (prototypes, presenterTypes, wrappers) automatically tracked to currentModule
+- **Module Unloading**: `session:unloadModule(name)` and `session:unloadDirectory(name)`:
+  - Removes module's prototypes via RemovePrototype
+  - Removes module's presenter types from presenterTypes map
+  - Removes module's wrappers from wrapperRegistry
+  - Removes module's entry from loadedModules
+  - Cleans up HotLoader state via callback (watchers, symlinkTargets, pendingReloads)

@@ -1,5 +1,10 @@
 # Project Instructions
 
+## RECORDING A DEMO
+
+**VERY IMPORTANT:** do now open a system browser, **only use playwright**.
+If there is trouble opening a page, the user will solve it.
+
 ## Essential Reading: Usage Guide
 
 **ALWAYS read `USAGE.md` before working on frontend/backend integration.**

@@ -1,7 +1,7 @@
 // Package lua provides the Lua runtime and hot-loading support.
 // CRC: crc-LuaHotLoader.md
-// Spec: deployment.md
-// Sequence: seq-lua-hotload.md
+// Spec: deployment.md, module-tracking.md
+// Sequence: seq-lua-hotload.md, seq-unload-module.md
 package lua
 
 import (
@@ -112,6 +112,51 @@ func (h *HotLoader) addWatchRecursive(dir string) error {
 func (h *HotLoader) Stop() error {
 	close(h.done)
 	return h.watcher.Close()
+}
+
+// CleanupModule removes tracking state for a module file.
+// Called when a module is unloaded via session:unloadModule().
+// Seq: seq-unload-module.md
+func (h *HotLoader) CleanupModule(trackingKey string) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	// Remove symlink target if tracked
+	delete(h.symlinkTargets, trackingKey)
+
+	// Remove pending reload if queued
+	h.debounceMu.Lock()
+	delete(h.pendingReloads, trackingKey)
+	h.debounceMu.Unlock()
+}
+
+// CleanupDirectory removes tracking state for all files in a directory.
+// Called when a directory is unloaded via session:unloadDirectory().
+// Seq: seq-unload-module.md
+func (h *HotLoader) CleanupDirectory(dirPath string) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	// Remove symlink targets for files in this directory
+	for key := range h.symlinkTargets {
+		if strings.HasPrefix(key, dirPath+"/") || key == dirPath {
+			delete(h.symlinkTargets, key)
+		}
+	}
+
+	// Remove pending reloads for files in this directory
+	h.debounceMu.Lock()
+	for key := range h.pendingReloads {
+		if strings.HasPrefix(key, dirPath+"/") || key == dirPath {
+			delete(h.pendingReloads, key)
+		}
+	}
+	h.debounceMu.Unlock()
+
+	// Remove watch if we're watching this specific directory
+	if h.watchedDirs[dirPath] > 0 {
+		h.removeWatchLocked(dirPath)
+	}
 }
 
 // scanSymlinks scans the lua directory for symlinks and watches their target directories.

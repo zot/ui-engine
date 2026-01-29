@@ -118,6 +118,9 @@ All hot-loading features (Lua files, viewdefs, etc.) must track symlinks. See sp
 - [x] seq-lua-handle-action.md
 - [x] seq-lua-hotload.md
 - [x] seq-prototype-mutation.md
+- [x] crc-Module.md → `internal/lua/module.go`
+- [x] seq-unload-module.md → `internal/lua/runtime.go`, `internal/lua/hotloader.go`
+- [x] seq-require-lua-file.md → `internal/lua/runtime.go`
 
 ### Backend Library System
 - [x] crc-PathNavigator.md → `lib/go/path.go`, `lib/lua/path.lua`, `web/src/path.ts`
