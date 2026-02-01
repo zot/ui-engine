@@ -177,6 +177,7 @@ func (s *Server) Start() error {
 		return err
 	}
 	s.config.Log(0, "HTTP server listening on %s", url)
+	s.config.Log(0, "Serving site from directory: %s", s.httpEndpoint.staticDir)
 	// Block until shutdown
 	if err := srv.Serve(ln); err != nil && err != http.ErrServerClosed {
 		return fmt.Errorf("HTTP server error: %v", err)
@@ -796,6 +797,7 @@ func (s *Server) StartAsync(port int) (string, error) {
 	}
 
 	s.config.Log(0, "HTTP server listening on %s", url)
+	s.config.Log(0, "Serving site from directory: %s", s.httpEndpoint.staticDir)
 
 	go func() {
 		if err := srv.Serve(ln); err != nil && err != http.ErrServerClosed {

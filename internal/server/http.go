@@ -6,7 +6,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"io/fs"
+	"mime"
 	"net/http"
+	"path/filepath"
 	"strings"
 
 	"github.com/zot/ui-engine/internal/protocol"
@@ -156,6 +158,11 @@ func (h *HTTPEndpoint) serveStatic(w http.ResponseWriter, r *http.Request, path 
 		path = "index.html"
 	}
 
+	// Set content type based on extension (http.ServeFile uses content sniffing which fails for CSS)
+	if ct := mime.TypeByExtension(filepath.Ext(path)); ct != "" {
+		w.Header().Set("Content-Type", ct)
+	}
+
 	// Try custom directory first
 	if h.staticDir != "" {
 		http.ServeFile(w, r, h.staticDir+"/"+path)
@@ -168,17 +175,6 @@ func (h *HTTPEndpoint) serveStatic(w http.ResponseWriter, r *http.Request, path 
 		if err != nil {
 			http.NotFound(w, r)
 			return
-		}
-
-		// Set content type based on extension
-		if strings.HasSuffix(path, ".html") {
-			w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		} else if strings.HasSuffix(path, ".js") {
-			w.Header().Set("Content-Type", "application/javascript")
-		} else if strings.HasSuffix(path, ".css") {
-			w.Header().Set("Content-Type", "text/css")
-		} else if strings.HasSuffix(path, ".json") {
-			w.Header().Set("Content-Type", "application/json")
 		}
 
 		w.Write(data)
