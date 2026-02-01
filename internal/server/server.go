@@ -33,22 +33,22 @@ import (
 // Server is the main UI server.
 // CRC: crc-Server.md
 type Server struct {
-	config          *config.Config
-	sessions        *session.Manager
-	handler         *protocol.Handler
-	pendingQueues   *PendingQueueManager
-	httpServer      *http.Server
-	httpEndpoint    *HTTPEndpoint
-	wsEndpoint      *WebSocketEndpoint
-	backendSocket   *BackendSocket
-	luaSessions     map[string]*lua.LuaSession // vendedID -> per-session Lua runtime
-	luaSessionsMu   sync.RWMutex
-	luaConfig       *luaSetupConfig // Shared config for creating new sessions
-	wrapperRegistry *lua.WrapperRegistry
-	storeAdapter    *luaTrackerAdapter
-	viewdefManager    *viewdef.ViewdefManager
-	hotLoader         *lua.HotLoader         // Lua hot-reloading (nil if disabled)
-	viewdefHotLoader  *viewdef.HotLoader     // Viewdef hot-reloading (nil if disabled)
+	config           *config.Config
+	sessions         *session.Manager
+	handler          *protocol.Handler
+	pendingQueues    *PendingQueueManager
+	httpServer       *http.Server
+	httpEndpoint     *HTTPEndpoint
+	wsEndpoint       *WebSocketEndpoint
+	backendSocket    *BackendSocket
+	luaSessions      map[string]*lua.LuaSession // vendedID -> per-session Lua runtime
+	luaSessionsMu    sync.RWMutex
+	luaConfig        *luaSetupConfig // Shared config for creating new sessions
+	wrapperRegistry  *lua.WrapperRegistry
+	storeAdapter     *luaTrackerAdapter
+	viewdefManager   *viewdef.ViewdefManager
+	hotLoader        *lua.HotLoader     // Lua hot-reloading (nil if disabled)
+	viewdefHotLoader *viewdef.HotLoader // Viewdef hot-reloading (nil if disabled)
 }
 
 // luaSetupConfig holds shared configuration for creating Lua sessions.
@@ -768,7 +768,9 @@ func (s *Server) getDebugVariables(tracker *changetracker.Tracker) ([]DebugVaria
 			Properties: v.Properties,
 			ChildIDs:   v.ChildIDs,
 		}
-
+		if v.Error != nil {
+			info.Error = v.Error.Error()
+		}
 		// Get value - convert to interface{} for JSON serialization
 		if v.Value != nil {
 			info.Value = tracker.ToValueJSON(v.Value)

@@ -27,9 +27,10 @@ type DebugVariable struct {
 	ParentID   int64             `json:"parentId"`
 	Type       string            `json:"type,omitempty"`
 	Path       string            `json:"path,omitempty"`
-	Value      interface{}       `json:"value,omitempty"`
+	Value      any               `json:"value,omitempty"`
 	Properties map[string]string `json:"properties,omitempty"`
 	ChildIDs   []int64           `json:"childIds,omitempty"`
+	Error      string            `json:"error,omitempty"`
 }
 
 // HTTPEndpoint handles HTTP requests.
@@ -282,6 +283,7 @@ func (h *HTTPEndpoint) handleDebugVariables(w http.ResponseWriter, r *http.Reque
     .var-type { color: #0066cc; font-weight: bold; margin-right: 8px; }
     .var-path { color: #666; font-style: italic; margin-right: 8px; }
     .var-value { color: #228b22; font-family: monospace; font-size: 0.9em; }
+    .var-error { color: #cc0000; font-family: monospace; font-size: 0.9em; background: #fee; padding: 2px 6px; border-radius: 3px; margin-left: 8px; }
     .var-props { color: #888; font-size: 0.8em; margin-left: 16px; }
     .refresh-btn { margin-bottom: 16px; }
     pre { background: #f5f5f5; padding: 10px; border-radius: 4px; overflow-x: auto; }
@@ -365,6 +367,10 @@ func (h *HTTPEndpoint) renderVariableNode(sb *strings.Builder, varMap map[int64]
 	}
 	if valueStr != "" {
 		label += `<span class="var-value">` + escapeHTML(valueStr) + `</span>`
+	}
+	// CRC: crc-HTTPEndpoint.md (R23, R24, R25)
+	if v.Error != "" {
+		label += `<span class="var-error">` + escapeHTML(v.Error) + `</span>`
 	}
 
 	hasChildren := len(v.ChildIDs) > 0

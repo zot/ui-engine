@@ -136,7 +136,7 @@ func (h *Handler) handleCreate(connectionID string, data json.RawMessage) (*Resp
 
 		id, initialValue, initialProps, err = h.pathVariableHandler.HandleFrontendCreate(sessionID, msg.ParentID, msg.Properties)
 		if err != nil {
-			h.Log(2, "Error, handleCreate: %s", err.Error())
+			h.Log(0, "Error, handleCreate: %s", err.Error())
 			return &Response{Error: err.Error()}, nil
 		}
 	}

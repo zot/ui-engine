@@ -1560,7 +1560,7 @@ func (r *Runtime) HandleFrontendUpdate(sessionID string, varID int64, value json
 
 	// Update the backend object via the variable's path
 	if err := v.Set(goValue); err != nil {
-		r.Log(1, "HandleFrontendUpdate: Set failed for var %d: %v", varID, err)
+		r.Log(0, "HandleFrontendUpdate: Set failed for var %d: %v", varID, err)
 		return err
 	}
 

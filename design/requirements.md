@@ -29,3 +29,10 @@
 - **R20:** unloadModule must clean up HotLoader state for the module file: watches, symlinkTargets, pendingReloads
 - **R21:** (inferred) Module registration must happen during require() or RequireLuaFile() calls to track resources
 - **R22:** (inferred) A directory can contain multiple modules
+
+## Feature: Debug Error Display
+**Source:** specs/debug-error-display.md
+
+- **R23:** Variables with errors must display error text in the debug tree view
+- **R24:** Error text must be visually distinct using red color styling
+- **R25:** Error display must not interfere with other variable information (ID, type, path, value)

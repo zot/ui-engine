@@ -1,6 +1,7 @@
 # HTTPEndpoint
 
 **Source Spec:** interfaces.md, deployment.md
+**Requirements:** R23, R24, R25
 
 ## Responsibilities
 
@@ -22,6 +23,7 @@
 - handleSocketHTTP: Handle HTTP requests received via BackendSocket
 - handleProtocolCommand: Process CLI protocol commands (create, destroy, update, watch, unwatch, get, poll)
 - attachPendingResponses: Add pending messages to every response
+- renderVariableError: Display variable errors with red styling in debug tree (R23, R24, R25)
 
 ## Collaborators
 
