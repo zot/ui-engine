@@ -1,6 +1,6 @@
 // Frontend application entry point
 // CRC: crc-FrontendApp.md, crc-SPANavigator.md
-// Spec: libraries.md, interfaces.md
+// Spec: libraries.md, interfaces.md, js-api.md
 
 import { Connection, VariableStore } from './connection';
 import { BindingEngine } from './binding';
@@ -111,6 +111,29 @@ export class UIApp {
   // Get the AppView instance
   getAppView(): AppView | null {
     return this.appView;
+  }
+
+  // Get BindingEngine for external access
+  getBinding(): BindingEngine {
+    return this.binding;
+  }
+
+  // Update element's ui-value binding variable
+  // Spec: js-api.md - updateValue method
+  updateValue(elementId: string, value?: unknown): void {
+    const widget = this.binding.getWidget(elementId);
+    if (!widget) return;
+
+    const varId = widget.getVariableId('ui-value');
+    if (varId === undefined) return;
+
+    // If no value provided, read from element's current value
+    if (value === undefined) {
+      const element = document.getElementById(elementId) as HTMLInputElement | null;
+      value = element?.value;
+    }
+
+    this.store.update(varId, value);
   }
 }
 

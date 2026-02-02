@@ -1,6 +1,6 @@
 # Design: UI Engine
 
-**Source Spec:** specs/main.md, specs/protocol.md, specs/viewdefs.md, specs/deployment.md, specs/interfaces.md, specs/data-models.md, specs/libraries.md, specs/components.md
+**Source Spec:** specs/main.md, specs/protocol.md, specs/viewdefs.md, specs/deployment.md, specs/interfaces.md, specs/data-models.md, specs/libraries.md, specs/components.md, specs/js-api.md
 
 ## Intent
 

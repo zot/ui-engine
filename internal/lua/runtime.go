@@ -1581,7 +1581,7 @@ func (r *Runtime) registerRequire() {
 	requireFn := L.NewFunction(func(L *lua.LState) int {
 		modName := L.CheckString(1)
 
-		// Check if already loaded (handles circularity - returns early if in-progress)
+		// Check if already loaded by module name (handles circularity)
 		if cached := L.GetField(loaded, modName); cached != lua.LNil {
 			L.Push(cached)
 			return 1
@@ -1590,82 +1590,20 @@ func (r *Runtime) registerRequire() {
 		// Convert module name to filename (e.g., "foo.bar" -> "foo/bar.lua")
 		filename := strings.ReplaceAll(modName, ".", string(filepath.Separator)) + ".lua"
 
-		var code string
-		var trackingKey string // baseDir-relative path for hot-reload tracking
-
-		// Try filesystem first (works for --dir mode)
-		filePath := filepath.Join(r.luaDir, filename)
-		content, fsErr := os.ReadFile(filePath)
-		if fsErr == nil {
-			code = string(content)
-			// Compute tracking key for hot-reload (baseDir-relative path)
-			if r.config != nil && r.config.Server.Dir != "" {
-				if key, err := ComputeTrackingKey(r.config.Server.Dir, filePath); err == nil {
-					trackingKey = key
-				}
-			}
-		} else {
-			// Try bundle (works for bundled binaries)
-			bundlePath := "lua/" + strings.ReplaceAll(modName, ".", "/") + ".lua"
-			bundleContent, bundleErr := bundle.ReadFile(bundlePath)
-			if bundleErr == nil {
-				code = string(bundleContent)
-				// No tracking key for bundle (no hot-reload)
-			} else {
-				L.RaiseError("module '%s' not found:\n\tno file '%s'\n\tno bundled file '%s'",
-					modName, filePath, bundlePath)
-				return 0
-			}
-		}
-
 		// Mark as loaded BEFORE executing (handles circular dependencies)
 		L.SetField(loaded, modName, lua.LTrue)
-		if trackingKey != "" && trackingKey != modName {
-			L.SetField(loaded, trackingKey, lua.LTrue)
-		}
 
-		// Set current module for resource tracking (use tracking key if available)
-		moduleKey := trackingKey
-		if moduleKey == "" {
-			moduleKey = modName
-		}
-		directory := filepath.Dir(moduleKey)
-		r.SetCurrentModule(moduleKey, directory)
-
-		// Execute the module code
-		if err := L.DoString(code); err != nil {
-			r.ClearCurrentModule()
+		// Delegate to DirectRequireLuaFile for actual loading
+		result, err := r.DirectRequireLuaFile(filename)
+		if err != nil {
 			// Unmark on error (allows retry)
 			L.SetField(loaded, modName, lua.LNil)
-			if trackingKey != "" && trackingKey != modName {
-				L.SetField(loaded, trackingKey, lua.LNil)
-			}
-			// Clean up module tracking on error
-			delete(r.modules, moduleKey)
-			if mods, ok := r.moduleDirectories[directory]; ok {
-				for i, m := range mods {
-					if m.Name == moduleKey {
-						r.moduleDirectories[directory] = slices.Delete(mods, i, i+1)
-						break
-					}
-				}
-			}
 			L.RaiseError("error loading module '%s': %v", modName, err)
 			return 0
 		}
-		r.ClearCurrentModule()
 
-		// Get the return value (module table) or keep the true marker
-		result := L.Get(-1)
-		if result == lua.LNil {
-			result = lua.LTrue
-		}
-
-		// Update cache with actual result (both keys for require lookup and hot-reload)
+		// Also cache under module name for require("foo.bar") lookups
 		L.SetField(loaded, modName, result)
-		if trackingKey != "" && trackingKey != modName {
-			L.SetField(loaded, trackingKey, result)
-		}
 		L.Push(result)
 		return 1
 	})
@@ -1856,7 +1794,7 @@ func (r *Runtime) RequireLuaFile(filename string) error {
 // The filename can be relative to luaDir (e.g., "mcp.lua") or relative to baseDir
 // (e.g., "apps/myapp/init.lua"). Symlinks are resolved to compute the tracking key.
 // CRC: crc-LuaSession.md
-func (r *Runtime) DirectRequireLuaFile(filename string) (any, error) {
+func (r *Runtime) DirectRequireLuaFile(filename string) (lua.LValue, error) {
 	L := r.State
 	loaded := r.loadedModules
 
@@ -1873,20 +1811,34 @@ func (r *Runtime) DirectRequireLuaFile(filename string) (any, error) {
 		}
 	}
 
-	trackingKey, err := ComputeTrackingKey(r.config.Server.Dir, absPath)
-	if err != nil {
-		return nil, fmt.Errorf("failed to compute tracking key for %s: %w", filename, err)
+	var code string
+	var trackingKey string
+
+	// Try filesystem first
+	content, fsErr := os.ReadFile(absPath)
+	if fsErr == nil {
+		code = string(content)
+		// Compute tracking key for hot-reload (baseDir-relative path)
+		if r.config != nil && r.config.Server.Dir != "" {
+			if key, err := ComputeTrackingKey(r.config.Server.Dir, absPath); err == nil {
+				trackingKey = key
+			}
+		}
+	} else {
+		// Try bundle (works for bundled binaries)
+		bundlePath := "lua/" + strings.ReplaceAll(filename, string(filepath.Separator), "/")
+		bundleContent, bundleErr := bundle.ReadFile(bundlePath)
+		if bundleErr == nil {
+			code = string(bundleContent)
+			trackingKey = filename // Use filename as key for bundle
+		} else {
+			return lua.LNil, fmt.Errorf("file not found: %s (also tried bundle: %s)", absPath, bundlePath)
+		}
 	}
 
 	// Check if already loaded by tracking key
-	if L.GetField(loaded, trackingKey) != lua.LNil {
-		return nil, nil // Already loaded
-	}
-
-	// Read file content
-	content, err := os.ReadFile(absPath)
-	if err != nil {
-		return nil, fmt.Errorf("file not found: %s", absPath)
+	if cached := L.GetField(loaded, trackingKey); cached != lua.LNil {
+		return cached, nil // Already loaded
 	}
 
 	// Mark as loaded BEFORE executing (handles circular dependencies)
@@ -1898,7 +1850,7 @@ func (r *Runtime) DirectRequireLuaFile(filename string) (any, error) {
 	defer r.ClearCurrentModule()
 
 	// Execute the code
-	if err := L.DoString(string(content)); err != nil {
+	if err := L.DoString(code); err != nil {
 		// Unmark on error (allows retry)
 		L.SetField(loaded, trackingKey, lua.LNil)
 		// Clean up module tracking on error
@@ -1911,10 +1863,19 @@ func (r *Runtime) DirectRequireLuaFile(filename string) (any, error) {
 				}
 			}
 		}
-		return nil, fmt.Errorf("failed to load %s: %w", filename, err)
+		return lua.LNil, fmt.Errorf("failed to load %s: %w", filename, err)
 	}
 
-	return nil, nil
+	// Get the return value (module table) or use true marker
+	result := L.Get(-1)
+	if result == lua.LNil {
+		result = lua.LTrue
+	}
+
+	// Update cache with actual result
+	L.SetField(loaded, trackingKey, result)
+
+	return result, nil
 }
 
 // ComputeTrackingKey computes a baseDir-relative tracking key for a file.

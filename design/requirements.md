@@ -36,3 +36,13 @@
 - **R23:** Variables with errors must display error text in the debug tree view
 - **R24:** Error text must be visually distinct using red color styling
 - **R25:** Error display must not interfere with other variable information (ID, type, path, value)
+
+## Feature: JavaScript API
+**Source:** specs/js-api.md
+
+- **R26:** UIApp instance must be exposed as `window.uiApp` after initialization
+- **R27:** UIApp must provide an `updateValue(elementId, value?)` method
+- **R28:** updateValue must look up the widget for the given elementId
+- **R29:** updateValue must get the variable ID for the `ui-value` binding from the widget
+- **R30:** updateValue must send an update with the provided value, or the element's `value` property if value is undefined
+- **R31:** updateValue must be a no-op if the element has no `ui-value` binding

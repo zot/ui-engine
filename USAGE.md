@@ -8,6 +8,7 @@
   - [Running the Server](#running-the-server)
 - [Core Concepts](#core-concepts)
   - [Where to Put Logic](#where-to-put-logic)
+  - [JavaScript API](#javascript-api)
   - [Domain vs Presenter](#domain-vs-presenter)
   - [Variable Creation Flow](#variable-creation-flow)
   - [Path Resolution](#path-resolution)
@@ -129,6 +130,39 @@ end
 **JavaScript is available via:**
 - `<script>` elements in viewdefs — static "library" code loaded once
 - `ui-code` attribute — dynamic injection as-needed
+- `window.uiApp` — programmatic access to the UI system
+
+### JavaScript API
+
+After initialization, the `UIApp` instance is exposed as `window.uiApp`. This enables:
+- Console debugging during development
+- External scripts to interact with the UI system
+- Custom widgets to send updates programmatically
+
+**Available methods:**
+
+| Method | Description |
+|--------|-------------|
+| `getStore()` | Get the VariableStore for direct variable access |
+| `getBinding()` | Get the BindingEngine for widget lookup |
+| `updateValue(elementId, value?)` | Update an element's `ui-value` binding |
+
+**`updateValue(elementId, value?)`**
+
+Updates the `ui-value` binding variable for an element. If `value` is omitted, uses the element's current `value` property.
+
+```javascript
+// Update from element's current value
+window.uiApp.updateValue('my-input')
+
+// Update with specific value
+window.uiApp.updateValue('my-input', 'new value')
+```
+
+Use cases:
+- Custom components that need to notify the backend of value changes
+- Integration with third-party libraries that don't dispatch standard events
+- Programmatic value updates from custom JavaScript code
 
 ### Domain vs Presenter
 
