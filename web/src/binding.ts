@@ -1163,20 +1163,20 @@ export class BindingEngine {
       return
     }
 
-    // Parse action expression to build path (same as createActionBinding)
-    const match = actionExpr.match(/^([\w.]+)\((.*)\)$/)
-    if (!match) {
-      console.error('Invalid action expression:', actionExpr)
-      return
+    // Parse the action expression to extract path and options
+    const parsed = parsePath(actionExpr)
+    const path = parsed.segments.join('.')
+
+    // Start with user-specified properties from query params
+    const properties = pathOptionsToProperties(parsed.options)
+    properties['path'] = path
+
+    // Set defaults only if not already specified by user
+    if (!properties['access']) {
+      properties['access'] = 'action'
     }
-
-    const [, methodPath, argsStr] = match
-    const hasArgPlaceholder = argsStr === '_'
-    const path = hasArgPlaceholder ? `${methodPath}(_)` : `${methodPath}()`
-
-    const properties: Record<string, string> = {
-      path,
-      access: 'action',
+    if (!properties['priority']) {
+      properties['priority'] = 'low'
     }
 
     // Spec: viewdefs.md - Event Bindings (value sync with ui-value)
@@ -1297,38 +1297,31 @@ export class BindingEngine {
     actionExpr: string,
     widget: Widget
   ): void {
-    // Parse action expression: methodName() or path.to.method()
-    // The () is required for actions and indicates a method call
-    const match = actionExpr.match(/^([\w.]+)\((.*)\)$/)
-    if (!match) {
-      console.error('Invalid action expression:', actionExpr)
-      return
+    // Parse the action expression to extract path and options
+    const parsed = parsePath(actionExpr)
+    const path = parsed.segments.join('.')
+
+    // Start with user-specified properties from query params
+    const properties = pathOptionsToProperties(parsed.options)
+    properties['path'] = path
+
+    // Default to "action" access if not specified
+    if (!properties['access']) {
+      properties['access'] = 'action'
     }
 
-    const [, methodPath, argsStr] = match
-
-    // Build the path for the action variable
-    // For methods without args: path() (calls method for side effects)
-    // For methods with args placeholder: path(_) (calls method with value)
-    const hasArgPlaceholder = argsStr === '_'
-    const path = hasArgPlaceholder ? `${methodPath}(_)` : `${methodPath}()`
-
-    // Properties for the action variable
-    // Use "action" access: initial value not computed (avoids premature method invocation)
-    const properties: Record<string, string> = {
-      path,
-      access: 'action',
-    }
+    // Check if this is a 1-arg action (path ends with (_))
+    const hasArgPlaceholder = path.endsWith('(_)')
 
     let actionVarId: number | null = null
 
     const handler = (event: Event) => {
       event.preventDefault()
       if (actionVarId !== null) {
-        // Invoke the action by updating the action variable
-        // For () paths: the method is called for side effects (value ignored)
-        // For (_) paths: the value is passed to the method
-        this.store.update(actionVarId, null)
+        // For () paths: method called for side effects (pass null)
+        // For (_) paths: pass element value to method
+        const value = hasArgPlaceholder ? (element as any).value ?? null : null
+        this.store.update(actionVarId, value)
       }
     }
 
