@@ -50,14 +50,20 @@ export class Connection {
       this.ws.onmessage = (event) => {
         try {
           const data = JSON.parse(event.data);
-          //console.log('RECEIVED ', data)
-          // Check if it's a Response (has result, error, or pending) vs Message (has type)
-          if ('result' in data || ('error' in data && !('type' in data)) || 'pending' in data || 'id' in data) {
-            console.log('RECEIVED RESPONSE', JSON.stringify(data))
-            this.handleResponse(data as Response<CreateResponse>);
+
+          // Start outgoing batch timer BEFORE processing (runs concurrently)
+          // Spec: protocol.md - frontend incoming batch handling
+          this.batcher.ensureDebounceStarted();
+
+          // Check if it's a batch (JSON array) from server
+          // Spec: protocol.md - Server sends batched messages as JSON arrays
+          if (Array.isArray(data)) {
+            console.log('RECEIVED BATCH', data.length, 'messages');
+            for (const item of data) {
+              this.processIncomingItem(item);
+            }
           } else {
-            console.log('RECEIVED MESSAGE', JSON.stringify(data))
-            this.handleMessage(data as Message);
+            this.processIncomingItem(data);
           }
         } catch (e) {
           console.error('Failed to parse message:', e);
@@ -90,6 +96,25 @@ export class Connection {
         // Will retry in onclose handler
       });
     }, delay);
+  }
+
+  // Process a single incoming item (message or response)
+  // Called for each item in a batch or for a single item
+  private processIncomingItem(data: unknown): void {
+    if (!data || typeof data !== 'object') {
+      return;
+    }
+
+    // Response has result/pending/id fields; Message has type field
+    const isResponse = 'result' in data || 'pending' in data || ('id' in data && !('type' in data));
+
+    if (isResponse) {
+      console.log('RECEIVED RESPONSE', JSON.stringify(data));
+      this.handleResponse(data as Response<CreateResponse>);
+    } else {
+      console.log('RECEIVED MESSAGE', JSON.stringify(data));
+      this.handleMessage(data as Message);
+    }
   }
 
   private handleMessage(msg: Message): void {

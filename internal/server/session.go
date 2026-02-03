@@ -1,7 +1,7 @@
-// Package session implements session management for the UI server.
+// Package server implements the UI server communication layer.
 // CRC: crc-Session.md, crc-SessionManager.md
 // Spec: main.md (UI Server Architecture - Frontend Layer), interfaces.md
-package session
+package server
 
 import (
 	"crypto/rand"
@@ -20,9 +20,11 @@ type Session struct {
 	AppVariableID int64               // Variable 1 - root app variable
 	backend       backend.Backend     // Backend instance (LuaBackend or ProxiedBackend)
 	connections   map[string]struct{} // connection IDs
+	batcher       *OutgoingBatcher    // Per-session outgoing message batcher
 	createdAt     time.Time
 	lastActivity  time.Time
 	mu            sync.RWMutex
+	batchCount    int
 }
 
 // NewSession creates a new session with the given ID.
@@ -67,6 +69,31 @@ func (s *Session) SetAppVariableID(id int64) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.AppVariableID = id
+}
+
+// GetBatcher returns the session's outgoing message batcher.
+func (s *Session) GetBatcher() *OutgoingBatcher {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.batcher
+}
+
+// SetBatcher sets the session's outgoing message batcher.
+func (s *Session) SetBatcher(b *OutgoingBatcher) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.batcher = b
+}
+
+// EnsureDebounceStarted starts the batcher's debounce timer if not already running.
+// Called before processing incoming messages so timer runs concurrently with processing.
+func (s *Session) EnsureDebounceStarted() {
+	s.mu.RLock()
+	b := s.batcher
+	s.mu.RUnlock()
+	if b != nil {
+		b.EnsureDebounceStarted()
+	}
 }
 
 // AddConnection registers a new connection to this session.

@@ -1,6 +1,7 @@
 # FrontendOutgoingBatcher
 
 **Source Spec:** protocol.md
+**Requirements:** R40, R41
 
 ## Responsibilities
 
@@ -17,12 +18,13 @@
 - flush: Sort by priority (FIFO within priority), send batch wrapper with userEvent flag, clear queue
 - startDebounce: Start/restart 10ms debounce timer
 - cancelDebounce: Cancel pending timer
+- ensureDebounceStarted: Start timer if not running (called before processing incoming)
 
 ## Collaborators
 
 - FrontendApp: Queues protocol messages
 - SharedWorker: Sends batched messages to server
-- Connection: WebSocket send
+- Connection: WebSocket send, handles incoming batches
 
 ## Sequences
 

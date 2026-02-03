@@ -1,6 +1,7 @@
 # WebSocketEndpoint
 
 **Source Spec:** interfaces.md, deployment.md
+**Requirements:** R40, R41
 
 ## Responsibilities
 
@@ -14,8 +15,9 @@
 - accept: Accept new WebSocket connection
 - close: Close connection and cleanup
 - send: Send message to specific connection
+- sendBatch: Send JSON array batch to connection
 - broadcast: Send message to all connections in session
-- receive: Handle incoming message
+- receive: Handle incoming message (check for array batch, start timer before processing)
 - bindToSession: Associate connection with session
 - isConnected: Check connection status
 - getSessionId: Return session for connection

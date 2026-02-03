@@ -26,7 +26,6 @@ import (
 	"github.com/zot/ui-engine/internal/config"
 	"github.com/zot/ui-engine/internal/lua"
 	"github.com/zot/ui-engine/internal/protocol"
-	"github.com/zot/ui-engine/internal/session"
 	"github.com/zot/ui-engine/internal/viewdef"
 )
 
@@ -34,14 +33,13 @@ import (
 // CRC: crc-Server.md
 type Server struct {
 	config           *config.Config
-	sessions         *session.Manager
+	sessions         *SessionManager
 	handler          *protocol.Handler
 	pendingQueues    *PendingQueueManager
 	httpServer       *http.Server
 	httpEndpoint     *HTTPEndpoint
 	wsEndpoint       *WebSocketEndpoint
 	backendSocket    *BackendSocket
-	outgoingBatcher  *ServerOutgoingBatcher     // Per-session outgoing message batching
 	luaSessions      map[string]*lua.LuaSession // vendedID -> per-session Lua runtime
 	luaSessionsMu    sync.RWMutex
 	luaConfig        *luaSetupConfig // Shared config for creating new sessions
@@ -61,7 +59,7 @@ type luaSetupConfig struct {
 
 // New creates a new server with the given configuration.
 func New(cfg *config.Config) *Server {
-	sessions := session.NewManager(cfg.Session.Timeout.Duration())
+	sessions := NewSessionManager(cfg.Session.Timeout.Duration())
 	s := &Server{
 		config:        cfg,
 		sessions:      sessions,
@@ -79,12 +77,6 @@ func New(cfg *config.Config) *Server {
 
 	// Create WebSocket endpoint
 	s.wsEndpoint = NewWebSocketEndpoint(cfg, sessions, s.handler)
-
-	// Create outgoing batcher for server-side response debouncing
-	// CRC: crc-ServerOutgoingBatcher.md
-	s.outgoingBatcher = NewServerOutgoingBatcher(func(connID string, msg *protocol.Message) {
-		s.wsEndpoint.Send(connID, msg)
-	})
 
 	// Create HTTP endpoint
 	s.httpEndpoint = NewHTTPEndpoint(sessions, s.handler, s.wsEndpoint)
@@ -137,21 +129,16 @@ func New(cfg *config.Config) *Server {
 
 		// Set session callbacks for Lua session management
 		// Callbacks receive vended IDs (compact integers) for backend communication
-		// Each session gets its own LuaBackend for per-session watch management
-		sessions.SetOnSessionCreated(func(vendedID string, sess *session.Session) error {
+		// Each session gets its own LuaBackend and OutgoingBatcher for per-session isolation
+		sessions.SetOnSessionCreated(func(vendedID string, sess *Session) error {
 			return s.CreateLuaBackendForSession(vendedID, sess)
 		})
-		sessions.SetOnSessionDestroyed(func(vendedID string, sess *session.Session) {
+		sessions.SetOnSessionDestroyed(func(vendedID string, sess *Session) {
 			s.DestroyLuaBackendForSession(vendedID, sess)
 		})
 
 		// Set up afterBatch callback for automatic change detection
 		s.wsEndpoint.SetAfterBatch(s.AfterBatch)
-
-		// Set up ensureDebounce callback to pre-start debounce timer before processing
-		s.wsEndpoint.SetEnsureDebounce(func(sessionID string) {
-			s.outgoingBatcher.EnsureDebounceStarted(sessionID)
-		})
 
 		// Set up disconnect callback to clear sent-tracking and stale variables for page refresh
 		s.wsEndpoint.SetOnDisconnect(func(internalSessionID string) {
@@ -266,7 +253,7 @@ func (s *Server) Shutdown(ctx context.Context) error {
 }
 
 // GetSessions returns the session manager.
-func (s *Server) GetSessions() *session.Manager {
+func (s *Server) GetSessions() *SessionManager {
 	return s.sessions
 }
 
@@ -501,10 +488,10 @@ func (s *Server) setupLua(cfg *config.Config) {
 
 // CreateLuaBackendForSession creates a LuaBackend and LuaSession for a new frontend session.
 // vendedID is the compact integer ID (e.g., "1", "2") for backend communication.
-// Each frontend session gets its own isolated Lua state.
+// Each frontend session gets its own isolated Lua state and OutgoingBatcher.
 // CRC: crc-LuaBackend.md
 // Sequence: seq-session-create-backend.md
-func (s *Server) CreateLuaBackendForSession(vendedID string, sess *session.Session) error {
+func (s *Server) CreateLuaBackendForSession(vendedID string, sess *Session) error {
 	if s.luaConfig == nil {
 		return nil // Lua not enabled
 	}
@@ -528,6 +515,10 @@ func (s *Server) CreateLuaBackendForSession(vendedID string, sess *session.Sessi
 
 	// Attach backend to session
 	sess.SetBackend(lb)
+
+	// Create per-session outgoing batcher
+	// Each session has its own batcher for isolated debouncing
+	sess.SetBatcher(NewOutgoingBatcher(s.wsEndpoint))
 
 	// Track in store adapter for variable operations
 	if s.storeAdapter != nil {
@@ -559,7 +550,7 @@ func (s *Server) CreateLuaBackendForSession(vendedID string, sess *session.Sessi
 
 // DestroyLuaBackendForSession destroys a session's LuaBackend and LuaSession.
 // vendedID is the compact integer ID (e.g., "1", "2") for backend communication.
-func (s *Server) DestroyLuaBackendForSession(vendedID string, sess *session.Session) {
+func (s *Server) DestroyLuaBackendForSession(vendedID string, sess *Session) {
 	if s.luaConfig == nil {
 		return
 	}
@@ -598,7 +589,7 @@ func (s *Server) DestroyLuaBackendForSession(vendedID string, sess *session.Sess
 // CRC: crc-Server.md
 // Sequence: seq-relay-message.md, seq-backend-refresh.md, seq-frontend-outgoing-batch.md
 func (s *Server) AfterBatch(internalSessionID string, userEvent bool) {
-	// Get session and its backend
+	// Get session, its backend, and batcher
 	sess := s.sessions.Get(internalSessionID)
 	if sess == nil {
 		return
@@ -608,6 +599,8 @@ func (s *Server) AfterBatch(internalSessionID string, userEvent bool) {
 	if b == nil {
 		return
 	}
+
+	batcher := sess.GetBatcher()
 
 	vendedID := s.sessions.GetVendedID(internalSessionID)
 	if vendedID == "" {
@@ -626,8 +619,8 @@ func (s *Server) AfterBatch(internalSessionID string, userEvent bool) {
 	updates := luaSession.AfterBatch(vendedID)
 	if len(updates) == 0 {
 		// Even with no updates, flush immediately for user events
-		if userEvent && s.outgoingBatcher != nil {
-			s.outgoingBatcher.FlushNow(internalSessionID)
+		if userEvent && batcher != nil {
+			batcher.FlushNow()
 		}
 		return
 	}
@@ -653,8 +646,8 @@ func (s *Server) AfterBatch(internalSessionID string, userEvent bool) {
 		}
 
 		// Queue to batcher or send directly
-		if s.outgoingBatcher != nil {
-			s.outgoingBatcher.Queue(internalSessionID, updateMsg, watchers)
+		if batcher != nil {
+			batcher.Queue(updateMsg, watchers)
 		} else {
 			// Fallback: send directly (no batching)
 			for _, connID := range watchers {
@@ -664,8 +657,8 @@ func (s *Server) AfterBatch(internalSessionID string, userEvent bool) {
 	}
 
 	// Flush immediately for user events
-	if userEvent && s.outgoingBatcher != nil {
-		s.outgoingBatcher.FlushNow(internalSessionID)
+	if userEvent && batcher != nil {
+		batcher.FlushNow()
 	}
 }
 

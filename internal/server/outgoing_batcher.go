@@ -11,35 +11,42 @@ import (
 	"github.com/zot/ui-engine/internal/protocol"
 )
 
+// MessageSender sends protocol messages and logs.
+type MessageSender interface {
+	Send(connectionID string, msg *protocol.Message) error
+	SendBatch(connectionID string, msgs []*protocol.Message) error
+	Log(level int, format string, args ...interface{})
+}
+
 // pendingUpdate holds an update message and its target watchers.
 type pendingUpdate struct {
 	msg      *protocol.Message
 	watchers []string // connection IDs to send to
 }
 
-// ServerOutgoingBatcher batches outgoing messages per session with debouncing.
+// OutgoingBatcher batches outgoing messages for a single session with debouncing.
 // User events trigger immediate flush; non-user events are debounced.
-type ServerOutgoingBatcher struct {
+// Each session has its own batcher instance.
+type OutgoingBatcher struct {
 	mu               sync.Mutex
-	pendingUpdates   map[string][]pendingUpdate // sessionID -> pending updates with watchers
-	debounceTimers   map[string]*time.Timer     // sessionID -> debounce timer
+	pendingUpdates   []pendingUpdate // pending updates with watchers
+	debounceTimer    *time.Timer     // debounce timer
 	debounceInterval time.Duration
-	sendFn           func(connectionID string, msg *protocol.Message)
+	sender           MessageSender // collaborator for sending messages
+	batchCount       int
 }
 
-// NewServerOutgoingBatcher creates a batcher with the given send function.
-func NewServerOutgoingBatcher(sendFn func(connectionID string, msg *protocol.Message)) *ServerOutgoingBatcher {
-	return &ServerOutgoingBatcher{
-		pendingUpdates:   make(map[string][]pendingUpdate),
-		debounceTimers:   make(map[string]*time.Timer),
+// NewOutgoingBatcher creates a batcher with the given message sender.
+func NewOutgoingBatcher(sender MessageSender) *OutgoingBatcher {
+	return &OutgoingBatcher{
 		debounceInterval: 10 * time.Millisecond,
-		sendFn:           sendFn,
+		sender:           sender,
 	}
 }
 
-// Queue adds a message to the session's pending queue and starts debounce timer.
+// Queue adds a message to the pending queue and starts debounce timer.
 // watchers is the list of connection IDs to send this message to.
-func (b *ServerOutgoingBatcher) Queue(sessionID string, msg *protocol.Message, watchers []string) {
+func (b *OutgoingBatcher) Queue(msg *protocol.Message, watchers []string) {
 	if msg == nil || len(watchers) == 0 {
 		return
 	}
@@ -48,82 +55,101 @@ func (b *ServerOutgoingBatcher) Queue(sessionID string, msg *protocol.Message, w
 	defer b.mu.Unlock()
 
 	// Add to pending queue
-	b.pendingUpdates[sessionID] = append(b.pendingUpdates[sessionID], pendingUpdate{
+	b.pendingUpdates = append(b.pendingUpdates, pendingUpdate{
 		msg:      msg,
 		watchers: watchers,
 	})
 
 	// Only start timer if not already running (may have been pre-started)
-	if b.debounceTimers[sessionID] == nil {
-		b.debounceTimers[sessionID] = time.AfterFunc(b.debounceInterval, func() {
-			b.flushSession(sessionID)
+	if b.debounceTimer == nil {
+		b.debounceTimer = time.AfterFunc(b.debounceInterval, func() {
+			b.flush()
 		})
 	}
 }
 
-// EnsureDebounceStarted ensures the debounce timer is running for a session.
+// EnsureDebounceStarted ensures the debounce timer is running.
 // Called before processing to run debounce concurrently with processing.
 // If timer already running, does nothing (preserves existing deadline).
-func (b *ServerOutgoingBatcher) EnsureDebounceStarted(sessionID string) {
+func (b *OutgoingBatcher) EnsureDebounceStarted() {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
 	// Only start timer if not already running
-	if b.debounceTimers[sessionID] == nil {
-		b.debounceTimers[sessionID] = time.AfterFunc(b.debounceInterval, func() {
-			b.flushSession(sessionID)
+	if b.debounceTimer == nil {
+		b.debounceTimer = time.AfterFunc(b.debounceInterval, func() {
+			b.flush()
 		})
 	}
 }
 
-// FlushNow immediately sends all pending messages for a session.
-func (b *ServerOutgoingBatcher) FlushNow(sessionID string) {
+// FlushNow immediately sends all pending messages.
+func (b *OutgoingBatcher) FlushNow() {
 	b.mu.Lock()
 	// Cancel debounce timer if running
-	if timer := b.debounceTimers[sessionID]; timer != nil {
-		timer.Stop()
+	if b.debounceTimer != nil {
+		b.debounceTimer.Stop()
 	}
 	b.mu.Unlock()
 
-	b.flushSession(sessionID)
+	b.flush()
 }
 
-// flushSession sends pending messages for a session (called by timer).
-func (b *ServerOutgoingBatcher) flushSession(sessionID string) {
+// flush sends pending messages (called by timer or FlushNow).
+// Groups messages by connection and sends one batch per connection.
+func (b *OutgoingBatcher) flush() {
 	b.mu.Lock()
 
 	// Clear timer reference
-	delete(b.debounceTimers, sessionID)
+	b.debounceTimer = nil
 
 	// Get and clear pending updates
-	updates := b.pendingUpdates[sessionID]
-	delete(b.pendingUpdates, sessionID)
+	updates := b.pendingUpdates
+	b.pendingUpdates = nil
 
+	b.batchCount += 1
+	count := b.batchCount
 	b.mu.Unlock()
 
-	// Send outside lock
+	if len(updates) == 0 {
+		return
+	}
+
+	// Group messages by connection ID
+	connMsgs := make(map[string][]*protocol.Message)
 	for _, update := range updates {
 		for _, connID := range update.watchers {
-			b.sendFn(connID, update.msg)
+			connMsgs[connID] = append(connMsgs[connID], update.msg)
+		}
+	}
+
+	b.sender.Log(4, "[OUT] BATCH %d", count)
+	// Send one batch per connection
+	for connID, msgs := range connMsgs {
+		if len(msgs) == 1 {
+			b.sender.Send(connID, msgs[0])
+		} else {
+			b.sender.SendBatch(connID, msgs)
 		}
 	}
 }
 
-// ClearSession removes all pending messages and timers for a session.
-func (b *ServerOutgoingBatcher) ClearSession(sessionID string) {
+// Clear removes all pending messages and stops the timer.
+// Called when session is destroyed.
+func (b *OutgoingBatcher) Clear() {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	if timer := b.debounceTimers[sessionID]; timer != nil {
-		timer.Stop()
+	if b.debounceTimer != nil {
+		b.debounceTimer.Stop()
 	}
-	delete(b.debounceTimers, sessionID)
-	delete(b.pendingUpdates, sessionID)
+	b.debounceTimer = nil
+	b.pendingUpdates = nil
 }
 
-// PendingCount returns the number of pending updates for a session (for testing).
-func (b *ServerOutgoingBatcher) PendingCount(sessionID string) int {
+// PendingCount returns the number of pending updates (for testing).
+func (b *OutgoingBatcher) PendingCount() int {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	return len(b.pendingUpdates[sessionID])
+	return len(b.pendingUpdates)
 }

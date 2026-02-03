@@ -1,6 +1,6 @@
 // CRC: crc-SessionManager.md
 // Spec: interfaces.md, protocol.md
-package session
+package server
 
 import (
 	"strconv"
@@ -16,8 +16,8 @@ type SessionCreatedCallback func(vendedID string, session *Session) error
 // Receives the vended session ID (compact integer string) and the session object.
 type SessionDestroyedCallback func(vendedID string, session *Session)
 
-// Manager manages all sessions.
-type Manager struct {
+// SessionManager manages all sessions.
+type SessionManager struct {
 	sessions           map[string]*Session
 	urlPaths           map[string]map[string]int64 // sessionID -> path -> variableID
 	sessionTimeout     time.Duration
@@ -31,9 +31,9 @@ type Manager struct {
 	vendedToInternal map[string]string // vended ID -> internal session ID
 }
 
-// NewManager creates a new session manager.
-func NewManager(sessionTimeout time.Duration) *Manager {
-	return &Manager{
+// NewSessionManager creates a new session manager.
+func NewSessionManager(sessionTimeout time.Duration) *SessionManager {
+	return &SessionManager{
 		sessions:         make(map[string]*Session),
 		urlPaths:         make(map[string]map[string]int64),
 		sessionTimeout:   sessionTimeout,
@@ -44,12 +44,12 @@ func NewManager(sessionTimeout time.Duration) *Manager {
 }
 
 // SetOnSessionCreated sets a callback called when a session is created.
-func (m *Manager) SetOnSessionCreated(callback SessionCreatedCallback) {
+func (m *SessionManager) SetOnSessionCreated(callback SessionCreatedCallback) {
 	m.onSessionCreated = callback
 }
 
 // SetOnSessionDestroyed sets a callback called when a session is destroyed.
-func (m *Manager) SetOnSessionDestroyed(callback SessionDestroyedCallback) {
+func (m *SessionManager) SetOnSessionDestroyed(callback SessionDestroyedCallback) {
 	m.onSessionDestroyed = callback
 }
 
@@ -58,7 +58,7 @@ func (m *Manager) SetOnSessionDestroyed(callback SessionDestroyedCallback) {
 // Note: Variable 1 (app variable) is NOT created here. It's created by:
 // - Lua main.lua calling session:createAppVariable() (Lua-only mode)
 // - External backend via protocol (backend-only mode)
-func (m *Manager) CreateSession() (*Session, string, error) {
+func (m *SessionManager) CreateSession() (*Session, string, error) {
 	internalID := GenerateSessionID()
 
 	session := NewSession(internalID)
@@ -94,7 +94,7 @@ func (m *Manager) CreateSession() (*Session, string, error) {
 
 // GetVendedID returns the vended ID for an internal session ID.
 // Returns empty string if session not found.
-func (m *Manager) GetVendedID(internalID string) string {
+func (m *SessionManager) GetVendedID(internalID string) string {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	return m.internalToVended[internalID]
@@ -102,14 +102,14 @@ func (m *Manager) GetVendedID(internalID string) string {
 
 // GetInternalID returns the internal session ID for a vended ID.
 // Returns empty string if session not found.
-func (m *Manager) GetInternalID(vendedID string) string {
+func (m *SessionManager) GetInternalID(vendedID string) string {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	return m.vendedToInternal[vendedID]
 }
 
 // GetSession retrieves a session by ID.
-func (m *Manager) GetSession(id string) (*Session, bool) {
+func (m *SessionManager) GetSession(id string) (*Session, bool) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	session, ok := m.sessions[id]
@@ -117,14 +117,14 @@ func (m *Manager) GetSession(id string) (*Session, bool) {
 }
 
 // Get retrieves a session by ID. Returns nil if not found.
-func (m *Manager) Get(id string) *Session {
+func (m *SessionManager) Get(id string) *Session {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	return m.sessions[id]
 }
 
 // DestroySession cleans up a session and all its resources.
-func (m *Manager) DestroySession(id string) error {
+func (m *SessionManager) DestroySession(id string) error {
 	m.mu.Lock()
 	session, ok := m.sessions[id]
 	if !ok {
@@ -134,6 +134,11 @@ func (m *Manager) DestroySession(id string) error {
 
 	// Get vended ID before cleanup
 	vendedID := m.internalToVended[id]
+
+	// Clear the session's batcher if present
+	if session.batcher != nil {
+		session.batcher.Clear()
+	}
 
 	delete(m.sessions, id)
 	delete(m.urlPaths, id)
@@ -159,7 +164,7 @@ func (m *Manager) DestroySession(id string) error {
 }
 
 // SessionExists checks if a session ID is valid.
-func (m *Manager) SessionExists(id string) bool {
+func (m *SessionManager) SessionExists(id string) bool {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	_, ok := m.sessions[id]
@@ -167,7 +172,7 @@ func (m *Manager) SessionExists(id string) bool {
 }
 
 // RegisterURLPath associates a URL path with a presenter variable for a session.
-func (m *Manager) RegisterURLPath(sessionID, path string, variableID int64) error {
+func (m *SessionManager) RegisterURLPath(sessionID, path string, variableID int64) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -181,7 +186,7 @@ func (m *Manager) RegisterURLPath(sessionID, path string, variableID int64) erro
 }
 
 // ResolveURLPath finds the presenter variable for a URL path in a session.
-func (m *Manager) ResolveURLPath(sessionID, path string) (int64, bool) {
+func (m *SessionManager) ResolveURLPath(sessionID, path string) (int64, bool) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
@@ -195,7 +200,7 @@ func (m *Manager) ResolveURLPath(sessionID, path string) (int64, bool) {
 }
 
 // GetAllSessions returns all sessions.
-func (m *Manager) GetAllSessions() []*Session {
+func (m *SessionManager) GetAllSessions() []*Session {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
@@ -207,7 +212,7 @@ func (m *Manager) GetAllSessions() []*Session {
 }
 
 // CleanupInactiveSessions removes sessions with no activity past the timeout.
-func (m *Manager) CleanupInactiveSessions() int {
+func (m *SessionManager) CleanupInactiveSessions() int {
 	if m.sessionTimeout == 0 {
 		return 0 // Never cleanup
 	}
@@ -231,7 +236,7 @@ func (m *Manager) CleanupInactiveSessions() int {
 }
 
 // Count returns the number of sessions.
-func (m *Manager) Count() int {
+func (m *SessionManager) Count() int {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	return len(m.sessions)

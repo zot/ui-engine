@@ -6,7 +6,8 @@
 
 ### Knows
 - elementId: ID of first element for this view (NOT direct DOM reference)
-- lastElementId: ID of last element for multi-element templates (same as elementId for single-element)
+- viewClass: CSS class identifying all elements of this view (e.g., "ui-view-42")
+- bufferTimeoutId: Pending reveal timer (only set on buffer root views)
 - variable: Variable bound to this view (object reference)
 - rendered: Whether view has been successfully rendered
 - viewdefKey: The resolved viewdef key (e.g., "Contact.COMPACT") stored as `ui-viewdef` attribute on first element
@@ -19,7 +20,7 @@
 - clear: Remove all view elements from DOM (from elementId to lastElementId), destroy child views
 - destroy: Cleanup view - unwatch, remove from pending, clear DOM, destroy associated variable
 - getElement: Look up first DOM element by elementId (via document.getElementById)
-- getElements: Look up all DOM elements owned by this view (from elementId to lastElementId siblings)
+- getElements: Look up all DOM elements owned by this view (via querySelectorAll with viewClass)
 - markPending: Add to pending views list (missing type or viewdef)
 - removePending: Remove from pending views list after successful render
 - resolveNamespace: Apply 3-tier resolution (namespace -> fallbackNamespace -> DEFAULT)
@@ -64,8 +65,31 @@ This allows custom namespaces to fall back gracefully when specific viewdefs don
 Views replace their element(s) in the DOM rather than adding children to a container:
 1. Template content replaces the view's current element(s)
 2. First new element gets the stable `elementId`, additional elements get vended IDs
-3. `lastElementId` tracks the last element for multi-element templates
-4. On re-render: destroy old children first, remove old elements, insert new elements at same position
+3. `viewClass` CSS class identifies all elements belonging to this view
+4. On re-render: destroy old children first, mark/remove old elements, insert new elements at same position
+
+### No-Flash Buffering
+
+Views use ancestor-aware timer buffering to prevent visual flashing during re-renders:
+
+1. **Buffer Root Detection**: View checks if parent.closest('.ui-new-view') exists
+   - If YES: ancestor is buffering, render normally (already hidden by ancestor)
+   - If NO: this view is the buffer root, use hide/reveal mechanism
+
+2. **Buffer Root Behavior**:
+   - Old elements get `.ui-obsolete-view` class (stay visible until timer fires)
+   - New elements get `.ui-new-view` class (hidden via CSS)
+   - After 100ms timer: remove obsolete elements, reveal new elements
+
+3. **CSS Classes**:
+   - `.ui-view-{n}`: Identifies all elements of view n (replaces ID-based tracking)
+   - `.ui-new-view`: Hidden (pending reveal)
+   - `.ui-obsolete-view`: Marked for removal
+
+4. **Edge Cases**:
+   - Rapid re-renders: Timer already pending → add obsolete class, don't start new timer
+   - View destroyed during buffer: Clear timeout, remove elements
+   - Nested views: Render normally (ancestor handles buffering)
 
 ### Hot-Reload Support
 
@@ -108,3 +132,4 @@ When a View is destroyed, it must destroy its associated variable:
 - seq-render-view.md: View creation and rendering with namespace resolution
 - seq-viewdef-delivery.md: Processing pending views when viewdefs arrive
 - seq-viewdef-hotload.md: Hot-reload re-rendering when viewdefs change
+- seq-no-flash.md: Double-buffered re-render flow for no-flash rendering

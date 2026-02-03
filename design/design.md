@@ -70,6 +70,7 @@ All hot-loading features (Lua files, viewdefs, etc.) must track symlinks. See sp
 - [x] seq-handle-keypress-event.md
 - [x] seq-input-value-binding.md
 - [x] seq-viewdef-hotload.md
+- [x] seq-no-flash.md *(no-flash view rendering)*
 
 ### Session System
 - [x] crc-Session.md → `internal/session/session.go`

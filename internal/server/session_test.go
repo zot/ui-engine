@@ -1,17 +1,19 @@
 // Test Design: test-Session.md
 // CRC: crc-Session.md, crc-SessionManager.md
 // Spec: interfaces.md, main.md
-package session
+package server
 
 import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/zot/ui-engine/internal/protocol"
 )
 
 // TestCreateNewSession verifies basic session creation
 func TestCreateNewSession(t *testing.T) {
-	manager := NewManager(time.Hour)
+	manager := NewSessionManager(time.Hour)
 
 	session, vendedID, err := manager.CreateSession()
 	if err != nil {
@@ -46,7 +48,7 @@ func TestCreateNewSession(t *testing.T) {
 
 // TestSessionIDUniqueness verifies unique session IDs
 func TestSessionIDUniqueness(t *testing.T) {
-	manager := NewManager(time.Hour)
+	manager := NewSessionManager(time.Hour)
 	ids := make(map[string]bool)
 	vendedIDs := make(map[string]bool)
 
@@ -74,7 +76,7 @@ func TestSessionIDUniqueness(t *testing.T) {
 
 // TestAccessExistingSession verifies session lookup
 func TestAccessExistingSession(t *testing.T) {
-	manager := NewManager(time.Hour)
+	manager := NewSessionManager(time.Hour)
 
 	session, _, err := manager.CreateSession()
 	if err != nil {
@@ -99,7 +101,7 @@ func TestAccessExistingSession(t *testing.T) {
 
 // TestAccessInvalidSession verifies error for non-existent session
 func TestAccessInvalidSession(t *testing.T) {
-	manager := NewManager(time.Hour)
+	manager := NewSessionManager(time.Hour)
 
 	_, ok := manager.GetSession("nonexistent123")
 	if ok {
@@ -118,7 +120,7 @@ func TestAccessInvalidSession(t *testing.T) {
 
 // TestRegisterURLPath verifies path registration
 func TestRegisterURLPath(t *testing.T) {
-	manager := NewManager(time.Hour)
+	manager := NewSessionManager(time.Hour)
 
 	session, _, err := manager.CreateSession()
 	if err != nil {
@@ -141,7 +143,7 @@ func TestRegisterURLPath(t *testing.T) {
 
 // TestURLPathResolution verifies registered path lookup
 func TestURLPathResolution(t *testing.T) {
-	manager := NewManager(time.Hour)
+	manager := NewSessionManager(time.Hour)
 
 	session, _, err := manager.CreateSession()
 	if err != nil {
@@ -218,7 +220,7 @@ func TestSessionConnectionTracking(t *testing.T) {
 // TestSessionCleanupOnInactivity verifies inactive session cleanup
 func TestSessionCleanupOnInactivity(t *testing.T) {
 	// Very short timeout for testing
-	manager := NewManager(10 * time.Millisecond)
+	manager := NewSessionManager(10 * time.Millisecond)
 
 	session, _, err := manager.CreateSession()
 	if err != nil {
@@ -247,7 +249,7 @@ func TestSessionCleanupOnInactivity(t *testing.T) {
 
 // TestSessionDestroyCleanup verifies session destruction
 func TestSessionDestroyCleanup(t *testing.T) {
-	manager := NewManager(time.Hour)
+	manager := NewSessionManager(time.Hour)
 
 	session, vendedID, err := manager.CreateSession()
 	if err != nil {
@@ -283,7 +285,7 @@ func TestSessionDestroyCleanup(t *testing.T) {
 // TestVendedIDResetAfterAllSessionsDestroyed verifies that vended ID counter resets to 1
 // when all sessions are destroyed, allowing fresh sessions to start at 1 again.
 func TestVendedIDResetAfterAllSessionsDestroyed(t *testing.T) {
-	manager := NewManager(time.Hour)
+	manager := NewSessionManager(time.Hour)
 
 	// Create two sessions
 	session1, vendedID1, _ := manager.CreateSession()
@@ -314,7 +316,7 @@ func TestVendedIDResetAfterAllSessionsDestroyed(t *testing.T) {
 
 // TestVendedIDMapping verifies internal <-> vended ID mapping
 func TestVendedIDMapping(t *testing.T) {
-	manager := NewManager(time.Hour)
+	manager := NewSessionManager(time.Hour)
 
 	session1, vendedID1, _ := manager.CreateSession()
 	session2, vendedID2, _ := manager.CreateSession()
@@ -358,7 +360,7 @@ func TestSessionTouch(t *testing.T) {
 
 // TestSessionCallbacks verifies create/destroy callbacks
 func TestSessionCallbacks(t *testing.T) {
-	manager := NewManager(time.Hour)
+	manager := NewSessionManager(time.Hour)
 
 	var createdVendedID string
 	var destroyedVendedID string
@@ -437,7 +439,7 @@ func TestGenerateSessionID(t *testing.T) {
 
 // TestConcurrentSessionAccess verifies thread-safety
 func TestConcurrentSessionAccess(t *testing.T) {
-	manager := NewManager(time.Hour)
+	manager := NewSessionManager(time.Hour)
 	session, _, _ := manager.CreateSession()
 
 	var wg sync.WaitGroup
@@ -470,7 +472,7 @@ func TestConcurrentSessionAccess(t *testing.T) {
 
 // TestConcurrentManagerAccess verifies manager thread-safety
 func TestConcurrentManagerAccess(t *testing.T) {
-	manager := NewManager(time.Hour)
+	manager := NewSessionManager(time.Hour)
 
 	var wg sync.WaitGroup
 	const goroutines = 10
@@ -515,7 +517,7 @@ func TestConcurrentManagerAccess(t *testing.T) {
 
 // TestNoCleanupWithZeroTimeout verifies cleanup is disabled with 0 timeout
 func TestNoCleanupWithZeroTimeout(t *testing.T) {
-	manager := NewManager(0) // 0 = never cleanup
+	manager := NewSessionManager(0) // 0 = never cleanup
 
 	_, _, err := manager.CreateSession()
 	if err != nil {
@@ -538,7 +540,7 @@ func TestNoCleanupWithZeroTimeout(t *testing.T) {
 
 // TestGetAllSessions verifies listing all sessions
 func TestGetAllSessions(t *testing.T) {
-	manager := NewManager(time.Hour)
+	manager := NewSessionManager(time.Hour)
 
 	// Create multiple sessions
 	for i := 0; i < 5; i++ {
@@ -551,5 +553,51 @@ func TestGetAllSessions(t *testing.T) {
 	sessions := manager.GetAllSessions()
 	if len(sessions) != 5 {
 		t.Errorf("Expected 5 sessions, got %d", len(sessions))
+	}
+}
+
+// TestSessionBatcher verifies per-session batcher
+func TestSessionBatcher(t *testing.T) {
+	session := NewSession("test")
+
+	// Initially nil
+	if session.GetBatcher() != nil {
+		t.Error("New session should have nil batcher")
+	}
+
+	// Set batcher
+	mock := &mockSender{}
+	batcher := NewOutgoingBatcher(mock)
+	session.SetBatcher(batcher)
+
+	// Get batcher
+	if session.GetBatcher() != batcher {
+		t.Error("GetBatcher should return the set batcher")
+	}
+}
+
+// TestSessionEnsureDebounceStarted verifies debounce timer starts via session
+func TestSessionEnsureDebounceStarted(t *testing.T) {
+	session := NewSession("test")
+
+	// With nil batcher, should not panic
+	session.EnsureDebounceStarted()
+
+	// Set batcher and verify it starts timer
+	mock := &mockSender{}
+	batcher := NewOutgoingBatcher(mock)
+	session.SetBatcher(batcher)
+
+	session.EnsureDebounceStarted()
+
+	// Timer should be running - queue a message and wait
+	msg, _ := protocol.NewMessage(protocol.MsgUpdate, protocol.UpdateMessage{VarID: 1})
+	batcher.Queue(msg, []string{"conn1"})
+
+	// Wait for debounce
+	time.Sleep(20 * time.Millisecond)
+
+	if mock.messageCount() != 1 {
+		t.Errorf("Expected 1 message sent after debounce, got %d", mock.messageCount())
 	}
 }

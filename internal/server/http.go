@@ -12,7 +12,6 @@ import (
 	"strings"
 
 	"github.com/zot/ui-engine/internal/protocol"
-	"github.com/zot/ui-engine/internal/session"
 )
 
 // DebugDataProvider is called to get variable data for the debug page.
@@ -37,7 +36,7 @@ type DebugVariable struct {
 
 // HTTPEndpoint handles HTTP requests.
 type HTTPEndpoint struct {
-	sessions            *session.Manager
+	sessions            *SessionManager
 	handler             *protocol.Handler
 	wsEndpoint          *WebSocketEndpoint
 	staticDir           string
@@ -48,7 +47,7 @@ type HTTPEndpoint struct {
 }
 
 // NewHTTPEndpoint creates a new HTTP endpoint.
-func NewHTTPEndpoint(sessions *session.Manager, handler *protocol.Handler, wsEndpoint *WebSocketEndpoint) *HTTPEndpoint {
+func NewHTTPEndpoint(sessions *SessionManager, handler *protocol.Handler, wsEndpoint *WebSocketEndpoint) *HTTPEndpoint {
 	h := &HTTPEndpoint{
 		sessions:   sessions,
 		handler:    handler,

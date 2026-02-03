@@ -46,3 +46,22 @@
 - **R29:** updateValue must get the variable ID for the `ui-value` binding from the widget
 - **R30:** updateValue must send an update with the provided value, or the element's `value` property if value is undefined
 - **R31:** updateValue must be a no-op if the element has no `ui-value` binding
+
+## Feature: No-Flash View Rendering
+**Source:** specs/no-flash.md
+
+- **R32:** View render must use ancestor-aware timer buffering to prevent visual flashing
+- **R33:** New view elements must be created with `.ui-new-view` class (hidden by CSS)
+- **R34:** On re-render, old elements must get `.ui-obsolete-view` class instead of immediate removal
+- **R35:** After 100ms timer, obsolete elements must be removed and new elements revealed
+- **R36:** Views inside an ancestor's buffer (detected via `closest('.ui-new-view')`) must render normally
+- **R37:** Each view must have a unique viewClass (e.g., "ui-view-42") to identify its elements
+- **R38:** View destruction must clear any pending buffer timeout
+
+## Feature: Server-to-Frontend Batching
+**Source:** specs/protocol.md
+
+- **R39:** Server must send batched messages to frontend as JSON arrays
+- **R40:** Frontend must detect and handle incoming JSON array batches
+- **R41:** Frontend must start outgoing batch timer BEFORE processing incoming messages
+- **R42:** ServerOutgoingBatcher must group messages by connection and send one batch per connection

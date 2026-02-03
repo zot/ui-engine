@@ -32,7 +32,8 @@ export class FrontendOutgoingBatcher {
   private userEvent = false; // True if batch contains user-triggered messages
   private sendFn: (data: string) => void;
 
-  readonly debounceInterval = 10; // ms
+  //readonly debounceInterval = 10; // ms
+  readonly debounceInterval = 50; // ms
 
   constructor(sendFn: (data: string) => void) {
     this.sendFn = sendFn;
@@ -94,13 +95,27 @@ export class FrontendOutgoingBatcher {
     this.sendFn(JSON.stringify(batch));
   }
 
-  // Start/restart 10ms debounce timer (resets on each call)
-  private startDebounce(): void {
-    this.cancelDebounce();
-    this.debounceTimer = setTimeout(() => {
+  // Create debounce timer that flushes on expiration
+  private createDebounceTimer(): ReturnType<typeof setTimeout> {
+    return setTimeout(() => {
       this.debounceTimer = null;
       this.flush();
     }, this.debounceInterval);
+  }
+
+  // Start/restart 10ms debounce timer (resets on each call)
+  private startDebounce(): void {
+    this.cancelDebounce();
+    this.debounceTimer = this.createDebounceTimer();
+  }
+
+  // Ensure debounce timer is running (called before processing incoming messages)
+  // Does NOT restart if already running - preserves existing deadline
+  // Spec: protocol.md - start timer before processing for concurrent debounce
+  ensureDebounceStarted(): void {
+    if (this.debounceTimer === null) {
+      this.debounceTimer = this.createDebounceTimer();
+    }
   }
 
   // Cancel pending timer

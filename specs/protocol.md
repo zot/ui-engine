@@ -204,7 +204,25 @@ The frontend batches outgoing messages with a 10ms debounce interval. When the b
 
 **Server outgoing batching:**
 
-The server also batches outgoing messages per session with a 10ms debounce interval. When `userEvent=true` is received, responses are flushed immediately for responsive UI feedback. When `userEvent=false`, responses are debounced to coalesce rapid backend changes.
+The server batches outgoing messages per session with a 10ms debounce interval. When `userEvent=true` is received, responses are flushed immediately for responsive UI feedback. When `userEvent=false`, responses are debounced to coalesce rapid backend changes.
+
+Server-to-frontend batches are sent as JSON arrays (no wrapper object):
+```json
+// Server → Frontend batch (JSON array)
+[
+  {"type": "update", "data": {"varId": 5, "value": "hello"}},
+  {"type": "update", "data": {"varId": 10, "properties": {"name": "foo"}}}
+]
+```
+
+**Frontend incoming batch handling:**
+
+When the frontend receives a message from the server, it must:
+1. Start the outgoing batch debounce timer BEFORE processing (runs concurrently with processing)
+2. Check if the message is a JSON array (batch) or single object
+3. Process each message in the batch sequentially
+
+Starting the timer before processing ensures responses are sent promptly after processing completes, rather than waiting an additional debounce interval.
 
 ## Session-Based Communication
 

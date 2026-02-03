@@ -9,26 +9,29 @@ import { ViewList, createViewList } from './viewlist';
 import { parsePath, BindingEngine } from './binding';
 import { ensureElementId, vendElementId } from './element_id_vendor';
 
-// Inject CSS for flash-free hot-reload re-rendering
-// The marker and everything after it is hidden until the swap completes
-const RENDER_MARKER_STYLE = `
-.ui-render-marker,
-.ui-render-marker ~ * {
+// Inject CSS for no-flash view rendering
+// New elements are hidden until the reveal timer fires
+const NO_FLASH_STYLE = `
+.ui-new-view {
   display: none !important;
 }
 `;
 
-(function injectRenderMarkerStyle() {
-  if (document.getElementById('ui-render-marker-style')) return;
+(function injectNoFlashStyle() {
+  if (document.getElementById('ui-no-flash-style')) return;
   const style = document.createElement('style');
-  style.id = 'ui-render-marker-style';
-  style.textContent = RENDER_MARKER_STYLE;
+  style.id = 'ui-no-flash-style';
+  style.textContent = NO_FLASH_STYLE;
   document.head.appendChild(style);
 })();
 
+// View class counter for unique viewClass assignment
+let nextViewId = 1;
+
 export class View {
   readonly elementId: string;
-  private lastElementId: string;  // Tracks last element for multi-element templates
+  private readonly viewClass: string;  // e.g. "ui-view-42", identifies all elements of this view
+  private bufferTimeoutId?: number;  // Pending reveal timer (only set on buffer root)
 
   private valueType: string = '';
   private variableId: number | null = null;
@@ -49,7 +52,7 @@ export class View {
     binding?: BindingEngine
   ) {
     this.elementId = ensureElementId(element);
-    this.lastElementId = this.elementId;  // Initially same as first
+    this.viewClass = `ui-view-${nextViewId++}`;
 
     this.viewdefStore = viewdefStore;
     this.variableStore = variableStore;
@@ -62,24 +65,12 @@ export class View {
     return document.getElementById(this.elementId) as HTMLElement | null;
   }
 
-  // Get all elements owned by this view (from elementId to lastElementId)
-  // For multi-element templates, this returns all siblings in the range
+  // Get all elements owned by this view (marked with viewClass)
   getElements(): HTMLElement[] {
-    const first = this.getElement();
-    if (!first) return [];
-
-    // Single element case - most common path
-    if (this.elementId === this.lastElementId) return [first];
-
-    // Multi-element case - walk siblings until we hit lastElementId
-    const elements: HTMLElement[] = [first];
-    let current = first.nextElementSibling;
-    while (current instanceof HTMLElement) {
-      elements.push(current);
-      if (current.id === this.lastElementId) break;
-      current = current.nextElementSibling;
-    }
-    return elements;
+    // Query all elements with this view's class marker
+    const parent = document.getElementById(this.elementId)?.parentElement;
+    if (!parent) return [];
+    return [...parent.querySelectorAll(`:scope > .${this.viewClass}`)] as HTMLElement[];
   }
 
   // Set scrollOnOutput flag (will be applied to widget on render)
@@ -220,18 +211,24 @@ export class View {
     }
 
     // Remember insertion point before destroying old content
-    const parent = firstElement.parentNode;
+    const parent = firstElement.parentNode as HTMLElement | null;
     if (!parent) {
       console.error('View element has no parent:', this.elementId);
       return false;
     }
 
-    // For re-render: get all old elements and remember position
-    // Use lastElementId to check for multi-element (not rendered flag, which forceRender clears)
-    const isMultiElement = this.lastElementId !== this.elementId;
-    const oldElements = isMultiElement ? this.getElements() : [firstElement];
-    const lastOldElement = oldElements[oldElements.length - 1];
-    const insertBefore = lastOldElement.nextSibling;
+    // Check if an ancestor is already buffering (has ui-new-view class)
+    // If so, we render normally since we're already hidden by ancestor
+    const isInsideAncestorBuffer = parent.closest('.ui-new-view') !== null;
+
+    // Get old elements to replace
+    // On first render, getElements() returns [] because no elements have viewClass yet
+    // So we fall back to firstElement (the placeholder)
+    let oldElements = this.getElements();
+    if (oldElements.length === 0) {
+      oldElements = [firstElement];  // First render: use placeholder element
+    }
+    const insertBefore = oldElements[oldElements.length - 1].nextSibling;
 
     // CRITICAL: Capture OLD descendant views BEFORE any new children are added
     // Views sharing this widget are stored ancestor-to-descendant order
@@ -255,9 +252,18 @@ export class View {
     // Widgets are keyed by elementId, so we must clear them before reusing IDs
     this.clearChildren();
 
-    // Remove old elements from DOM (all but we'll reuse the ID)
-    for (const el of oldElements) {
-      el.remove();
+    // Handle old elements based on buffering mode
+    if (isInsideAncestorBuffer) {
+      // Inside ancestor's buffer - remove immediately (already hidden)
+      for (const el of oldElements) {
+        el.remove();
+      }
+    } else {
+      // We are the buffer root - mark old elements as obsolete (keep hidden until timer)
+      // Also add viewClass so the timer's selector can find them
+      for (const el of oldElements) {
+        el.classList.add(this.viewClass, 'ui-obsolete-view');
+      }
     }
 
     // Clone template content (returns DocumentFragment)
@@ -266,7 +272,7 @@ export class View {
     // Collect scripts before inserting (store for later activation)
     const scripts = collectScripts(fragment);
 
-    // Get root elements from fragment and assign IDs
+    // Get root elements from fragment and assign IDs and classes
     const rootElements = Array.from(fragment.children) as HTMLElement[];
     if (rootElements.length === 0) {
       console.error('Viewdef has no root elements:', viewdef.key);
@@ -274,11 +280,20 @@ export class View {
     }
 
     // First element gets the stable elementId, rest get vended IDs
+    // All elements get the viewClass for tracking
     rootElements[0].id = this.elementId;
     for (let i = 1; i < rootElements.length; i++) {
       rootElements[i].id = vendElementId();
     }
-    this.lastElementId = rootElements[rootElements.length - 1].id;
+
+    // Add viewClass to all new elements for tracking
+    // Only add ui-new-view if we're the buffer root (not inside ancestor's buffer)
+    for (const el of rootElements) {
+      el.classList.add(this.viewClass);
+      if (!isInsideAncestorBuffer) {
+        el.classList.add('ui-new-view');
+      }
+    }
 
     // Set ui-viewdef attribute on first element for hot-reload targeting
     // Spec: viewdefs.md - Hot-reloading
@@ -323,6 +338,21 @@ export class View {
 
     // Remove from pending if we were pending
     this.removePending();
+
+    // Start reveal timer if we're the buffer root and no timer pending
+    if (!isInsideAncestorBuffer && !this.bufferTimeoutId) {
+      this.bufferTimeoutId = window.setTimeout(() => {
+        // Remove obsolete elements for this view
+        document.querySelectorAll(`.${this.viewClass}.ui-obsolete-view`).forEach(el => el.remove());
+
+        // Reveal new elements for this view
+        document.querySelectorAll(`.${this.viewClass}.ui-new-view`).forEach(el => {
+          el.classList.remove('ui-new-view');
+        });
+
+        this.bufferTimeoutId = undefined;
+      }, 100);
+    }
 
     // Set scrollOnOutput on widget if View has the flag, then scroll
     // Spec: viewdefs.md - scrollOnOutput (universal property on widget)
@@ -576,6 +606,13 @@ export class View {
       this.unwatch();
       this.unwatch = null;
     }
+
+    // Clear pending buffer timer
+    if (this.bufferTimeoutId) {
+      clearTimeout(this.bufferTimeoutId);
+      this.bufferTimeoutId = undefined;
+    }
+
     this.removePending();
     this.clear();
 

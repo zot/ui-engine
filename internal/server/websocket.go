@@ -15,7 +15,6 @@ import (
 	"github.com/gorilla/websocket"
 	"github.com/zot/ui-engine/internal/config"
 	"github.com/zot/ui-engine/internal/protocol"
-	"github.com/zot/ui-engine/internal/session"
 )
 
 var upgrader = websocket.Upgrader{
@@ -34,30 +33,32 @@ type AfterBatchCallback func(sessionID string, userEvent bool)
 // Used to clear sent-tracking so reconnections resync state.
 type DisconnectCallback func(sessionID string)
 
-// EnsureDebounceCallback starts debounce timer before processing.
-// Called for non-user events so timer runs concurrently with processing.
-type EnsureDebounceCallback func(sessionID string)
+// wsConn wraps a websocket connection with a write mutex.
+// gorilla/websocket does not support concurrent writes.
+type wsConn struct {
+	conn    *websocket.Conn
+	writeMu sync.Mutex
+}
 
 // WebSocketEndpoint handles WebSocket connections.
 type WebSocketEndpoint struct {
 	config          *config.Config
-	connections     map[string]*websocket.Conn // connectionID -> conn
-	sessionBindings map[string]string          // connectionID -> sessionID
-	reconnectTokens map[string]string          // sessionID -> token
-	sessionSvc      map[string]ChanSvc         // sessionID -> executor (serializes session operations)
-	sessions        *session.Manager
+	connections     map[string]*wsConn // connectionID -> conn
+	sessionBindings map[string]string  // connectionID -> sessionID
+	reconnectTokens map[string]string  // sessionID -> token
+	sessionSvc      map[string]ChanSvc // sessionID -> executor (serializes session operations)
+	sessions        *SessionManager
 	handler         *protocol.Handler
-	afterBatch      AfterBatchCallback     // Called after each message to detect changes
-	onDisconnectCb  DisconnectCallback     // Called when a connection disconnects
-	ensureDebounce  EnsureDebounceCallback // Called before processing non-user events
+	afterBatch      AfterBatchCallback // Called after each message to detect changes
+	onDisconnectCb  DisconnectCallback // Called when a connection disconnects
 	mu              sync.RWMutex
 }
 
 // NewWebSocketEndpoint creates a new WebSocket endpoint.
-func NewWebSocketEndpoint(cfg *config.Config, sessions *session.Manager, handler *protocol.Handler) *WebSocketEndpoint {
+func NewWebSocketEndpoint(cfg *config.Config, sessions *SessionManager, handler *protocol.Handler) *WebSocketEndpoint {
 	return &WebSocketEndpoint{
 		config:          cfg,
-		connections:     make(map[string]*websocket.Conn),
+		connections:     make(map[string]*wsConn),
 		sessionBindings: make(map[string]string),
 		reconnectTokens: make(map[string]string),
 		sessionSvc:      make(map[string]ChanSvc),
@@ -82,9 +83,10 @@ func (ws *WebSocketEndpoint) SetOnDisconnect(callback DisconnectCallback) {
 	ws.onDisconnectCb = callback
 }
 
-// SetEnsureDebounce sets the callback for pre-starting debounce timer.
-func (ws *WebSocketEndpoint) SetEnsureDebounce(callback EnsureDebounceCallback) {
-	ws.ensureDebounce = callback
+// getSession returns the session for the given ID, or nil if not found.
+func (ws *WebSocketEndpoint) getSession(sessionID string) *Session {
+	sess, _ := ws.sessions.GetSession(sessionID)
+	return sess
 }
 
 // getOrCreateSvc returns the executor for a session, creating if needed.
@@ -143,7 +145,7 @@ func (ws *WebSocketEndpoint) HandleWebSocket(w http.ResponseWriter, r *http.Requ
 	connectionID := generateConnectionID()
 
 	ws.mu.Lock()
-	ws.connections[connectionID] = conn
+	ws.connections[connectionID] = &wsConn{conn: conn}
 	ws.sessionBindings[connectionID] = sessionID
 	ws.mu.Unlock()
 
@@ -211,10 +213,20 @@ func (ws *WebSocketEndpoint) processMessage(connectionID, sessionID string, mess
 		return
 	}
 
+	// Get session for debounce
+	session := ws.getSession(sessionID)
+	session.batchCount += 1
+	count := session.batchCount
+	evtMsg := "USER EVENT"
+	if !userEvent {
+		evtMsg = "NO USER EVENT"
+	}
+	ws.Log(4, "[IN] BATCH %d (%s)", count, evtMsg)
+
 	// For non-user events, start debounce timer BEFORE processing
 	// so timer runs concurrently with message handling
-	if !userEvent && ws.ensureDebounce != nil {
-		ws.ensureDebounce(sessionID)
+	if !userEvent && session != nil {
+		session.EnsureDebounceStarted()
 	}
 
 	// Process each message in the batch
@@ -242,7 +254,7 @@ func (ws *WebSocketEndpoint) processMessage(connectionID, sessionID string, mess
 // sendResponse sends a response to a connection.
 func (ws *WebSocketEndpoint) sendResponse(connectionID string, resp *protocol.Response) error {
 	ws.mu.RLock()
-	conn, ok := ws.connections[connectionID]
+	wc, ok := ws.connections[connectionID]
 	ws.mu.RUnlock()
 
 	if !ok {
@@ -258,7 +270,9 @@ func (ws *WebSocketEndpoint) sendResponse(connectionID string, resp *protocol.Re
 		ws.Log(2, "[OUT] RESPONSE: to=%s", connectionID)
 	}
 
-	return conn.WriteJSON(resp)
+	wc.writeMu.Lock()
+	defer wc.writeMu.Unlock()
+	return wc.conn.WriteJSON(resp)
 }
 
 // onDisconnect handles connection close.
@@ -286,7 +300,7 @@ func (ws *WebSocketEndpoint) onDisconnect(connectionID string) {
 // Send sends a message to a specific connection.
 func (ws *WebSocketEndpoint) Send(connectionID string, msg *protocol.Message) error {
 	ws.mu.RLock()
-	conn, ok := ws.connections[connectionID]
+	wc, ok := ws.connections[connectionID]
 	ws.mu.RUnlock()
 
 	if !ok {
@@ -306,17 +320,44 @@ func (ws *WebSocketEndpoint) Send(connectionID string, msg *protocol.Message) er
 		return err
 	}
 
-	return conn.WriteMessage(websocket.TextMessage, data)
+	wc.writeMu.Lock()
+	defer wc.writeMu.Unlock()
+	return wc.conn.WriteMessage(websocket.TextMessage, data)
+}
+
+// SendBatch sends multiple messages as a JSON array to a specific connection.
+// Spec: protocol.md - Server sends batched messages as JSON arrays
+func (ws *WebSocketEndpoint) SendBatch(connectionID string, msgs []*protocol.Message) error {
+	ws.mu.RLock()
+	wc, ok := ws.connections[connectionID]
+	ws.mu.RUnlock()
+
+	if !ok {
+		return nil
+	}
+
+	// Log batch
+	ws.Log(2, "[OUT] BATCH: to=%s count=%d", connectionID, len(msgs))
+
+	// Encode as JSON array
+	data, err := json.Marshal(msgs)
+	if err != nil {
+		return err
+	}
+
+	wc.writeMu.Lock()
+	defer wc.writeMu.Unlock()
+	return wc.conn.WriteMessage(websocket.TextMessage, data)
 }
 
 // Broadcast sends a message to all connections in a session.
 func (ws *WebSocketEndpoint) Broadcast(sessionID string, msg *protocol.Message) error {
 	ws.mu.RLock()
-	var conns []*websocket.Conn
+	var conns []*wsConn
 	for connID, sessID := range ws.sessionBindings {
 		if sessID == sessionID {
-			if conn, ok := ws.connections[connID]; ok {
-				conns = append(conns, conn)
+			if wc, ok := ws.connections[connID]; ok {
+				conns = append(conns, wc)
 			}
 		}
 	}
@@ -335,8 +376,10 @@ func (ws *WebSocketEndpoint) Broadcast(sessionID string, msg *protocol.Message) 
 		return err
 	}
 
-	for _, conn := range conns {
-		conn.WriteMessage(websocket.TextMessage, data)
+	for _, wc := range conns {
+		wc.writeMu.Lock()
+		wc.conn.WriteMessage(websocket.TextMessage, data)
+		wc.writeMu.Unlock()
 	}
 	return nil
 }

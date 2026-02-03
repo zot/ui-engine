@@ -11,13 +11,11 @@ import (
 	"strings"
 	"testing"
 	"time"
-
-	"github.com/zot/ui-engine/internal/session"
 )
 
 // TestHTTPRedirectToSession verifies GET / creates session and redirects
 func TestHTTPRedirectToSession(t *testing.T) {
-	sessions := session.NewManager(time.Hour)
+	sessions := NewSessionManager(time.Hour)
 	endpoint := NewHTTPEndpoint(sessions, nil, nil)
 
 	req := httptest.NewRequest("GET", "/", nil)
@@ -47,7 +45,7 @@ func TestHTTPRedirectToSession(t *testing.T) {
 
 // TestHTTPAccessValidSession verifies session access returns HTML
 func TestHTTPAccessValidSession(t *testing.T) {
-	sessions := session.NewManager(time.Hour)
+	sessions := NewSessionManager(time.Hour)
 	endpoint := NewHTTPEndpoint(sessions, nil, nil)
 
 	// Create embedded test site
@@ -81,7 +79,7 @@ func TestHTTPAccessValidSession(t *testing.T) {
 
 // TestHTTPAccessInvalidSession verifies non-existent session handling
 func TestHTTPAccessInvalidSession(t *testing.T) {
-	sessions := session.NewManager(time.Hour)
+	sessions := NewSessionManager(time.Hour)
 	endpoint := NewHTTPEndpoint(sessions, nil, nil)
 
 	// Create embedded test site
@@ -112,7 +110,7 @@ func TestHTTPAccessInvalidSession(t *testing.T) {
 
 // TestHTTPServeStaticFromCustomDir verifies --dir flag serving
 func TestHTTPServeStaticFromCustomDir(t *testing.T) {
-	sessions := session.NewManager(time.Hour)
+	sessions := NewSessionManager(time.Hour)
 	endpoint := NewHTTPEndpoint(sessions, nil, nil)
 
 	// Set static dir to a test directory
@@ -126,7 +124,7 @@ func TestHTTPServeStaticFromCustomDir(t *testing.T) {
 
 // TestHTTPDebugEndpoint verifies /{sessionID}/variables endpoint
 func TestHTTPDebugEndpoint(t *testing.T) {
-	sessions := session.NewManager(time.Hour)
+	sessions := NewSessionManager(time.Hour)
 	endpoint := NewHTTPEndpoint(sessions, nil, nil)
 
 	// Set up debug data provider - receives vended ID (numeric)
@@ -168,7 +166,7 @@ func TestHTTPDebugEndpoint(t *testing.T) {
 
 // TestHTTPDebugEndpointInvalidSession verifies invalid session returns 404
 func TestHTTPDebugEndpointInvalidSession(t *testing.T) {
-	sessions := session.NewManager(time.Hour)
+	sessions := NewSessionManager(time.Hour)
 	endpoint := NewHTTPEndpoint(sessions, nil, nil)
 
 	// Set up debug data provider
@@ -191,7 +189,7 @@ func TestHTTPDebugEndpointInvalidSession(t *testing.T) {
 
 // TestHTTPAPIEndpoint verifies /api/ routing
 func TestHTTPAPIEndpoint(t *testing.T) {
-	sessions := session.NewManager(time.Hour)
+	sessions := NewSessionManager(time.Hour)
 	endpoint := NewHTTPEndpoint(sessions, nil, nil)
 
 	// API calls require a handler, which we don't have in this test
@@ -210,11 +208,11 @@ func TestHTTPAPIEndpoint(t *testing.T) {
 
 // TestHTTPSessionCreationCallback verifies session creation triggers callback
 func TestHTTPSessionCreationCallback(t *testing.T) {
-	sessions := session.NewManager(time.Hour)
+	sessions := NewSessionManager(time.Hour)
 	endpoint := NewHTTPEndpoint(sessions, nil, nil)
 
 	callbackCalled := false
-	sessions.SetOnSessionCreated(func(vendedID string, sess *session.Session) error {
+	sessions.SetOnSessionCreated(func(vendedID string, sess *Session) error {
 		callbackCalled = true
 		return nil
 	})
@@ -231,7 +229,7 @@ func TestHTTPSessionCreationCallback(t *testing.T) {
 
 // TestHTTPMultipleSessionCreation verifies unique sessions
 func TestHTTPMultipleSessionCreation(t *testing.T) {
-	sessions := session.NewManager(time.Hour)
+	sessions := NewSessionManager(time.Hour)
 	endpoint := NewHTTPEndpoint(sessions, nil, nil)
 
 	createdSessions := make(map[string]bool)
@@ -259,7 +257,7 @@ func TestHTTPMultipleSessionCreation(t *testing.T) {
 
 // TestHTTPSessionWithPath verifies session URL with path
 func TestHTTPSessionWithPath(t *testing.T) {
-	sessions := session.NewManager(time.Hour)
+	sessions := NewSessionManager(time.Hour)
 	endpoint := NewHTTPEndpoint(sessions, nil, nil)
 
 	// Create embedded test site
@@ -291,7 +289,7 @@ func TestHTTPSessionWithPath(t *testing.T) {
 
 // TestHTTPWebSocketRouting verifies /ws/ path routing
 func TestHTTPWebSocketRouting(t *testing.T) {
-	sessions := session.NewManager(time.Hour)
+	sessions := NewSessionManager(time.Hour)
 	endpoint := NewHTTPEndpoint(sessions, nil, nil)
 
 	// WebSocket upgrade requires actual WebSocket connection

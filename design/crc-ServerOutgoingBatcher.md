@@ -1,26 +1,26 @@
 # ServerOutgoingBatcher
 
 **Source Spec:** protocol.md
+**Requirements:** R39, R42
 
 ## Responsibilities
 
 ### Knows
-- pendingMessages: Map of sessionID -> queued messages
+- pendingUpdates: Map of sessionID -> queued updates (message + watchers)
 - debounceTimers: Map of sessionID -> timer reference
 - debounceInterval: 10ms batch interval
-- sendFn: Function to send messages to frontend
+- sender: MessageSender collaborator (WebSocketEndpoint)
 
 ### Does
-- Queue: Add messages to session's pending queue (starts timer if not running)
+- Queue: Add message to session's pending queue with watchers (starts timer if not running)
 - FlushNow: Send all pending messages for session immediately
 - EnsureDebounceStarted: Start debounce timer if not running (called before processing)
-- startDebounce: Start/restart 10ms debounce timer for session
-- cancelDebounce: Cancel pending timer for session
+- flushSession: Group messages by connection, send one JSON array batch per connection
 
 ## Collaborators
 
 - Server: Calls Queue/FlushNow based on userEvent flag
-- WebSocketEndpoint: Sends batched messages to frontend
+- WebSocketEndpoint: Sends batched messages to frontend via MessageSender interface
 
 ## Sequences
 
