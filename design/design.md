@@ -94,6 +94,7 @@ All hot-loading features (Lua files, viewdefs, etc.) must track symlinks. See sp
 - [x] crc-MessageRelay.md → `internal/server/relay.go`
 - [x] crc-MessageBatcher.md → `internal/protocol/batcher.go`, `web/src/batcher.ts`
 - [x] crc-FrontendOutgoingBatcher.md → `web/src/outgoing_batcher.ts`
+- [x] crc-ServerOutgoingBatcher.md → `internal/server/outgoing_batcher.go`
 - [x] seq-frontend-connect.md
 - [x] seq-backend-connect.md
 - [x] seq-relay-message.md

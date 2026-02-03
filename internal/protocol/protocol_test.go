@@ -435,3 +435,108 @@ func TestEmptyBatcherFlushReturnsNil(t *testing.T) {
 		t.Error("Empty batcher FlushJSON should return nil")
 	}
 }
+
+// TestParseMessagesLegacyArray verifies legacy array format (backward compat)
+func TestParseMessagesLegacyArray(t *testing.T) {
+	data := []byte(`[{"type":"update","data":{"varId":1}},{"type":"update","data":{"varId":2}}]`)
+
+	msgs, userEvent, err := ParseMessages(data)
+	if err != nil {
+		t.Fatalf("ParseMessages error: %v", err)
+	}
+	if len(msgs) != 2 {
+		t.Errorf("Expected 2 messages, got %d", len(msgs))
+	}
+	if userEvent {
+		t.Error("Legacy array format should have userEvent=false")
+	}
+}
+
+// TestParseMessagesSingleMessage verifies single message parsing
+func TestParseMessagesSingleMessage(t *testing.T) {
+	data := []byte(`{"type":"update","data":{"varId":1}}`)
+
+	msgs, userEvent, err := ParseMessages(data)
+	if err != nil {
+		t.Fatalf("ParseMessages error: %v", err)
+	}
+	if len(msgs) != 1 {
+		t.Errorf("Expected 1 message, got %d", len(msgs))
+	}
+	if userEvent {
+		t.Error("Single message should have userEvent=false")
+	}
+	if msgs[0].Type != MsgUpdate {
+		t.Errorf("Expected update type, got %s", msgs[0].Type)
+	}
+}
+
+// TestParseMessagesBatchWrapperUserEvent verifies new batch wrapper with userEvent=true
+func TestParseMessagesBatchWrapperUserEvent(t *testing.T) {
+	data := []byte(`{"userEvent":true,"messages":[{"type":"update","data":{"varId":1}},{"type":"watch","data":{"varId":2}}]}`)
+
+	msgs, userEvent, err := ParseMessages(data)
+	if err != nil {
+		t.Fatalf("ParseMessages error: %v", err)
+	}
+	if len(msgs) != 2 {
+		t.Errorf("Expected 2 messages, got %d", len(msgs))
+	}
+	if !userEvent {
+		t.Error("Expected userEvent=true")
+	}
+	if msgs[0].Type != MsgUpdate {
+		t.Errorf("First message should be update, got %s", msgs[0].Type)
+	}
+	if msgs[1].Type != MsgWatch {
+		t.Errorf("Second message should be watch, got %s", msgs[1].Type)
+	}
+}
+
+// TestParseMessagesBatchWrapperNoUserEvent verifies new batch wrapper with userEvent=false
+func TestParseMessagesBatchWrapperNoUserEvent(t *testing.T) {
+	data := []byte(`{"userEvent":false,"messages":[{"type":"destroy","data":{"varId":5}}]}`)
+
+	msgs, userEvent, err := ParseMessages(data)
+	if err != nil {
+		t.Fatalf("ParseMessages error: %v", err)
+	}
+	if len(msgs) != 1 {
+		t.Errorf("Expected 1 message, got %d", len(msgs))
+	}
+	if userEvent {
+		t.Error("Expected userEvent=false")
+	}
+}
+
+// TestParseMessagesEmptyData verifies empty input handling
+func TestParseMessagesEmptyData(t *testing.T) {
+	msgs, userEvent, err := ParseMessages([]byte{})
+	if err != nil {
+		t.Fatalf("ParseMessages error: %v", err)
+	}
+	if msgs != nil {
+		t.Error("Expected nil messages for empty input")
+	}
+	if userEvent {
+		t.Error("Expected userEvent=false for empty input")
+	}
+}
+
+// TestParseMessagesEmptyWrapper verifies empty wrapper handling
+func TestParseMessagesEmptyWrapper(t *testing.T) {
+	data := []byte(`{"userEvent":true,"messages":[]}`)
+
+	msgs, userEvent, err := ParseMessages(data)
+	if err != nil {
+		t.Fatalf("ParseMessages error: %v", err)
+	}
+	// Empty messages array means it falls through to single message parsing
+	// which will parse the wrapper as a message (with type="")
+	if len(msgs) != 1 {
+		t.Errorf("Expected 1 message (wrapper parsed as single), got %d", len(msgs))
+	}
+	if userEvent {
+		t.Error("Empty messages array should result in userEvent=false")
+	}
+}

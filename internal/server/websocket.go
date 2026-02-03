@@ -27,11 +27,16 @@ var upgrader = websocket.Upgrader{
 }
 
 // AfterBatchCallback is called after processing a message batch to trigger change detection.
-type AfterBatchCallback func(sessionID string)
+// userEvent indicates if the batch was triggered by user interaction (immediate flush needed).
+type AfterBatchCallback func(sessionID string, userEvent bool)
 
 // DisconnectCallback is called when a connection disconnects.
 // Used to clear sent-tracking so reconnections resync state.
 type DisconnectCallback func(sessionID string)
+
+// EnsureDebounceCallback starts debounce timer before processing.
+// Called for non-user events so timer runs concurrently with processing.
+type EnsureDebounceCallback func(sessionID string)
 
 // WebSocketEndpoint handles WebSocket connections.
 type WebSocketEndpoint struct {
@@ -42,8 +47,9 @@ type WebSocketEndpoint struct {
 	sessionSvc      map[string]ChanSvc         // sessionID -> executor (serializes session operations)
 	sessions        *session.Manager
 	handler         *protocol.Handler
-	afterBatch      AfterBatchCallback // Called after each message to detect changes
-	onDisconnectCb  DisconnectCallback // Called when a connection disconnects
+	afterBatch      AfterBatchCallback     // Called after each message to detect changes
+	onDisconnectCb  DisconnectCallback     // Called when a connection disconnects
+	ensureDebounce  EnsureDebounceCallback // Called before processing non-user events
 	mu              sync.RWMutex
 }
 
@@ -74,6 +80,11 @@ func (ws *WebSocketEndpoint) SetAfterBatch(callback AfterBatchCallback) {
 // This is used to clear sent-tracking so page refreshes resync all state.
 func (ws *WebSocketEndpoint) SetOnDisconnect(callback DisconnectCallback) {
 	ws.onDisconnectCb = callback
+}
+
+// SetEnsureDebounce sets the callback for pre-starting debounce timer.
+func (ws *WebSocketEndpoint) SetEnsureDebounce(callback EnsureDebounceCallback) {
+	ws.ensureDebounce = callback
 }
 
 // getOrCreateSvc returns the executor for a session, creating if needed.
@@ -113,8 +124,9 @@ func (ws *WebSocketEndpoint) ExecuteInSession(sessionID string, fn func() (inter
 		result, err := fn()
 		// Trigger change detection after execution, but only if there are connections
 		// This prevents marking viewdefs as "sent" before any browser is connected
+		// Use userEvent=false since this is backend-triggered (not user interaction)
 		if ws.afterBatch != nil && ws.HasConnectionsForSession(sessionID) {
-			ws.afterBatch(sessionID)
+			ws.afterBatch(sessionID, false)
 		}
 		return result, err
 	})
@@ -181,7 +193,8 @@ func (ws *WebSocketEndpoint) readPump(connectionID string, conn *websocket.Conn)
 }
 
 // processMessage handles one or more messages within the session's executor.
-// Supports both single messages and batched arrays per protocol.md spec.
+// Supports single messages, batched arrays, and batch wrapper with userEvent flag.
+// Spec: protocol.md - Message batching with userEvent flag
 func (ws *WebSocketEndpoint) processMessage(connectionID, sessionID string, message []byte) {
 	// Recover from panics to prevent server crashes
 	defer func() {
@@ -191,11 +204,17 @@ func (ws *WebSocketEndpoint) processMessage(connectionID, sessionID string, mess
 		}
 	}()
 
-	// Parse single message or batched array
-	msgs, err := protocol.ParseMessages(message)
+	// Parse message batch and extract userEvent flag
+	msgs, userEvent, err := protocol.ParseMessages(message)
 	if err != nil {
 		ws.Log(0, "Failed to parse message: %v", err)
 		return
+	}
+
+	// For non-user events, start debounce timer BEFORE processing
+	// so timer runs concurrently with message handling
+	if !userEvent && ws.ensureDebounce != nil {
+		ws.ensureDebounce(sessionID)
 	}
 
 	// Process each message in the batch
@@ -214,8 +233,9 @@ func (ws *WebSocketEndpoint) processMessage(connectionID, sessionID string, mess
 	}
 
 	// Trigger change detection once after processing all messages
+	// Pass userEvent flag to determine immediate vs debounced response
 	if ws.afterBatch != nil {
-		ws.afterBatch(sessionID)
+		ws.afterBatch(sessionID, userEvent)
 	}
 }
 

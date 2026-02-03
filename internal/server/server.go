@@ -41,6 +41,7 @@ type Server struct {
 	httpEndpoint     *HTTPEndpoint
 	wsEndpoint       *WebSocketEndpoint
 	backendSocket    *BackendSocket
+	outgoingBatcher  *ServerOutgoingBatcher     // Per-session outgoing message batching
 	luaSessions      map[string]*lua.LuaSession // vendedID -> per-session Lua runtime
 	luaSessionsMu    sync.RWMutex
 	luaConfig        *luaSetupConfig // Shared config for creating new sessions
@@ -78,6 +79,12 @@ func New(cfg *config.Config) *Server {
 
 	// Create WebSocket endpoint
 	s.wsEndpoint = NewWebSocketEndpoint(cfg, sessions, s.handler)
+
+	// Create outgoing batcher for server-side response debouncing
+	// CRC: crc-ServerOutgoingBatcher.md
+	s.outgoingBatcher = NewServerOutgoingBatcher(func(connID string, msg *protocol.Message) {
+		s.wsEndpoint.Send(connID, msg)
+	})
 
 	// Create HTTP endpoint
 	s.httpEndpoint = NewHTTPEndpoint(sessions, s.handler, s.wsEndpoint)
@@ -140,6 +147,11 @@ func New(cfg *config.Config) *Server {
 
 		// Set up afterBatch callback for automatic change detection
 		s.wsEndpoint.SetAfterBatch(s.AfterBatch)
+
+		// Set up ensureDebounce callback to pre-start debounce timer before processing
+		s.wsEndpoint.SetEnsureDebounce(func(sessionID string) {
+			s.outgoingBatcher.EnsureDebounceStarted(sessionID)
+		})
 
 		// Set up disconnect callback to clear sent-tracking and stale variables for page refresh
 		s.wsEndpoint.SetOnDisconnect(func(internalSessionID string) {
@@ -580,11 +592,12 @@ func (s *Server) DestroyLuaBackendForSession(vendedID string, sess *session.Sess
 
 // AfterBatch triggers Lua change detection after processing a message batch.
 // internalSessionID is the full UUID session ID (used in URLs/WebSocket bindings).
+// userEvent indicates if the batch was triggered by user interaction (immediate flush needed).
 // This method looks up the vended ID and calls the Lua session's AfterBatch,
-// then sends any detected changes to watching frontends.
+// then queues detected changes to the outgoing batcher.
 // CRC: crc-Server.md
-// Sequence: seq-relay-message.md, seq-backend-refresh.md
-func (s *Server) AfterBatch(internalSessionID string) {
+// Sequence: seq-relay-message.md, seq-backend-refresh.md, seq-frontend-outgoing-batch.md
+func (s *Server) AfterBatch(internalSessionID string, userEvent bool) {
 	// Get session and its backend
 	sess := s.sessions.Get(internalSessionID)
 	if sess == nil {
@@ -612,10 +625,14 @@ func (s *Server) AfterBatch(internalSessionID string) {
 	// Get detected changes from Lua session
 	updates := luaSession.AfterBatch(vendedID)
 	if len(updates) == 0 {
+		// Even with no updates, flush immediately for user events
+		if userEvent && s.outgoingBatcher != nil {
+			s.outgoingBatcher.FlushNow(internalSessionID)
+		}
 		return
 	}
 
-	// Send updates to watchers (via session's backend)
+	// Queue each update to batcher or send directly
 	for _, update := range updates {
 		watchers := b.GetWatchers(update.VarID)
 		if len(watchers) == 0 {
@@ -635,10 +652,20 @@ func (s *Server) AfterBatch(internalSessionID string) {
 			continue
 		}
 
-		// Send to all watchers
-		for _, connID := range watchers {
-			s.wsEndpoint.Send(connID, updateMsg)
+		// Queue to batcher or send directly
+		if s.outgoingBatcher != nil {
+			s.outgoingBatcher.Queue(internalSessionID, updateMsg, watchers)
+		} else {
+			// Fallback: send directly (no batching)
+			for _, connID := range watchers {
+				s.wsEndpoint.Send(connID, updateMsg)
+			}
 		}
+	}
+
+	// Flush immediately for user events
+	if userEvent && s.outgoingBatcher != nil {
+		s.outgoingBatcher.FlushNow(internalSessionID)
 	}
 }
 

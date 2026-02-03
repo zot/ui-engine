@@ -174,27 +174,37 @@ This allows multiple frontend observers without redundant backend notifications.
 
 ## Message Batching
 
-Messages can be sent individually as JSON objects or batched as JSON arrays:
+Messages can be sent individually as JSON objects or batched using a wrapper object with `userEvent` flag:
 
 ```json
-// Single message
+// Single message (legacy, still supported for parsing)
 {"type": "update", "id": 5, "value": "hello"}
 
-// Batched messages
-[
+// Batched messages with userEvent flag
+{"userEvent": true, "messages": [
   {"type": "update", "id": 5, "properties": {"viewdefs": {...}}},
-  {"type": "update", "id": 10, "value": "world"},
-  {"type": "update", "id": 5, "value": {"name": "Alice"}}
-]
+  {"type": "update", "id": 10, "value": "world"}
+]}
 ```
 
 **Frontend outgoing batching:**
 
-The frontend throttles outgoing messages at 200ms intervals. When the batch is sent:
+The frontend batches outgoing messages with a 10ms debounce interval. When the batch is sent:
 1. Messages are sorted by priority (high → medium → low)
 2. Within the same priority, order is preserved (FIFO)
+3. The `userEvent` flag indicates if the batch was triggered by user interaction
 
-**Exception:** `create` messages are sent immediately (not batched) to minimize latency for new variable creation.
+**User event flow (immediate on both ends):**
+1. Frontend: User action (click, keypress) → add to batch → flush immediately with `userEvent=true`
+2. Server: Receive `userEvent=true` batch → process → flush responses immediately
+
+**Non-user event flow (debounced):**
+1. Frontend: Server-triggered change → add to batch → 10ms debounce with `userEvent=false`
+2. Server: Receive `userEvent=false` batch → process → 10ms debounce responses
+
+**Server outgoing batching:**
+
+The server also batches outgoing messages per session with a 10ms debounce interval. When `userEvent=true` is received, responses are flushed immediately for responsive UI feedback. When `userEvent=false`, responses are debounced to coalesce rapid backend changes.
 
 ## Session-Based Communication
 

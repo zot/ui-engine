@@ -13,6 +13,12 @@ interface QueuedMessage {
   order: number; // For FIFO within priority
 }
 
+// Batch wrapper format sent to server
+interface BatchWrapper {
+  userEvent: boolean;
+  messages: Message[];
+}
+
 const PRIORITY_ORDER: Record<Priority, number> = {
   high: 0,
   medium: 1,
@@ -23,21 +29,24 @@ export class FrontendOutgoingBatcher {
   private pendingMessages: QueuedMessage[] = [];
   private debounceTimer: ReturnType<typeof setTimeout> | null = null;
   private insertionOrder = 0;
+  private userEvent = false; // True if batch contains user-triggered messages
   private sendFn: (data: string) => void;
 
-  readonly debounceInterval = 50; // ms
+  readonly debounceInterval = 10; // ms
 
   constructor(sendFn: (data: string) => void) {
     this.sendFn = sendFn;
   }
 
   // Add message to pending queue with priority (debounced send)
+  // userEvent=false for server-triggered changes
   enqueue(msg: Message, priority: Priority = 'medium'): void {
     this.pendingMessages.push({
       message: msg,
       priority,
       order: this.insertionOrder++,
     });
+    // Don't set userEvent - this is a non-user event
     this.startDebounce();
   }
 
@@ -49,12 +58,14 @@ export class FrontendOutgoingBatcher {
       priority,
       order: this.insertionOrder++,
     });
+    this.userEvent = true; // Mark batch as user-triggered
     this.flushNow();
   }
 
   // Sort by priority (high -> medium -> low), FIFO within priority, send batch
-  flush(): void {
+  private flush(): void {
     if (this.pendingMessages.length === 0) {
+      this.userEvent = false;
       return;
     }
 
@@ -65,16 +76,25 @@ export class FrontendOutgoingBatcher {
       return a.order - b.order;
     });
 
-    // Extract messages and send as batch
+    // Extract messages
     const messages = this.pendingMessages.map((q) => q.message);
+
+    // Build batch wrapper with userEvent flag
+    const batch: BatchWrapper = {
+      userEvent: this.userEvent,
+      messages,
+    };
+
+    // Clear state
     this.pendingMessages = [];
     this.insertionOrder = 0;
+    this.userEvent = false;
 
-    // Send as JSON array (batched format per spec)
-    this.sendFn(JSON.stringify(messages));
+    // Send as JSON wrapper (new batched format per spec)
+    this.sendFn(JSON.stringify(batch));
   }
 
-  // Start/restart 50ms debounce timer (resets on each call)
+  // Start/restart 10ms debounce timer (resets on each call)
   private startDebounce(): void {
     this.cancelDebounce();
     this.debounceTimer = setTimeout(() => {

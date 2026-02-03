@@ -122,6 +122,13 @@ type Response struct {
 	Error   string      `json:"error,omitempty"`
 }
 
+// BatchWrapper wraps a batch of messages with a userEvent flag.
+// Spec: protocol.md - Frontend sends batches with userEvent flag for immediate/debounced response
+type BatchWrapper struct {
+	UserEvent bool      `json:"userEvent"`
+	Messages  []Message `json:"messages"`
+}
+
 // ParseMessage parses a raw JSON message into a typed message.
 func ParseMessage(data []byte) (*Message, error) {
 	var msg Message
@@ -131,27 +138,54 @@ func ParseMessage(data []byte) (*Message, error) {
 	return &msg, nil
 }
 
-// ParseMessages parses raw JSON that may be a single message or a batched array.
-// Spec: protocol.md - Messages can be sent individually or batched as JSON arrays
-func ParseMessages(data []byte) ([]*Message, error) {
-	// Check if it's an array (batched) or object (single)
-	if len(data) > 0 && data[0] == '[' {
+// ParseMessages parses raw JSON that may be a single message, batched array, or batch wrapper.
+// Returns messages and userEvent flag (true if user-triggered, false otherwise).
+// Spec: protocol.md - Messages can be sent individually or batched with userEvent flag
+func ParseMessages(data []byte) ([]*Message, bool, error) {
+	if len(data) == 0 {
+		return nil, false, nil
+	}
+
+	// Check first byte to determine format
+	switch data[0] {
+	case '[':
+		// Legacy: array format (treat as non-user event)
 		var msgs []Message
 		if err := json.Unmarshal(data, &msgs); err != nil {
-			return nil, err
+			return nil, false, err
 		}
 		result := make([]*Message, len(msgs))
 		for i := range msgs {
 			result[i] = &msgs[i]
 		}
-		return result, nil
+		return result, false, nil
+
+	case '{':
+		// Could be wrapper or single message - try wrapper first
+		var wrapper BatchWrapper
+		if err := json.Unmarshal(data, &wrapper); err != nil {
+			return nil, false, err
+		}
+
+		// Check if it has messages field (wrapper format)
+		if len(wrapper.Messages) > 0 {
+			result := make([]*Message, len(wrapper.Messages))
+			for i := range wrapper.Messages {
+				result[i] = &wrapper.Messages[i]
+			}
+			return result, wrapper.UserEvent, nil
+		}
+
+		// Single message (legacy - treat as non-user event)
+		msg, err := ParseMessage(data)
+		if err != nil {
+			return nil, false, err
+		}
+		return []*Message{msg}, false, nil
+
+	default:
+		return nil, false, nil
 	}
-	// Single message
-	msg, err := ParseMessage(data)
-	if err != nil {
-		return nil, err
-	}
-	return []*Message{msg}, nil
 }
 
 // NewMessage creates a new message with the given type and data.

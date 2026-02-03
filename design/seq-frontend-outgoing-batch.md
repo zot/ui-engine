@@ -1,54 +1,93 @@
 # Sequence: Frontend Outgoing Batch
 
 **Source Spec:** protocol.md
-**Use Case:** Frontend throttles and batches outgoing messages with priority sorting
+**Use Case:** Frontend and server batch messages with userEvent flag for responsive UI
 
 ## Participants
 
 - FrontendApp: Browser application
-- FrontendOutgoingBatcher: Message queue with throttling
+- FrontendOutgoingBatcher: Message queue with throttling and userEvent tracking
 - SharedWorker: Tab coordination and WebSocket management
 - WebSocketEndpoint: Server connection
+- Server: Message processing and change detection
+- ServerOutgoingBatcher: Server-side response batching
 
-## Sequence
+## Sequence: User Event (Immediate)
 
 ```
      FrontendApp       FrontendOutgoingBatcher        SharedWorker        WebSocketEndpoint
         |                         |                         |                         |
-        |     [create message - sent immediately]           |                         |
-        |---create(props)-------->|                         |                         |
-        |                         |---shouldBypassBatch?--->|                         |
-        |                         |   (yes for create)      |                         |
-        |                         |---sendImmediate-------->|                         |
-        |                         |                         |---send(create)--------->|
+        |     [user clicks button - immediate flush]        |                         |
+        |---action(update)------->|                         |                         |
+        |                         |---enqueueAndFlush------>|                         |
+        |                         |   userEvent=true        |                         |
+        |                         |---send----------------->|                         |
+        |                         |   {"userEvent":true,    |                         |
+        |                         |    "messages":[...]}    |---send(batch)---------->|
         |                         |                         |                         |
-        |     [other messages - batched with throttle]      |                         |
+```
+
+```
+WebSocketEndpoint        Server              ServerOutgoingBatcher
+        |                   |                         |
+        |---processMsg----->|                         |
+        |   userEvent=true  |                         |
+        |                   |---AfterBatch----------->|
+        |                   |   (userEvent=true)      |
+        |                   |                         |---Queue(updates)
+        |                   |                         |---FlushNow()
+        |<--send(updates)---|-------------------------|
+        |                   |                         |
+```
+
+## Sequence: Non-User Event (Debounced)
+
+```
+     FrontendApp       FrontendOutgoingBatcher        SharedWorker        WebSocketEndpoint
+        |                         |                         |                         |
+        |     [server-triggered update - debounced]         |                         |
         |---update(varId,val)---->|                         |                         |
         |                         |---enqueue(msg, med)---->|                         |
-        |                         |                         |                         |
-        |                         |---startThrottle-------->|                         |
-        |                         |   (200ms timer)         |                         |
+        |                         |---startDebounce-------->|                         |
+        |                         |   (10ms timer)          |                         |
         |                         |                         |                         |
         |---watch(varId)--------->|                         |                         |
         |                         |---enqueue(msg, med)---->|                         |
+        |                         |   (timer restarts)      |                         |
         |                         |                         |                         |
-        |---update(id2,val,hi)--->|                         |                         |
-        |                         |---enqueue(msg, high)--->|                         |
-        |                         |                         |                         |
-        |                         |     [200ms timer fires] |                         |
+        |                         |     [10ms timer fires]  |                         |
         |                         |---flush---------------->|                         |
+        |                         |   userEvent=false       |                         |
         |                         |   sort: high->med->low  |                         |
-        |                         |   FIFO within priority  |                         |
         |                         |                         |                         |
-        |                         |---send(batch)---------->|                         |
-        |                         |                         |---send([hi,med,med])--->|
-        |                         |                         |                         |
+        |                         |---send----------------->|                         |
+        |                         |   {"userEvent":false,   |---send(batch)---------->|
+        |                         |    "messages":[...]}    |                         |
+```
+
+```
+WebSocketEndpoint        Server              ServerOutgoingBatcher
+        |                   |                         |
+        |---EnsureDebounce------------------------>|
+        |   (pre-start timer before processing)    |---startDebounce(10ms)
+        |                   |                         |
+        |---processMsg----->|                         |   [timer running
+        |   userEvent=false |                         |    concurrently]
+        |                   |---AfterBatch----------->|
+        |                   |   (userEvent=false)     |
+        |                   |                         |---Queue(updates)
+        |                   |                         |   (timer preserved)
+        |                   |                         |
+        |                   |     [10ms timer fires]  |
+        |<--send(updates)---|-------------------------|---flush()
+        |                   |                         |
 ```
 
 ## Notes
 
-- `create` messages bypass batching for minimal latency
-- Other messages (update, watch, unwatch, destroy) are batched
-- 200ms throttle window starts on first enqueue
-- Batch sorted by priority, FIFO within priority
-- Empty queue does not start timer
+- User events (clicks, keypresses) flush immediately on both ends
+- Non-user events (server updates) are debounced with 10ms interval
+- Batch format: `{"userEvent": bool, "messages": [...]}`
+- Server extracts userEvent flag and passes to AfterBatch
+- ServerOutgoingBatcher maintains per-session queues and timers
+- Pre-start optimization: For non-user events, debounce timer starts before processing so it runs concurrently with message handling, reducing total latency
