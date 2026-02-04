@@ -1,6 +1,7 @@
 # View
 
 **Source Spec:** viewdefs.md
+**Requirements:** R32, R33, R34, R35, R36, R37, R38
 
 ## Responsibilities
 

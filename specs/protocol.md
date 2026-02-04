@@ -12,11 +12,16 @@ Each variable has
 
 ## Variable Identity
 
-- Each variable has a unique **id** (integer, counting up from 1)
+- Each variable has a unique **id** (integer)
 - ID of 0 or absent indicates "no variable" / null reference
 - **Variable IDs are scoped to a session** - multiple sessions can each have their own variable 1
 - **Standard variables** are registered with `@NAME` ids (e.g., `@app`, `@customers`)
   - These provide well-known entry points into the variable tree
+
+**ID Vending:**
+- Variable `1` (root/app variable) is created by the server
+- Frontend-created variables use positive IDs starting from `2` (incrementing)
+- Server-created variables (other than root) use negative IDs starting from `-1` (decrementing)
 
 ## Variable Values
 
@@ -131,15 +136,12 @@ The UI server relays protocol messages bidirectionally between frontend and back
 **Push-only model:** Protocol messages are push-only, not request-response. Senders do not wait for acknowledgment; they assume success unless an `error` message is received.
 
 **Relayed messages** (frontend ↔ UI server ↔ backend):
-- `create(parentId, value, properties, nowatch?, unbound?, requestId?)` - Create a new variable
+- `create(id, parentId, value, properties, nowatch?, unbound?)` - Create a new variable
+  - `id` is the variable ID assigned by the creator (frontend or server)
   - if properties contains a value for `create`, the `value` is ignored because the backend / UI server will create the object
   - `nowatch` indicates that the variable should not be watched
   - `unbound` indicates that the variable is not managed by an external app
-  - `requestId` is an optional client-generated integer for correlating the response
   - Property names can have priority suffixes (`:high`, `:med`, `:low`, omitting a suffix leaves the priority unchanged)
-- `createResponse(id, requestId?)` - Response to a create message
-  - `id` is the variable ID that was created
-  - `requestId` echoes the request ID from the original create message (if provided)
 - `destroy(varId)` - Destroy a variable and all its children
 - `update(varId, value?, properties?)` - Update the variable's value and/or properties
   - Property names can have priority suffixes (`:high`, `:med`, `:low`), omitting a suffix leaves the priority unchanged

@@ -1,6 +1,6 @@
 # ui-engine
 
-**Version: 0.15.3**
+**Version: 0.16.0**
 
 **Objects present themselves. You write HTML templates.**
 

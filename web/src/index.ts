@@ -13,7 +13,6 @@ export type {
   UpdateMessage,
   WatchMessage,
   ErrorMessage,
-  Response,
   VariableData,
   ObjectData,
 } from './protocol';

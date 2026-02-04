@@ -2,7 +2,7 @@
 // CRC: crc-WebSocketEndpoint.md, crc-SharedWorker.md
 // Spec: interfaces.md
 
-import { Message, Response, CreateResponse, encodeMessage, UpdateMessage, ErrorMessage } from './protocol';
+import { Message, UpdateMessage, ErrorMessage } from './protocol';
 import { Variable } from './variable';
 import { FrontendOutgoingBatcher, Priority } from './outgoing_batcher';
 import type { Widget } from './binding';
@@ -21,10 +21,8 @@ export class Connection {
   private errorHandlers: ErrorHandler[] = [];
   private connectHandlers: ConnectionHandler[] = [];
   private disconnectHandlers: ConnectionHandler[] = [];
-  private requestId = 1;
-  // Callback for response handling (create responses)
-  // Map of requestId -> callback for correlating out-of-order responses
-  private createCallbacks: Map<number, (resp: Response<CreateResponse>) => void> = new Map();
+  // Spec: protocol.md - Frontend vends variable IDs starting from 2 (1 is root from server)
+  private nextVarId = 2;
   // Outgoing message batcher (50ms debounce, priority sorting)
   // Spec: protocol.md - Frontend outgoing batching
   private batcher: FrontendOutgoingBatcher;
@@ -98,23 +96,16 @@ export class Connection {
     }, delay);
   }
 
-  // Process a single incoming item (message or response)
+  // Process a single incoming item (message)
   // Called for each item in a batch or for a single item
   private processIncomingItem(data: unknown): void {
     if (!data || typeof data !== 'object') {
       return;
     }
 
-    // Response has result/pending/id fields; Message has type field
-    const isResponse = 'result' in data || 'pending' in data || ('id' in data && !('type' in data));
-
-    if (isResponse) {
-      console.log('RECEIVED RESPONSE', JSON.stringify(data));
-      this.handleResponse(data as Response<CreateResponse>);
-    } else {
-      console.log('RECEIVED MESSAGE', JSON.stringify(data));
-      this.handleMessage(data as Message);
-    }
+    // All incoming items should be messages (no more responses)
+    console.log('RECEIVED MESSAGE', JSON.stringify(data));
+    this.handleMessage(data as Message);
   }
 
   private handleMessage(msg: Message): void {
@@ -122,21 +113,10 @@ export class Connection {
     this.messageHandlers.forEach((h) => h(msg));
   }
 
-  private handleResponse(resp: Response<CreateResponse>): void {
-    // Handle pending messages in the response
-    //if (resp.pending) {
-    //  resp.pending.forEach((msg) => this.handleMessage(msg));
-    //}
-    // Only call the callback for create responses (those with id in result)
-    // Use requestId to correlate responses (supports out-of-order delivery)
-    const result = resp.result;
-    if (result && typeof result === 'object' && 'id' in result && result.requestId) {
-      const callback = this.createCallbacks.get(result.requestId);
-      if (callback) {
-        this.createCallbacks.delete(result.requestId);
-        callback(resp);
-      }
-    }
+  // Vend a unique variable ID for frontend-created variables
+  // Spec: protocol.md - Frontend vends IDs starting from 2
+  createVarId(): number {
+    return this.nextVarId++;
   }
 
   // Send raw data directly to WebSocket (used by batcher)
@@ -163,25 +143,6 @@ export class Connection {
     } else {
       this.batcher.enqueue(msg, priority);
     }
-  }
-
-  // Send a message and wait for a response (for create operations)
-  // Uses requestId to correlate responses (supports out-of-order delivery)
-  sendAndAwaitResponse(msg: Message): Promise<Response<CreateResponse>> {
-    return new Promise((resolve, reject) => {
-      if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
-        reject(new Error('WebSocket not connected'));
-        return;
-      }
-      // Generate unique requestId and add to message data
-      const requestId = this.requestId++;
-      const data = (msg.data || {}) as Record<string, unknown>;
-      data.requestId = requestId;
-      msg.data = data;
-      // Register callback by requestId
-      this.createCallbacks.set(requestId, resolve);
-      this.ws.send(encodeMessage(msg));
-    });
   }
 
   onMessage(handler: MessageHandler): () => void {
@@ -376,41 +337,37 @@ export class VariableStore {
   }
 
   // Create a variable and return the assigned ID
+  // Spec: protocol.md - Frontend vends variable IDs (no response needed)
   // CRC: crc-Variable.md - widget reference set at creation time
-  async create(options: {
+  create(options: {
     parentId?: number;
     value?: unknown;
     properties?: Record<string, string>;
     nowatch?: boolean;
     unbound?: boolean;
     widget?: Widget;  // Widget that created this variable
-  }): Promise<number> {
-    console.log('SENDING CREATE')
-    const resp = await this.connection.sendAndAwaitResponse({ type: 'create', data: options });
-    if (resp.error) {
-      throw new Error(resp.error);
-    }
-    if (!resp.result) {
-      throw new Error('No result from create');
-    }
-    if (resp.pending?.length) {
-      const data = resp.pending[0].data as any as UpdateMessage;
+  }): number {
+    // Vend a unique ID for this variable
+    const varId = this.connection.createVarId();
 
-      console.log('CREATE RESPONSE', resp.result.id, resp)
-      const variable = { varId: data.varId, value: undefined, properties: options.properties || {} } as Variable;
-      if (options.parentId !== undefined) {
-        variable.parentId = options.parentId
-      }
-      if (options.widget) {
-        variable.widget = options.widget
-      }
-      this.variables.set(data.varId, variable);
-      setTimeout(()=> {
-        console.log('UPDATE FROM CREATE RESPONSE', data.varId, resp)
-        this.handleUpdate(data.varId, data.value, data.properties, options.parentId)
-      })
+    // Create local variable immediately
+    const variable = { varId, value: undefined, properties: options.properties || {} } as Variable;
+    if (options.parentId !== undefined) {
+      variable.parentId = options.parentId;
     }
-    return resp.result.id;
+    if (options.widget) {
+      variable.widget = options.widget;
+    }
+    this.variables.set(varId, variable);
+
+    // Send create message with the vended ID (no response expected)
+    console.log('SENDING CREATE id=', varId);
+    this.connection.send({
+      type: 'create',
+      data: { id: varId, ...options }
+    });
+
+    return varId;
   }
 
   // Spec: viewdefs.md - Frontend Update Behavior

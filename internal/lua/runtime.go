@@ -1491,37 +1491,37 @@ func (r *Runtime) AfterBatch(vendedID string) []VariableUpdate {
 // HandleFrontendCreate handles a variable create message from the frontend.
 // For path-based variables, it creates the variable in the tracker and resolves the path.
 // If a wrapper property is set, the tracker automatically creates it via the resolver.
-// Returns the variable ID, resolved value (wrapped if applicable), and properties.
-func (r *Runtime) HandleFrontendCreate(sessionID string, parentID int64, properties map[string]string) (int64, json.RawMessage, map[string]string, error) {
+// Spec: protocol.md - create(id, parentId, value, properties, nowatch?, unbound?)
+// The id is provided by the frontend (frontend-vended IDs).
+// Returns the resolved value (wrapped if applicable) and properties.
+func (r *Runtime) HandleFrontendCreate(sessionID string, id int64, parentID int64, properties map[string]string) error {
 	path := properties["path"]
 	if path == "" {
-		return 0, nil, nil, fmt.Errorf("HandleFrontendCreate: path property required")
+		return fmt.Errorf("HandleFrontendCreate: path property required")
 	}
 
 	if r.ID != sessionID {
-		return 0, nil, nil, fmt.Errorf("session %s not found (this session is %s)", sessionID, r.ID)
+		return fmt.Errorf("session %s not found (this session is %s)", sessionID, r.ID)
 	}
 
 	tracker := r.variableStore.GetTracker(r.ID)
 	if tracker == nil {
-		return 0, nil, nil, fmt.Errorf("session %s tracker not found", r.ID)
+		return fmt.Errorf("session %s tracker not found", r.ID)
 	}
 
-	// Create the child variable in the tracker with the path.
+	// Create the child variable in the tracker with the frontend-provided ID.
 	// This automatically triggers Resolver.CreateWrapper if the property is set.
-	v := tracker.CreateVariable(nil, parentID, path, properties)
-
-	// Determine the initial value to return to the frontend.
-	// If a wrapper was created, its Value() is the new value.
-	val := v.NavigationValue()
-
-	// Convert to JSON
-	jsonValue, err := tracker.ToValueJSONBytes(val)
-	if err != nil {
-		r.Log(0, "HandleFrontendCreate: JSON conversion failed: %v", err)
-		return v.ID, nil, v.Properties, nil
+	v := tracker.CreateVariableWithId(id, nil, parentID, path, properties)
+	if v == nil {
+		return fmt.Errorf("HandleFrontendCreate: variable ID %d already in use", id)
 	}
-	return v.ID, jsonValue, v.Properties, nil
+
+	// Nil out cached JSON so that when the auto-watch triggers ChangeAll,
+	// DetectChanges will see the value as changed (from nil to the actual value).
+	// Without this, the value would already match the cached JSON and no update would be sent.
+	v.ValueJSON = nil
+	v.WrapperJSON = nil
+	return nil
 }
 
 // TrackerVariableAdapter adapts a change-tracker Variable to WrapperVariable interface

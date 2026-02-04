@@ -460,14 +460,11 @@ export class View {
 
       this.buildNamespaceProperties(element, contextVarId, properties);
 
-      this.variableStore.create({
+      const childVarId = this.variableStore.create({
         parentId: contextVarId,
         properties,
-      }).then((childVarId) => {
-        viewList.setVariable(childVarId);
-      }).catch((err) => {
-        console.error('Failed to create viewlist variable:', err);
       });
+      viewList.setVariable(childVarId);
     }
 
     this.viewLists.push(viewList);
@@ -517,14 +514,11 @@ export class View {
 
       this.buildNamespaceProperties(element, contextVarId, properties);
 
-      this.variableStore.create({
+      const childVarId = this.variableStore.create({
         parentId: contextVarId,
         properties,
-      }).then((childVarId) => {
-        view.setVariable(childVarId);
-      }).catch((err) => {
-        console.error('Failed to create view variable:', err);
       });
+      view.setVariable(childVarId);
     }
 
     this.childViews.push(view);

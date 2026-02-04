@@ -32,8 +32,8 @@ export class FrontendOutgoingBatcher {
   private userEvent = false; // True if batch contains user-triggered messages
   private sendFn: (data: string) => void;
 
-  //readonly debounceInterval = 10; // ms
-  readonly debounceInterval = 50; // ms
+  readonly debounceInterval = 10; // ms
+  //readonly debounceInterval = 50; // ms
 
   constructor(sendFn: (data: string) => void) {
     this.sendFn = sendFn;

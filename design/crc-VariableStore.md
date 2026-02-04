@@ -1,16 +1,18 @@
 # VariableStore
 
 **Source Spec:** protocol.md, data-models.md
+**Requirements:** R43, R48, R49
 
 ## Responsibilities
 
 ### Knows
 - variables: Map of variable ID to Variable
 - standardVariables: Map of @NAME to variable ID
-- nextId: Counter for generating unique IDs
+- nextVarId: Counter for generating unique IDs (frontend starts at 2, server at -1)
 
 ### Does
-- create: Create new variable with optional parent, value, properties
+- create: Create variable with sender-provided ID, optional parent, value, properties (synchronous)
+- createVarId: Vend next variable ID (frontend: 2+, server: -1 and below)
 - get: Retrieve variable by ID
 - getByName: Retrieve standard variable by @NAME
 - update: Update variable value and/or properties

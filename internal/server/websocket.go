@@ -238,8 +238,9 @@ func (ws *WebSocketEndpoint) processMessage(connectionID, sessionID string, mess
 			continue
 		}
 
-		// Send response if there's a result or error
-		if resp != nil && (resp.Result != nil || resp.Error != "" || len(resp.Pending) > 0) {
+		// Send response if there's an error
+		// Note: create no longer returns a response (frontend-vended IDs)
+		if resp != nil && resp.Error != "" {
 			ws.sendResponse(connectionID, resp)
 		}
 	}

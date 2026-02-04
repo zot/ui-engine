@@ -1,6 +1,7 @@
 # ProtocolHandler
 
 **Source Spec:** protocol.md, deployment.md, interfaces.md
+**Requirements:** R43, R44, R45, R46, R47
 
 ## Responsibilities
 
@@ -10,8 +11,7 @@
 - backendConnected: Whether external backend is connected
 
 ### Does
-- handleCreate: Process create(parentId, value, properties, nowatch?, unbound?, requestId?) message
-- sendCreateResponse: Send createResponse(id, requestId?) back to client after create
+- handleCreate: Process create(id, parentId, value, properties, nowatch?, unbound?) message - id is provided by sender
 - handleDestroy: Process destroy(varId) message
 - handleUpdate: Process update(varId, value?, properties?) message
 - handleWatch: Process watch(varId) message

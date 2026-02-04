@@ -570,42 +570,36 @@ export class BindingEngine {
       properties.access = 'r'
     }
 
-    // Create the child variable asynchronously
-    this.store
-      .create({
-        parentId: varId,
-        properties,
-        widget,  // CRC: crc-Variable.md - widget reference
-      })
-      .then((id) => {
-        childVarId = id
-        // Watch the child variable for value updates
-        unbindValue = this.store.watch(id, (_v, value) => update(value))
-        unbindError = this.store.watchErrors(id, updateError)
+    // Create the child variable (synchronous - frontend vends IDs)
+    const id = this.store.create({
+      parentId: varId,
+      properties,
+      widget,  // CRC: crc-Variable.md - widget reference
+    });
+    childVarId = id;
+    // Watch the child variable for value updates
+    unbindValue = this.store.watch(id, (_v, value) => update(value));
+    unbindError = this.store.watchErrors(id, updateError);
 
-        // Initial update from cached value
-        const current = this.store.get(id)
-        if (current) {
-          update(current.value)
-        }
+    // Initial update from cached value
+    const current = this.store.get(id);
+    if (current) {
+      update(current.value);
+    }
 
-        // Register with Widget - includes unbind handler
-        // CRC: crc-Widget.md - registerBinding
-        widget.registerBinding('ui-value', id, () => {
-          if (unbindValue) unbindValue()
-          if (unbindError) unbindError()
-          if (nativeEventType) element.removeEventListener(nativeEventType, inputHandler)
-          if (shoelaceEventType) element.removeEventListener(shoelaceEventType, shoelaceHandler)
-          element.removeEventListener('ui-value-change', changeHandler)
-          this.store.destroy(id)
-          element.classList.remove('ui-error')
-          element.removeAttribute('ui-error-code')
-          element.removeAttribute('ui-error-description')
-        })
-      })
-      .catch((err) => {
-        console.error('Failed to create binding variable:', err)
-      })
+    // Register with Widget - includes unbind handler
+    // CRC: crc-Widget.md - registerBinding
+    widget.registerBinding('ui-value', id, () => {
+      if (unbindValue) unbindValue();
+      if (unbindError) unbindError();
+      if (nativeEventType) element.removeEventListener(nativeEventType, inputHandler);
+      if (shoelaceEventType) element.removeEventListener(shoelaceEventType, shoelaceHandler);
+      element.removeEventListener('ui-value-change', changeHandler);
+      this.store.destroy(id);
+      element.classList.remove('ui-error');
+      element.removeAttribute('ui-error-code');
+      element.removeAttribute('ui-error-description');
+    });
 
     // Determine which events to listen for based on element type and keypress setting
     // Native inputs: use 'input' for keypress mode, 'blur' for default
@@ -691,29 +685,23 @@ export class BindingEngine {
       }
     }
 
-    // Create a child variable for this path
-    this.store
-      .create({
-        parentId: varId,
-        properties,
-        widget,  // CRC: crc-Variable.md - widget reference
-      })
-      .then((id) => {
-        const unbindValue = this.store.watch(id, (_v, value) => update(value))
+    // Create a child variable for this path (synchronous - frontend vends IDs)
+    const id = this.store.create({
+      parentId: varId,
+      properties,
+      widget,  // CRC: crc-Variable.md - widget reference
+    });
+    const unbindValue = this.store.watch(id, (_v, value) => update(value));
 
-        // Initial update from cached value
-        const current = this.store.get(id)
-        if (current) update(current.value)
+    // Initial update from cached value
+    const current = this.store.get(id);
+    if (current) update(current.value);
 
-        // Register with Widget
-        widget.registerBinding(`ui-attr-${targetAttr}`, id, () => {
-          unbindValue()
-          this.store.destroy(id)
-        })
-      })
-      .catch((err) => {
-        console.error('Failed to create attr binding variable:', err)
-      })
+    // Register with Widget
+    widget.registerBinding(`ui-attr-${targetAttr}`, id, () => {
+      unbindValue();
+      this.store.destroy(id);
+    });
   }
 
   // Create a class binding
@@ -753,29 +741,23 @@ export class BindingEngine {
       }
     }
 
-    // Create a child variable for this path
-    this.store
-      .create({
-        parentId: varId,
-        properties,
-        widget,  // CRC: crc-Variable.md - widget reference
-      })
-      .then((id) => {
-        const unbindValue = this.store.watch(id, (_v, value) => update(value))
+    // Create a child variable for this path (synchronous - frontend vends IDs)
+    const id = this.store.create({
+      parentId: varId,
+      properties,
+      widget,  // CRC: crc-Variable.md - widget reference
+    });
+    const unbindValue = this.store.watch(id, (_v, value) => update(value));
 
-        // Initial update from cached value
-        const current = this.store.get(id)
-        if (current) update(current.value)
+    // Initial update from cached value
+    const current = this.store.get(id);
+    if (current) update(current.value);
 
-        // Register with Widget
-        widget.registerBinding(`ui-class-${className}`, id, () => {
-          unbindValue()
-          this.store.destroy(id)
-        })
-      })
-      .catch((err) => {
-        console.error('Failed to create class binding variable:', err)
-      })
+    // Register with Widget
+    widget.registerBinding(`ui-class-${className}`, id, () => {
+      unbindValue();
+      this.store.destroy(id);
+    });
   }
 
   // Create a style binding
@@ -815,29 +797,23 @@ export class BindingEngine {
       }
     }
 
-    // Create a child variable for this path
-    this.store
-      .create({
-        parentId: varId,
-        properties,
-        widget,  // CRC: crc-Variable.md - widget reference
-      })
-      .then((id) => {
-        const unbindValue = this.store.watch(id, (_v, value) => update(value))
+    // Create a child variable for this path (synchronous - frontend vends IDs)
+    const id = this.store.create({
+      parentId: varId,
+      properties,
+      widget,  // CRC: crc-Variable.md - widget reference
+    });
+    const unbindValue = this.store.watch(id, (_v, value) => update(value));
 
-        // Initial update from cached value
-        const current = this.store.get(id)
-        if (current) update(current.value)
+    // Initial update from cached value
+    const current = this.store.get(id);
+    if (current) update(current.value);
 
-        // Register with Widget
-        widget.registerBinding(`ui-style-${styleProp}`, id, () => {
-          unbindValue()
-          this.store.destroy(id)
-        })
-      })
-      .catch((err) => {
-        console.error('Failed to create style binding variable:', err)
-      })
+    // Register with Widget
+    widget.registerBinding(`ui-style-${styleProp}`, id, () => {
+      unbindValue();
+      this.store.destroy(id);
+    });
   }
 
   // Create a code binding (execute JS when variable updates)
@@ -885,30 +861,24 @@ export class BindingEngine {
       }
     }
 
-    // Create a child variable for this path
-    this.store
-      .create({
-        parentId: varId,
-        properties,
-        widget,  // CRC: crc-Variable.md - widget reference
-      })
-      .then((id) => {
-        childVarId = id
-        const unbindValue = this.store.watch(id, (_v, value) => executeCode(value))
+    // Create a child variable for this path (synchronous - frontend vends IDs)
+    const id = this.store.create({
+      parentId: varId,
+      properties,
+      widget,  // CRC: crc-Variable.md - widget reference
+    });
+    childVarId = id;
+    const unbindValue = this.store.watch(id, (_v, value) => executeCode(value));
 
-        // Initial execution from cached value
-        const current = this.store.get(id)
-        if (current?.value) executeCode(current.value)
+    // Initial execution from cached value
+    const current = this.store.get(id);
+    if (current?.value) executeCode(current.value);
 
-        // Register with Widget
-        widget.registerBinding('ui-code', id, () => {
-          unbindValue()
-          this.store.destroy(id)
-        })
-      })
-      .catch((err) => {
-        console.error('Failed to create code binding variable:', err)
-      })
+    // Register with Widget
+    widget.registerBinding('ui-code', id, () => {
+      unbindValue();
+      this.store.destroy(id);
+    });
   }
 
   // Create an HTML binding (sets innerHTML or replaces element)
@@ -1021,36 +991,30 @@ export class BindingEngine {
 
     const update = replaceMode ? updateReplaceHtml : updateInnerHtml
 
-    // Create a child variable for this path
-    this.store
-      .create({
-        parentId: varId,
-        properties,
-        widget,
-      })
-      .then((id) => {
-        const unbindValue = this.store.watch(id, (_v, value) => update(value))
+    // Create a child variable for this path (synchronous - frontend vends IDs)
+    const id = this.store.create({
+      parentId: varId,
+      properties,
+      widget,
+    });
+    const unbindValue = this.store.watch(id, (_v, value) => update(value));
 
-        // Initial update from cached value
-        const current = this.store.get(id)
-        if (current) update(current.value)
+    // Initial update from cached value
+    const current = this.store.get(id);
+    if (current) update(current.value);
 
-        // Register with Widget
-        widget.registerBinding('ui-html', id, () => {
-          unbindValue()
-          this.store.destroy(id)
-          // For replace mode, remove all tracked elements
-          if (replaceMode) {
-            for (const elemId of trackedElementIds) {
-              const el = document.getElementById(elemId)
-              if (el) el.remove()
-            }
-          }
-        })
-      })
-      .catch((err) => {
-        console.error('Failed to create HTML binding variable:', err)
-      })
+    // Register with Widget
+    widget.registerBinding('ui-html', id, () => {
+      unbindValue();
+      this.store.destroy(id);
+      // For replace mode, remove all tracked elements
+      if (replaceMode) {
+        for (const elemId of trackedElementIds) {
+          const el = document.getElementById(elemId);
+          if (el) el.remove();
+        }
+      }
+    });
   }
 
   // Normalize keypress attribute key name to browser event.key value
@@ -1190,27 +1154,21 @@ export class BindingEngine {
       }
     }
 
+    // Create the action variable synchronously (frontend vends IDs)
+    // Spec: protocol.md - Frontend vends variable IDs
+    const actionVarId = this.store.create({
+      parentId: varId,
+      properties,
+      widget,  // CRC: crc-Variable.md - widget reference
+    })
+
     element.addEventListener(eventName, handler)
 
-    let actionVarId: number | null = null
-
-    this.store
-      .create({
-        parentId: varId,
-        properties,
-        widget,  // CRC: crc-Variable.md - widget reference
-      })
-      .then((id) => {
-        actionVarId = id
-        // Register with Widget
-        widget.registerBinding(`ui-event-${eventName}`, id, () => {
-          element.removeEventListener(eventName, handler)
-          this.store.destroy(id)
-        })
-      })
-      .catch((err) => {
-        console.error('Failed to create action variable:', err)
-      })
+    // Register with Widget
+    widget.registerBinding(`ui-event-${eventName}`, actionVarId, () => {
+      element.removeEventListener(eventName, handler)
+      this.store.destroy(actionVarId)
+    })
   }
 
   // Create a keypress-specific binding (ui-event-keypress-enter, ui-event-keypress-ctrl-enter, etc.)
@@ -1250,42 +1208,33 @@ export class BindingEngine {
       properties['access'] = 'action'
     }
 
-    let childVarId: number | null = null
+    // Create a child variable for this path synchronously (frontend vends IDs)
+    // Spec: protocol.md - Frontend vends variable IDs
+    const childVarId = this.store.create({
+      parentId: varId,
+      properties,
+      widget,  // CRC: crc-Variable.md - widget reference
+    })
 
     // Listen on keydown and filter by target key and modifiers
     // Spec: viewdefs.md - Event Bindings (value sync with ui-value), Modifier matching is exact
     const handler = (event: Event) => {
       const keyEvent = event as KeyboardEvent
       if (this.matchesTargetKey(keyEvent, targetKey) && this.matchesModifiers(keyEvent, modifiers)) {
-        if (childVarId !== null) {
-          // Sync ui-value before sending event
-          this.syncValueBeforeEvent(element, widget)
-          // No-arg actions get null; 1-arg actions and non-actions get key name
-          this.store.update(childVarId, isNoArgAction ? null : targetKey.toLowerCase())
-        }
+        // Sync ui-value before sending event
+        this.syncValueBeforeEvent(element, widget)
+        // No-arg actions get null; 1-arg actions and non-actions get key name
+        this.store.update(childVarId, isNoArgAction ? null : targetKey.toLowerCase())
       }
     }
 
     element.addEventListener('keydown', handler)
 
-    // Create a child variable for this path
-    this.store
-      .create({
-        parentId: varId,
-        properties,
-        widget,  // CRC: crc-Variable.md - widget reference
-      })
-      .then((id) => {
-        childVarId = id
-        // Register with Widget
-        widget.registerBinding(`ui-event-${eventName}`, id, () => {
-          element.removeEventListener('keydown', handler)
-          this.store.destroy(id)
-        })
-      })
-      .catch((err) => {
-        console.error('Failed to create keypress binding variable:', err)
-      })
+    // Register with Widget
+    widget.registerBinding(`ui-event-${eventName}`, childVarId, () => {
+      element.removeEventListener('keydown', handler)
+      this.store.destroy(childVarId)
+    })
   }
 
   // Create an action binding (click)
@@ -1313,37 +1262,28 @@ export class BindingEngine {
     // Check if this is a 1-arg action (path ends with (_))
     const hasArgPlaceholder = path.endsWith('(_)')
 
-    let actionVarId: number | null = null
+    // Create the action variable synchronously (frontend vends IDs)
+    // Spec: protocol.md - Frontend vends variable IDs
+    const actionVarId = this.store.create({
+      parentId: varId,
+      properties,
+      widget,  // CRC: crc-Variable.md - widget reference
+    })
 
     const handler = (event: Event) => {
       event.preventDefault()
-      if (actionVarId !== null) {
-        // For () paths: method called for side effects (pass null)
-        // For (_) paths: pass element value to method
-        const value = hasArgPlaceholder ? (element as any).value ?? null : null
-        this.store.update(actionVarId, value)
-      }
+      // For () paths: method called for side effects (pass null)
+      // For (_) paths: pass element value to method
+      const value = hasArgPlaceholder ? (element as any).value ?? null : null
+      this.store.update(actionVarId, value)
     }
 
     element.addEventListener('click', handler)
 
-    // Create the action variable asynchronously
-    this.store
-      .create({
-        parentId: varId,
-        properties,
-        widget,  // CRC: crc-Variable.md - widget reference
-      })
-      .then((id) => {
-        actionVarId = id
-        // Register with Widget
-        widget.registerBinding('ui-action', id, () => {
-          element.removeEventListener('click', handler)
-          this.store.destroy(id)
-        })
-      })
-      .catch((err) => {
-        console.error('Failed to create action variable:', err)
-      })
+    // Register with Widget
+    widget.registerBinding('ui-action', actionVarId, () => {
+      element.removeEventListener('click', handler)
+      this.store.destroy(actionVarId)
+    })
   }
 }

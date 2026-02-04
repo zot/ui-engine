@@ -708,14 +708,15 @@ func (s *Server) getLuaSessions() []*lua.LuaSession {
 
 // HandleFrontendCreate implements PathVariableHandler.
 // It delegates to the per-session LuaSession.
-func (s *Server) HandleFrontendCreate(sessionID string, parentID int64, properties map[string]string) (int64, json.RawMessage, map[string]string, error) {
+// Spec: protocol.md - create(id, parentId, value, properties, nowatch?, unbound?)
+func (s *Server) HandleFrontendCreate(sessionID string, id int64, parentID int64, properties map[string]string) error {
 	s.luaSessionsMu.RLock()
 	luaSession := s.luaSessions[sessionID]
 	s.luaSessionsMu.RUnlock()
 	if luaSession == nil {
-		return 0, nil, nil, fmt.Errorf("Lua session %s not found", sessionID)
+		return fmt.Errorf("Lua session %s not found", sessionID)
 	}
-	return luaSession.HandleFrontendCreate(sessionID, parentID, properties)
+	return luaSession.HandleFrontendCreate(sessionID, id, parentID, properties)
 }
 
 // HandleFrontendUpdate implements PathVariableHandler.
@@ -843,12 +844,13 @@ func (s *Server) preloadMainLuaFromBundleToConfig() {
 // luaTrackerAdapter adapts variable.Store to lua.VariableStore interface.
 // It coordinates with per-session LuaBackends for change detection.
 type luaTrackerAdapter struct {
-	config         *config.Config
-	viewdefManager *viewdef.ViewdefManager
-	backends       map[string]*backend.LuaBackend // vendedID -> backend
-	luaSessions    map[string]*lua.LuaSession     // vendedID -> LuaSession
-	varToSession   map[int64]string               // variableID -> sessionID
-	mu             sync.RWMutex
+	config          *config.Config
+	viewdefManager  *viewdef.ViewdefManager
+	backends        map[string]*backend.LuaBackend // vendedID -> backend
+	luaSessions     map[string]*lua.LuaSession     // vendedID -> LuaSession
+	varToSession    map[int64]string               // variableID -> sessionID
+	nextServerVarId map[string]int64               // vendedID -> next negative ID (starts at -1, decrements)
+	mu              sync.RWMutex
 }
 
 // SetViewdefManager sets the viewdef manager for sending viewdefs to frontend.
@@ -863,6 +865,7 @@ func (a *luaTrackerAdapter) SetBackend(sessionID string, lb *backend.LuaBackend)
 	if a.backends == nil {
 		a.backends = make(map[string]*backend.LuaBackend)
 		a.varToSession = make(map[int64]string)
+		a.nextServerVarId = make(map[string]int64)
 	}
 	a.backends[sessionID] = lb
 }
@@ -911,8 +914,16 @@ func (a *luaTrackerAdapter) CreateSession(sessionID string, resolver changetrack
 	defer a.mu.Unlock()
 	if a.backends == nil {
 		a.backends = make(map[string]*backend.LuaBackend)
+	}
+	if a.varToSession == nil {
 		a.varToSession = make(map[int64]string)
 	}
+	if a.nextServerVarId == nil {
+		a.nextServerVarId = make(map[string]int64)
+	}
+	// Initialize negative ID counter for this session (starts at -1, decrements)
+	// Spec: protocol.md - Server-created variables (other than root) use negative IDs
+	a.nextServerVarId[sessionID] = -1
 	// If we have a backend for this session, set its resolver
 	if lb, ok := a.backends[sessionID]; ok {
 		lb.GetTracker().Resolver = resolver
@@ -943,30 +954,44 @@ func (a *luaTrackerAdapter) GetTracker(sessionID string) *changetracker.Tracker 
 }
 
 // CreateVariable creates a variable using the session's tracker.
+// Spec: protocol.md - Server uses positive ID 1 for root, negative IDs for others.
+// Root variable (parentID == 0) uses auto-assigned ID (1).
+// Non-root server variables use negative IDs starting from -1.
 func (a *luaTrackerAdapter) CreateVariable(sessionID string, parentID int64, luaObject *gopher.LTable, properties map[string]string) (int64, error) {
-	a.mu.RLock()
+	a.mu.Lock()
 	lb := a.backends[sessionID]
-	a.mu.RUnlock()
-
 	if lb == nil {
+		a.mu.Unlock()
 		return 0, fmt.Errorf("session %s not found", sessionID)
 	}
 	tracker := lb.GetTracker()
 
-	a.config.Log(0, "CREATING LUA VARIABLE")
-	// Create variable in tracker - it handles object registration
-	v := tracker.CreateVariable(luaObject, parentID, "", properties)
-	id := v.ID
+	var v *changetracker.Variable
+	var id int64
 
-	a.config.Log(0, "created variable, type = %s, changed: %v", v.Properties["type"], tracker.PropertyChanges[v.ID])
-	//// Track which session owns this variable
-	//a.mu.Lock()
-	//a.varToSession[id] = sessionID
-	//a.mu.Unlock()
+	if parentID == 0 {
+		// Root variable - use auto-assigned ID (will be 1)
+		v = tracker.CreateVariable(luaObject, parentID, "", properties)
+		id = v.ID
+	} else {
+		// Non-root server variable - use negative ID
+		id = a.nextServerVarId[sessionID]
+		a.nextServerVarId[sessionID]--
+		a.mu.Unlock()
 
-	// Track in backend for cleanup
+		v = tracker.CreateVariableWithId(id, luaObject, parentID, "", properties)
+		if v == nil {
+			return 0, fmt.Errorf("variable ID %d already in use", id)
+		}
+
+		a.config.Log(0, "CREATED LUA VARIABLE id=%d, type=%s", id, v.Properties["type"])
+		lb.TrackVariable(id)
+		return id, nil
+	}
+	a.mu.Unlock()
+
+	a.config.Log(0, "CREATED ROOT LUA VARIABLE id=%d, type=%s", id, v.Properties["type"])
 	lb.TrackVariable(id)
-
 	return id, nil
 }
 

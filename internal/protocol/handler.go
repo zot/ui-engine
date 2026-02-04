@@ -27,8 +27,9 @@ type PendingQueuer interface {
 // PathVariableHandler handles frontend-created path variables.
 type PathVariableHandler interface {
 	// HandleFrontendCreate handles a path-based variable create from frontend.
-	// Returns the variable ID, resolved value, and properties.
-	HandleFrontendCreate(sessionID string, parentID int64, properties map[string]string) (int64, json.RawMessage, map[string]string, error)
+	// The id is provided by the frontend (frontend-vended IDs).
+	// Returns the resolved value and properties.
+	HandleFrontendCreate(sessionID string, id int64, parentID int64, properties map[string]string) error
 
 	// HandleFrontendUpdate handles an update to a path-based variable from frontend.
 	// Updates the backend object via the variable's path and returns error if any.
@@ -107,20 +108,20 @@ func (h *Handler) HandleMessage(connectionID string, msg *Message) (*Response, e
 }
 
 // handleCreate processes a create message.
+// Spec: protocol.md - create(id, parentId, value, properties, nowatch?, unbound?)
+// Frontend provides the variable ID (frontend-vended IDs).
 func (h *Handler) handleCreate(connectionID string, data json.RawMessage) (*Response, error) {
-	//h.Log(2, "handleCreate 1, connection %s", connectionID)
 	var msg CreateMessage
 	if err := json.Unmarshal(data, &msg); err != nil {
 		h.Log(0, "ERROR unmarshalling CreateMessage from %s", string(data))
 		return nil, err
 	}
 
-	var id int64
-	var initialValue json.RawMessage
-	var initialProps map[string]string
-	var err error
+	id := msg.ID
+	if id == 0 {
+		return &Response{Error: "create message must include id"}, nil
+	}
 
-	//h.Log(2, "handleCreate 2")
 	if h.pathVariableHandler != nil {
 		// Path-based variable: delegate to Lua runtime
 		var sessionID string
@@ -134,14 +135,13 @@ func (h *Handler) handleCreate(connectionID string, data json.RawMessage) (*Resp
 			return &Response{Error: "session context required for path variables"}, nil
 		}
 
-		id, initialValue, initialProps, err = h.pathVariableHandler.HandleFrontendCreate(sessionID, msg.ParentID, msg.Properties)
+		err := h.pathVariableHandler.HandleFrontendCreate(sessionID, id, msg.ParentID, msg.Properties)
 		if err != nil {
 			h.Log(0, "Error, handleCreate: %s", err.Error())
 			return &Response{Error: err.Error()}, nil
 		}
 	}
 
-	//h.Log(2, "handleCreate 3")
 	// Auto-watch unless nowatch is set
 	if !msg.NoWatch && h.backendLookup != nil {
 		if b := h.backendLookup.GetBackendForConnection(connectionID); b != nil {
@@ -149,45 +149,8 @@ func (h *Handler) handleCreate(connectionID string, data json.RawMessage) (*Resp
 		}
 	}
 
-	// Build response with echoed requestId (for correlating out-of-order responses)
-	resp := &Response{
-		Result: CreateResponse{ID: id, RequestID: msg.RequestID},
-	}
-
-	// Include initial value as pending update if we have one
-	if (initialValue != nil && string(initialValue) != "null") || initialProps != nil {
-		var newprops map[string]string
-		val := initialValue
-		if b := h.backendLookup.GetBackendForConnection(connectionID); b != nil {
-			t := b.GetTracker()
-			v := t.GetVariable(id)
-			for prop, p := range v.Properties {
-				if msg.Properties[prop] != p {
-					newprops = make(map[string]string)
-					for prop, p := range v.Properties {
-						if msg.Properties[prop] != p {
-							newprops[prop] = p
-						}
-					}
-					break
-				}
-			}
-			if nval, err := t.ToValueJSONBytes(v.NavigationValue()); err != nil {
-				return nil, err
-			} else {
-				val = json.RawMessage(nval)
-			}
-		}
-		h.Log(4, "[OUT] RESPONSE TO CREATE, VALUE: %v PROPS: %#v", string(initialValue), newprops)
-		updateMsg, _ := NewMessage(MsgUpdate, UpdateMessage{
-			VarID:      id,
-			Value:      val,
-			Properties: newprops,
-		})
-		resp.Pending = append(resp.Pending, *updateMsg)
-	}
-	//h.Log(2, "handleCreate 4")
-	return resp, nil
+	// No response needed - updates are sent via the normal change detection mechanism
+	return &Response{}, nil
 }
 
 // handleDestroy processes a destroy message.

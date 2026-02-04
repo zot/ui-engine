@@ -65,3 +65,14 @@
 - **R40:** Frontend must detect and handle incoming JSON array batches
 - **R41:** Frontend must start outgoing batch timer BEFORE processing incoming messages
 - **R42:** ServerOutgoingBatcher must group messages by connection and send one batch per connection
+
+## Feature: Frontend-Vended Variable IDs
+**Source:** specs/protocol.md
+
+- **R43:** Frontend must vend its own variable IDs starting from 2 (incrementing)
+- **R44:** Server root variable (app variable) must use ID 1
+- **R45:** Server-created variables (other than root) must use negative IDs starting from -1 (decrementing)
+- **R46:** Create message must include the `id` field with the sender-vended ID
+- **R47:** (inferred) No createResponse message is needed - create is push-only
+- **R48:** (inferred) VariableStore.create() must be synchronous (no Promise)
+- **R49:** Connection class must maintain nextVarId counter for frontend ID vending

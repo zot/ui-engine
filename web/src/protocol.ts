@@ -4,7 +4,6 @@
 
 export type MessageType =
   | 'create'
-  | 'createResponse'
   | 'destroy'
   | 'update'
   | 'watch'
@@ -19,14 +18,14 @@ export interface Message {
   data?: unknown;
 }
 
-// Spec: protocol.md - create(parentId, value, properties, nowatch?, unbound?, requestId?)
+// Spec: protocol.md - create(id, parentId, value, properties, nowatch?, unbound?)
 export interface CreateMessage {
+  id: number;
   parentId?: number;
   value?: unknown;
   properties?: Record<string, string>;
   nowatch?: boolean;
   unbound?: boolean;
-  requestId?: number;
 }
 
 export interface DestroyMessage {
@@ -60,18 +59,6 @@ export interface GetObjectsMessage {
 
 export interface PollMessage {
   wait?: string;
-}
-
-export interface Response<T = unknown> {
-  result?: T;
-  pending?: Message[];
-  error?: string;
-}
-
-// Spec: protocol.md - createResponse(id, requestId?)
-export interface CreateResponse {
-  id: number;
-  requestId?: number;
 }
 
 export interface VariableData {

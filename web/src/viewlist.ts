@@ -268,14 +268,11 @@ export class ViewList {
       itemProps.fallbackNamespace = listVariable.properties.fallbackNamespace;
     }
 
-    this.variableStore.create({
+    const childVarId = this.variableStore.create({
       parentId: this.variableId!,
       properties: itemProps,
-    }).then((childVarId) => {
-      view.setVariable(childVarId);
-    }).catch((err) => {
-      console.error('Failed to create viewlist item variable:', err);
     });
+    view.setVariable(childVarId);
   }
 
   // Create item view and append to DOM (must be in DOM for closest() to work)

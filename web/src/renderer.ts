@@ -174,16 +174,13 @@ export class ViewRenderer {
       }
 
       // Create child variable with path property
-      this.variableStore.create({
+      const childVarId = this.variableStore.create({
         parentId: contextVarId,
         properties,
-      }).then((childVarId) => {
-        view.setVariable(childVarId);
-        // Store cleanup info
-        (view as unknown as { childVarId: number }).childVarId = childVarId;
-      }).catch((err) => {
-        console.error('Failed to create view variable:', err);
       });
+      view.setVariable(childVarId);
+      // Store cleanup info
+      (view as unknown as { childVarId: number }).childVarId = childVarId;
     }
 
     this.views.set(view.elementId, view);
@@ -238,17 +235,14 @@ export class ViewRenderer {
       }
 
       console.log('[DEBUG] Creating viewlist variable with properties:', properties);
-      this.variableStore.create({
+      const childVarId = this.variableStore.create({
         parentId: contextVarId,
         properties,
-      }).then((childVarId) => {
-        console.log('[DEBUG] ViewList variable created with id:', childVarId);
-        viewList.setVariable(childVarId);
-        // Store cleanup info
-        (viewList as unknown as { childVarId: number }).childVarId = childVarId;
-      }).catch((err) => {
-        console.error('Failed to create viewlist variable:', err);
       });
+      console.log('[DEBUG] ViewList variable created with id:', childVarId);
+      viewList.setVariable(childVarId);
+      // Store cleanup info
+      (viewList as unknown as { childVarId: number }).childVarId = childVarId;
     }
 
     // Use element ID for tracking (ensured by ViewList constructor)

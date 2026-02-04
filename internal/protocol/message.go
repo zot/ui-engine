@@ -12,12 +12,11 @@ type MessageType string
 
 const (
 	// Relayed messages (frontend <-> UI server <-> backend)
-	MsgCreate         MessageType = "create"
-	MsgCreateResponse MessageType = "createResponse"
-	MsgDestroy        MessageType = "destroy"
-	MsgUpdate         MessageType = "update"
-	MsgWatch          MessageType = "watch"
-	MsgUnwatch        MessageType = "unwatch"
+	MsgCreate  MessageType = "create"
+	MsgDestroy MessageType = "destroy"
+	MsgUpdate  MessageType = "update"
+	MsgWatch   MessageType = "watch"
+	MsgUnwatch MessageType = "unwatch"
 
 	// Server-response messages
 	MsgError MessageType = "error"
@@ -35,21 +34,14 @@ type Message struct {
 }
 
 // CreateMessage represents a create variable request.
-// Spec: protocol.md - create(parentId, value, properties, nowatch?, unbound?, requestId?)
+// Spec: protocol.md - create(id, parentId, value, properties, nowatch?, unbound?)
 type CreateMessage struct {
+	ID         int64             `json:"id"`
 	ParentID   int64             `json:"parentId,omitempty"`
 	Value      json.RawMessage   `json:"value,omitempty"`
 	Properties map[string]string `json:"properties,omitempty"`
 	NoWatch    bool              `json:"nowatch,omitempty"`
 	Unbound    bool              `json:"unbound,omitempty"`
-	RequestID  int               `json:"requestId,omitempty"`
-}
-
-// CreateResponse is sent back after creating a variable.
-// Spec: protocol.md - createResponse(id, requestId?)
-type CreateResponse struct {
-	ID        int64 `json:"id"`
-	RequestID int   `json:"requestId,omitempty"`
 }
 
 // DestroyMessage represents a destroy variable request.
@@ -115,11 +107,10 @@ type ErrorMessage struct {
 	Description string `json:"description"` // Human-readable error description
 }
 
-// Response wraps any response with optional pending messages.
+// Response wraps handler responses (primarily for error reporting).
 type Response struct {
-	Result  interface{} `json:"result,omitempty"`
-	Pending []Message   `json:"pending,omitempty"`
-	Error   string      `json:"error,omitempty"`
+	Result interface{} `json:"result,omitempty"`
+	Error  string      `json:"error,omitempty"`
 }
 
 // BatchWrapper wraps a batch of messages with a userEvent flag.
