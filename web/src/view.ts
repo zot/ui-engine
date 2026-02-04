@@ -324,9 +324,6 @@ export class View {
       descendant.onWidgetUnbind?.();
     }
 
-    // Activate scripts (after content is in DOM)
-    activateScripts(scripts);
-
     this.rendered = true;
     this.valueType = type;
 
@@ -349,6 +346,9 @@ export class View {
         document.querySelectorAll(`.${this.viewClass}.ui-new-view`).forEach(el => {
           el.classList.remove('ui-new-view');
         });
+
+        // Activate scripts (after content is in DOM)
+        activateScripts(scripts);
 
         this.bufferTimeoutId = undefined;
       }, 100);
