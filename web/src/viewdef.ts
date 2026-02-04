@@ -91,6 +91,9 @@ export function activateScripts(scripts: HTMLScriptElement[]): void {
     if (original.id) {
       newScript.id = original.id;
     }
+    // Copy classList so view tracking classes (viewClass, ui-new-view) are preserved
+    // This ensures scripts are found and removed on re-render/hotload
+    newScript.className = original.className;
     original.replaceWith(newScript);
   }
 }
