@@ -5,7 +5,8 @@
 ## Responsibilities
 
 ### Knows
-- segments: Parsed path segments
+- path: Base path string without query parameters (e.g., "father.name" from "father.name?create=Person")
+- segments: Parsed path segments (path split by '.')
 - hasStandardPrefix: True if starts with @name
 - hasUrlParams: True if contains ?key=value parameters
 - hasMethodArg: True if method call has `_` argument

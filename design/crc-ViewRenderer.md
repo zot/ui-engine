@@ -34,6 +34,7 @@
 - WidgetBinder: Widget-specific rendering
 - View: Individual object reference views
 - ViewList: Array of object reference views
+- namespace.ts utilities: Shared `buildNamespaceProperties()` for consistent namespace handling
 
 ## Sequences
 

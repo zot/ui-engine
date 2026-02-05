@@ -8,6 +8,7 @@ import { VariableStore } from './connection';
 import { ViewList, createViewList } from './viewlist';
 import { parsePath, BindingEngine } from './binding';
 import { ensureElementId, vendElementId } from './element_id_vendor';
+import { buildNamespaceProperties as sharedBuildNamespaceProperties } from './namespace';
 
 // Inject CSS for no-flash view rendering
 // New elements are hidden until the reveal timer fires
@@ -45,6 +46,10 @@ export class View {
   private _scrollOnOutput = false;  // Pending scrollOnOutput to set on widget
   private viewUnbindHandlers: (() => void)[] = [];  // View-specific cleanup handlers
 
+  // Original class and style from the ui-view element, applied to first rendered element
+  private originalClass: string | null = null;
+  private originalStyle: string | null = null;
+
   constructor(
     element: HTMLElement,
     viewdefStore: ViewdefStore,
@@ -53,6 +58,10 @@ export class View {
   ) {
     this.elementId = ensureElementId(element);
     this.viewClass = `ui-view-${nextViewId++}`;
+
+    // Capture original class and style to apply to rendered content
+    this.originalClass = element.getAttribute('class');
+    this.originalStyle = element.getAttribute('style');
 
     this.viewdefStore = viewdefStore;
     this.variableStore = variableStore;
@@ -103,37 +112,6 @@ export class View {
     if (this.variableId === null) return undefined;
     const data = this.variableStore.get(this.variableId);
     return data?.properties['fallbackNamespace'];
-  }
-
-  // Resolve namespace for a child element (when element doesn't have ui-namespace directly)
-  // Spec: viewdefs.md - Namespace variable properties
-  // Uses closest('[ui-namespace]') and checks containment with parent variable's element
-  private resolveNamespace(element: HTMLElement, parentVarId: number): string | undefined {
-    const closest = element.closest('[ui-namespace]') as HTMLElement | null;
-
-    const parentData = this.variableStore.get(parentVarId);
-    const parentNs = parentData?.properties['namespace'];
-    const parentElementId = parentData?.properties['elementId'];
-    const parentElement = parentElementId ? document.getElementById(parentElementId) : null;
-
-    if (closest && parentElement && parentNs) {
-      // Both exist: check containment
-      // If closest is inside parent element, use closest's namespace
-      // Otherwise, parent's namespace is "closer" in view hierarchy
-      if (parentElement.contains(closest)) {
-        return closest.getAttribute('ui-namespace') || undefined;
-      } else {
-        return parentNs;
-      }
-    } else if (closest) {
-      // Only closest DOM element exists
-      return closest.getAttribute('ui-namespace') || undefined;
-    } else if (parentNs) {
-      // Only parent variable namespace exists
-      return parentNs;
-    }
-
-    return undefined;
   }
 
   // Set the bound variable (object reference)
@@ -286,6 +264,22 @@ export class View {
       rootElements[i].id = vendElementId();
     }
 
+    // Apply original class and style from ui-view element to first rendered element
+    if (this.originalClass) {
+      // Split and add each class individually to preserve existing classes
+      for (const cls of this.originalClass.split(/\s+/)) {
+        if (cls) rootElements[0].classList.add(cls);
+      }
+    }
+    if (this.originalStyle) {
+      // Merge with existing style attribute
+      const existingStyle = rootElements[0].getAttribute('style') || '';
+      const merged = existingStyle
+        ? `${existingStyle}; ${this.originalStyle}`
+        : this.originalStyle;
+      rootElements[0].setAttribute('style', merged);
+    }
+
     // Add viewClass to all new elements for tracking
     // Only add ui-new-view if we're the buffer root (not inside ancestor's buffer)
     for (const el of rootElements) {
@@ -350,28 +344,28 @@ export class View {
         // Activate scripts (after content is in DOM)
         activateScripts(scripts);
 
-        this.bufferTimeoutId = undefined;
-      }, 100);
-    }
-
-    // Set scrollOnOutput on widget if View has the flag, then scroll
-    // Spec: viewdefs.md - scrollOnOutput (universal property on widget)
-    // CRC: crc-Widget.md - scrollOnOutput property
-    if (this.binding) {
-      const widget = this.binding.getWidget(this.elementId);
-      if (widget) {
-        if (this._scrollOnOutput) {
-          widget.scrollOnOutput = true;
+        // Set scrollOnOutput on widget if View has the flag, then scroll
+        // Spec: viewdefs.md - scrollOnOutput (universal property on widget)
+        // CRC: crc-Widget.md - scrollOnOutput property
+        if (this.binding) {
+          const widget = this.binding.getWidget(this.elementId);
+          if (widget) {
+            if (this._scrollOnOutput) {
+              widget.scrollOnOutput = true;
+            }
+            if (widget.scrollOnOutput) {
+              widget.scrollToBottom();
+            }
+          }
         }
-        if (widget.scrollOnOutput) {
-          widget.scrollToBottom();
-        }
-      }
-    }
 
     // Notify parent that we rendered (for scrollOnOutput bubbling)
     // Spec: viewdefs.md - Render notifications (for scrollOnOutput)
     this.notifyParentRendered();
+
+        this.bufferTimeoutId = undefined;
+      }, 100);
+    }
 
     return true;
   }
@@ -413,28 +407,7 @@ export class View {
     contextVarId: number,
     properties: Record<string, string>
   ): void {
-    // 1. If element has ui-namespace, use it directly
-    const elementNs = element.getAttribute('ui-namespace');
-    if (elementNs) {
-      properties['namespace'] = elementNs;
-    } else {
-      // 2. Otherwise resolve via DOM/parent hierarchy
-      const namespace = this.resolveNamespace(element, contextVarId);
-      if (namespace) {
-        properties['namespace'] = namespace;
-      }
-    }
-
-    // 3. Inherit fallbackNamespace from parent if not already set
-    const parentData = this.variableStore.get(contextVarId);
-    if (!properties['fallbackNamespace'] && parentData?.properties['fallbackNamespace']) {
-      properties['fallbackNamespace'] = parentData.properties['fallbackNamespace'];
-    }
-
-    // Default to read-only access for views/viewlists
-    if (!properties['access']) {
-      properties['access'] = 'r';
-    }
+    sharedBuildNamespaceProperties(element, contextVarId, properties, this.variableStore);
   }
 
   // Setup a ui-viewlist element
@@ -487,10 +460,9 @@ export class View {
       this.binding
     );
 
-    const path = element.getAttribute('ui-view');
-    if (path) {
-      const [basePath] = path.split('?');
-      const parsed = parsePath(path);
+    const pathAttr = element.getAttribute('ui-view');
+    if (pathAttr) {
+      const parsed = parsePath(pathAttr);
 
       // Extract extra props (handled locally, not sent to backend)
       const extra = parsed.options.props ?? {};
@@ -506,7 +478,7 @@ export class View {
       const elId = ensureElementId(element);
 
       const properties: Record<string, string> = {
-        path: basePath,
+        path: parsed.path,
         elementId: elId,
         ...(parsed.options as Record<string, string>),
         ...extra,

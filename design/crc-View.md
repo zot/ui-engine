@@ -13,6 +13,8 @@
 - rendered: Whether view has been successfully rendered
 - viewdefKey: The resolved viewdef key (e.g., "Contact.COMPACT") stored as `ui-viewdef` attribute on first element
 - viewUnbindHandlers: Array of cleanup handlers called when widget unbinds
+- originalClass: Class attribute from original ui-view element (applied to first rendered element)
+- originalStyle: Style attribute from original ui-view element (applied to first rendered element)
 
 ### Does
 - create: Initialize view from element with ui-view attribute, vend element ID if needed, set variable namespace properties, register widget
@@ -45,10 +47,20 @@ The `ui-view` binding automatically adds `access=r` (read-only) if no `access` p
 
 ### Namespace Property Setting
 
-When creating a view's variable:
-1. If `ui-namespace` attribute is specified, set the variable's `namespace` property to that value
-2. If no `ui-namespace` attribute, inherit `namespace` property from the parent variable (if set)
-3. Always inherit `fallbackNamespace` property from the parent variable (if set)
+When creating a view's variable, namespace resolution uses shared utilities (`namespace.ts`):
+
+1. **resolveNamespace(element, parentVarId, variableStore):** Finds the namespace by:
+   - Using `element.closest('[ui-namespace]')` to find nearest ancestor with namespace
+   - Comparing DOM containment with parent variable's element to determine which is "closer"
+   - Returns the namespace from whichever source is more specific
+
+2. **buildNamespaceProperties(element, contextVarId, properties, variableStore):** Sets namespace properties:
+   - If element has `ui-namespace`, uses it directly
+   - Otherwise calls `resolveNamespace()` to find inherited namespace
+   - Inherits `fallbackNamespace` from parent variable if not already set
+   - Sets default `access=r` for views/viewlists
+
+These utilities are shared between `View`, `ViewList`, and `ViewRenderer` to ensure consistent namespace handling.
 
 ### 3-Tier Namespace Resolution
 
@@ -68,6 +80,24 @@ Views replace their element(s) in the DOM rather than adding children to a conta
 2. First new element gets the stable `elementId`, additional elements get vended IDs
 3. `viewClass` CSS class identifies all elements belonging to this view
 4. On re-render: destroy old children first, mark/remove old elements, insert new elements at same position
+
+### Class and Style Preservation
+
+The original `ui-view` element's `class` and `style` attributes are preserved and applied to the first rendered element:
+
+1. **Constructor captures:** When the View is created, it stores the original element's `class` and `style` attribute values
+2. **Render applies:**
+   - Classes are split and added individually to preserve any existing classes from the viewdef template
+   - Style is merged with existing style (viewdef style first, original style appended with `;`)
+3. **Use case:** Allows styling the view container without modifying viewdef templates
+
+```html
+<!-- Original element -->
+<div ui-view="person" class="highlight" style="margin: 10px"></div>
+
+<!-- After render, first element has both viewdef classes AND original classes/style -->
+<div id="ui-42" class="person-card highlight" style="padding: 5px; margin: 10px">...</div>
+```
 
 ### No-Flash Buffering
 

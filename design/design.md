@@ -51,7 +51,7 @@ All hot-loading features (Lua files, viewdefs, etc.) must track symlinks. See sp
 ### Viewdef System
 - [x] crc-Viewdef.md → `internal/viewdef/viewdef.go`, `web/src/viewdef.ts`
 - [x] crc-ViewdefStore.md → `internal/viewdef/store.go`, `internal/viewdef/hotloader.go`, `web/src/viewdef_store.ts` *(hot-reload)*
-- [x] crc-View.md → `web/src/view.ts` *(ui-viewdef, rerender)*
+- [x] crc-View.md → `web/src/view.ts`, `web/src/namespace.ts`
 - [x] crc-ViewList.md → `web/src/viewlist.ts`, `internal/lua/viewlist.go`
 - [x] crc-ViewListItem.md → `internal/lua/viewlistitem.go`
 - [x] crc-AppView.md → `web/src/app_view.ts`

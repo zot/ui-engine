@@ -476,6 +476,22 @@ The `address` view inherits `COMPACT` from the intermediate `<div>`, not from th
 - Manages a container element (e.g., `<div>`, `<sl-option>`)
 - `ui-viewdef` attribute on the first element containing the viewdef key (e.g., `Contact.COMPACT`) for hot-reload targeting
 
+**Class and style preservation:**
+
+The `class` and `style` attributes from the original `ui-view` element are preserved and applied to the first rendered element:
+- Classes are added individually (merged with viewdef template's classes)
+- Style is appended to any existing style from the viewdef template
+
+```html
+<!-- Original -->
+<div ui-view="person" class="highlight" style="margin: 10px"></div>
+
+<!-- After render: viewdef classes + original classes, viewdef style + original style -->
+<div id="ui-42" class="person-card highlight" style="padding: 5px; margin: 10px">...</div>
+```
+
+This allows styling view containers without modifying viewdef templates.
+
 **Example:**
 ```html
 <div ui-view="currentContact" ui-namespace="COMPACT"></div>

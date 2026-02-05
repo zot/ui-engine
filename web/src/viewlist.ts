@@ -6,7 +6,7 @@
 import { View } from './view';
 import { ViewdefStore } from './viewdef_store';
 import { VariableStore } from './connection';
-import { BindingEngine } from './binding';
+import { BindingEngine, parsePath } from './binding';
 import { ensureElementId } from './element_id_vendor';
 
 // Parsed path with optional URL parameters
@@ -17,23 +17,15 @@ export interface ParsedViewListPath {
   props: Record<string, string>;
 }
 
-// Parse a ViewList path like "contacts?wrapper=CustomListPresenter&itemWrapper=ContactPresenter"
+// Parse a ViewList path like "contacts?wrapper=CustomListPresenter&item=ContactPresenter"
 export function parseViewListPath(fullPath: string): ParsedViewListPath {
-  const [path, queryPart] = fullPath.split('?');
-  const result: ParsedViewListPath = { path, props: {} };
-
-  if (queryPart) {
-    const params = new URLSearchParams(queryPart);
-    params.forEach((value, key) => {
-      if (key === 'item') {
-        result.item = value;
-      } else {
-        result.props[key] = value;
-      }
-    });
-  }
-
-  return result;
+  const parsed = parsePath(fullPath);
+  return {
+    path: parsed.path,
+    wrapper: parsed.options.wrapper,
+    item: parsed.options.item,
+    props: parsed.options.props ?? {},
+  };
 }
 
 export class ViewList {

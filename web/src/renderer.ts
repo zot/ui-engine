@@ -6,9 +6,10 @@ import { View, createView } from './view';
 import { ViewList, createViewList } from './viewlist';
 import { ViewdefStore } from './viewdef_store';
 import { VariableStore } from './connection';
-import { BindingEngine } from './binding';
+import { BindingEngine, parsePath } from './binding';
 import { cloneViewdefContent, collectScripts, activateScripts } from './viewdef';
 import { ensureElementId } from './element_id_vendor';
+import { buildNamespaceProperties } from './namespace';
 
 export class ViewRenderer {
   private rootElementId: string;
@@ -133,45 +134,20 @@ export class ViewRenderer {
     );
 
     // Get path and create child variable for backend path resolution
-    const path = element.getAttribute('ui-view');
-    if (path) {
-      // Parse path to extract base path and options
-      const [basePath, queryPart] = path.split('?');
+    const pathAttr = element.getAttribute('ui-view');
+    if (pathAttr) {
+      const parsed = parsePath(pathAttr);
 
       // Check for scrollOnOutput option
       // Spec: viewdefs.md - scrollOnOutput for ui-view
       // CRC: crc-View.md - pathOptions
-      if (queryPart) {
-        const params = new URLSearchParams(queryPart);
-        if (params.get('scrollOnOutput') === 'true' || params.has('scrollOnOutput') && params.get('scrollOnOutput') === '') {
-          view.setScrollOnOutput(true);
-        }
+      if (parsed.options.props?.['scrollOnOutput'] === 'true') {
+        view.setScrollOnOutput(true);
       }
 
       // Build properties with namespace inheritance
-      const properties: Record<string, string> = { path: basePath };
-
-      // Inherit namespace properties from parent variable
-      const parentData = this.variableStore.get(contextVarId);
-      if (parentData) {
-        // Set namespace from ui-namespace attribute, or inherit from parent
-        const uiNamespace = element.getAttribute('ui-namespace');
-        if (uiNamespace) {
-          properties['namespace'] = uiNamespace;
-        } else if (parentData.properties['namespace']) {
-          properties['namespace'] = parentData.properties['namespace'];
-        }
-        // Always inherit fallbackNamespace
-        if (parentData.properties['fallbackNamespace']) {
-          properties['fallbackNamespace'] = parentData.properties['fallbackNamespace'];
-        }
-      }
-
-      // Default to access=r for ui-view (read-only binding)
-      // Spec: viewdefs.md - Views
-      if (!properties['access']) {
-        properties['access'] = 'r';
-      }
+      const properties: Record<string, string> = { path: parsed.path };
+      buildNamespaceProperties(element, contextVarId, properties, this.variableStore);
 
       // Create child variable with path property
       const childVarId = this.variableStore.create({
@@ -212,27 +188,7 @@ export class ViewRenderer {
         ...props,
       };
 
-      // Inherit namespace properties from parent variable
-      const parentData = this.variableStore.get(contextVarId);
-      if (parentData) {
-        // Set namespace from ui-namespace attribute, or inherit from parent
-        const uiNamespace = element.getAttribute('ui-namespace');
-        if (uiNamespace) {
-          properties['namespace'] = uiNamespace;
-        } else if (parentData.properties['namespace']) {
-          properties['namespace'] = parentData.properties['namespace'];
-        }
-        // Always inherit fallbackNamespace
-        if (parentData.properties['fallbackNamespace']) {
-          properties['fallbackNamespace'] = parentData.properties['fallbackNamespace'];
-        }
-      }
-
-      // Default to access=r for ui-viewlist (read-only binding)
-      // Spec: viewdefs.md - ViewLists
-      if (!properties['access']) {
-        properties['access'] = 'r';
-      }
+      buildNamespaceProperties(element, contextVarId, properties, this.variableStore);
 
       console.log('[DEBUG] Creating viewlist variable with properties:', properties);
       const childVarId = this.variableStore.create({

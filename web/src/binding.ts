@@ -42,7 +42,8 @@ export interface PathOptions {
 }
 
 export interface ParsedPath {
-  segments: string[]
+  path: string           // Base path without query params
+  segments: string[]     // Path split by '.'
   options: PathOptions
 }
 
@@ -91,7 +92,7 @@ export function parsePath(path: string): ParsedPath {
     }
   }
 
-  return { segments, options }
+  return { path: pathPart, segments, options }
 }
 
 // Convert path options to variable properties map
