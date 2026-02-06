@@ -26,6 +26,10 @@ const NO_FLASH_STYLE = `
   document.head.appendChild(style);
 })();
 
+// Internal CSS classes managed by the View system (excluded from originalClass capture)
+const VIEW_INTERNAL_CLASSES = new Set(['ui-new-view', 'ui-obsolete-view']);
+const VIEW_CLASS_PREFIX = 'ui-view-';
+
 // View class counter for unique viewClass assignment
 let nextViewId = 1;
 
@@ -60,7 +64,11 @@ export class View {
     this.viewClass = `ui-view-${nextViewId++}`;
 
     // Capture original class and style to apply to rendered content
-    this.originalClass = element.getAttribute('class');
+    // Filter out internal classes (ui-view-*, ui-new-view, ui-obsolete-view)
+    const rawClass = element.getAttribute('class');
+    this.originalClass = rawClass
+      ? rawClass.split(/\s+/).filter(c => c && !c.startsWith(VIEW_CLASS_PREFIX) && !VIEW_INTERNAL_CLASSES.has(c)).join(' ') || null
+      : null;
     this.originalStyle = element.getAttribute('style');
 
     this.viewdefStore = viewdefStore;
@@ -239,7 +247,9 @@ export class View {
     } else {
       // We are the buffer root - mark old elements as obsolete (keep hidden until timer)
       // Also add viewClass so the timer's selector can find them
+      // Remove id to prevent getElementById from finding obsolete elements instead of new ones
       for (const el of oldElements) {
+        el.removeAttribute('id');
         el.classList.add(this.viewClass, 'ui-obsolete-view');
       }
     }
@@ -330,6 +340,14 @@ export class View {
     // Remove from pending if we were pending
     this.removePending();
 
+    if (this._scrollOnOutput && this.binding) {
+      const widget = this.binding.getWidget(this.elementId);
+      if (widget) {
+        if (this._scrollOnOutput) {
+          widget.scrollOnOutput = true;
+        }
+      }
+    }
     // Start reveal timer if we're the buffer root and no timer pending
     if (!isInsideAncestorBuffer && !this.bufferTimeoutId) {
       this.bufferTimeoutId = window.setTimeout(() => {
@@ -347,22 +365,17 @@ export class View {
         // Set scrollOnOutput on widget if View has the flag, then scroll
         // Spec: viewdefs.md - scrollOnOutput (universal property on widget)
         // CRC: crc-Widget.md - scrollOnOutput property
-        if (this.binding) {
+        if (this._scrollOnOutput && this.binding) {
           const widget = this.binding.getWidget(this.elementId);
-          if (widget) {
-            if (this._scrollOnOutput) {
-              widget.scrollOnOutput = true;
-            }
-            if (widget.scrollOnOutput) {
-              widget.scrollToBottom();
-            }
+          if (widget?.scrollOnOutput) {
+            widget.scrollToBottom();
           }
         }
 
-    // Notify parent that we rendered (for scrollOnOutput bubbling)
-    // Spec: viewdefs.md - Render notifications (for scrollOnOutput)
-    this.notifyParentRendered();
-
+        // Notify parent that we rendered (for scrollOnOutput bubbling)
+        // Spec: viewdefs.md - Render notifications (for scrollOnOutput)
+        this.notifyParentRendered();
+        
         this.bufferTimeoutId = undefined;
       }, 100);
     }
