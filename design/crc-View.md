@@ -1,7 +1,7 @@
 # View
 
 **Source Spec:** viewdefs.md
-**Requirements:** R32, R33, R34, R35, R36, R37, R38
+**Requirements:** R32, R33, R34, R35, R36, R37, R38, R50, R51
 
 ## Responsibilities
 
@@ -85,7 +85,7 @@ Views replace their element(s) in the DOM rather than adding children to a conta
 
 The original `ui-view` element's `class` and `style` attributes are preserved and applied to the first rendered element:
 
-1. **Constructor captures:** When the View is created, it stores the original element's `class` and `style` attribute values
+1. **Constructor captures:** When the View is created, it stores the original element's `class` and `style` attribute values, filtering out internal classes (`ui-view-*`, `ui-new-view`, `ui-obsolete-view`) to prevent class leakage between views
 2. **Render applies:**
    - Classes are split and added individually to preserve any existing classes from the viewdef template
    - Style is merged with existing style (viewdef style first, original style appended with `;`)
@@ -109,8 +109,9 @@ Views use ancestor-aware timer buffering to prevent visual flashing during re-re
 
 2. **Buffer Root Behavior**:
    - Old elements get `.ui-obsolete-view` class (stay visible until timer fires)
+   - Old elements have their `id` attribute removed (prevents `getElementById` from finding stale elements)
    - New elements get `.ui-new-view` class (hidden via CSS)
-   - After 100ms timer: remove obsolete elements, reveal new elements
+   - After 100ms timer: remove obsolete elements (found via class selector), reveal new elements
 
 3. **CSS Classes**:
    - `.ui-view-{n}`: Identifies all elements of view n (replaces ID-based tracking)

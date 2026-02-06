@@ -24,6 +24,7 @@ View                              DOM
   |-- [If buffer root] ----------->|
   |   Mark old elements:           |
   |   .ui-obsolete-view            |
+  |   Remove id attributes         |
   |                                |
   |-- Create new elements -------->|
   |   Add classes:                 |

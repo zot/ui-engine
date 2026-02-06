@@ -57,6 +57,8 @@
 - **R36:** Views inside an ancestor's buffer (detected via `closest('.ui-new-view')`) must render normally
 - **R37:** Each view must have a unique viewClass (e.g., "ui-view-42") to identify its elements
 - **R38:** View destruction must clear any pending buffer timeout
+- **R50:** On re-render, obsolete elements must have their `id` attribute removed to prevent `getElementById` from finding stale elements
+- **R51:** View must filter internal CSS classes (`ui-view-*`, `ui-new-view`, `ui-obsolete-view`) from the captured `originalClass` to prevent class leakage between views
 
 ## Feature: Server-to-Frontend Batching
 **Source:** specs/protocol.md

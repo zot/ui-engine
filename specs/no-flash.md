@@ -23,9 +23,10 @@ Ancestor-aware timer buffering:
 
 ### Re-render
 - Old elements get `.ui-obsolete-view` class (kept visible until timer)
+- Old elements have their `id` removed (prevents `getElementById` from finding stale elements)
 - New elements get `.ui-new-view` class (hidden)
 - After 100ms timer fires:
-  - Elements with `.ui-obsolete-view` are removed
+  - Elements with `.ui-obsolete-view` are removed (found via class selector, not ID)
   - Elements with `.ui-new-view` have class removed (revealed)
 
 ### Nested Views
@@ -33,6 +34,10 @@ Ancestor-aware timer buffering:
 - Child views detect parent's `.ui-new-view` class
 - Children render normally (already hidden by parent)
 - Parent's timer reveals entire subtree at once
+
+### Class Isolation
+- Internal classes (`ui-view-*`, `ui-new-view`, `ui-obsolete-view`) must not leak between views
+- When a View captures `originalClass` from its element, internal classes must be filtered out
 
 ## CSS Classes
 
