@@ -5,8 +5,6 @@
 // LuaSession provides per-session Lua isolation. Each frontend session gets its own
 // LuaSession with a separate Lua VM state. Server owns luaSessions map and creates
 // sessions via callbacks from SessionManager.
-//
-// Runtime is a type alias for backward compatibility: type Runtime = LuaSession
 package lua
 
 import (
@@ -99,10 +97,6 @@ type mutationEntry struct {
 	removedKeys []string
 }
 
-// Runtime is an alias for LuaSession during migration.
-// TODO: Remove after Phase 2 migration is complete.
-type Runtime = LuaSession
-
 // PresenterType represents a Lua-defined presenter type.
 type PresenterType struct {
 	Name    string
@@ -129,8 +123,7 @@ type VariableStore interface {
 	GetChanges(sessionID string) []changetracker.Change
 }
 
-// NewRuntime creates a new Lua runtime with executor goroutine.
-// Note: This creates a LuaSession (Runtime is now an alias).
+// NewRuntime creates a new LuaSession with executor goroutine.
 func NewRuntime(cfg *config.Config, luaDir string, vdm *viewdef.ViewdefManager) (*LuaSession, error) {
 	L := lua.NewState()
 
@@ -176,7 +169,7 @@ func NewRuntime(cfg *config.Config, luaDir string, vdm *viewdef.ViewdefManager) 
 
 // loadSessionModule tries to load lib/lua/session.lua and stores the module globally.
 // Returns silently if module not found (allows tests to work without it).
-func (r *Runtime) loadSessionModule() {
+func (r *LuaSession) loadSessionModule() {
 	L := r.State
 
 	// Try to load the session module via require
@@ -193,31 +186,31 @@ func (r *Runtime) loadSessionModule() {
 
 // registerEmptyGlobal creates the EMPTY global used for declaring nil fields tracked for mutation.
 // EMPTY is an empty table that acts as a marker in prototype init tables.
-func (r *Runtime) registerEmptyGlobal() {
+func (r *LuaSession) registerEmptyGlobal() {
 	L := r.State
 	empty := L.NewTable()
 	L.SetGlobal("EMPTY", empty)
 }
 
 // Log logs a message via the config.
-func (r *Runtime) Log(level int, format string, args ...interface{}) {
+func (r *LuaSession) Log(level int, format string, args ...interface{}) {
 	r.config.Log(level, format, args...)
 }
 
 // SetVariableStore sets the variable store for session operations.
-func (r *Runtime) SetVariableStore(store VariableStore) {
+func (r *LuaSession) SetVariableStore(store VariableStore) {
 	r.variableStore = store
 }
 
 // SetWrapperRegistry sets the wrapper registry for registering Lua wrappers.
-func (r *Runtime) SetWrapperRegistry(registry *WrapperRegistry) {
+func (r *LuaSession) SetWrapperRegistry(registry *WrapperRegistry) {
 	r.wrapperRegistry = registry
 }
 
 // GetGlobalTable looks up a Lua global by name and returns it if it's a table.
 // Used for auto-discovery of Lua-defined wrappers.
 // Returns nil if the global doesn't exist or isn't a table.
-func (r *Runtime) GetGlobalTable(name string) interface{} {
+func (r *LuaSession) GetGlobalTable(name string) interface{} {
 	var result interface{}
 	r.execute(func() (interface{}, error) {
 		L := r.State
@@ -232,7 +225,7 @@ func (r *Runtime) GetGlobalTable(name string) interface{} {
 
 // SetMainLuaCode sets the main.lua code to execute for each new session.
 // Used when loading from bundle where filesystem access is not available.
-func (r *Runtime) SetMainLuaCode(code string) {
+func (r *LuaSession) SetMainLuaCode(code string) {
 	r.mainLuaCode = code
 }
 
@@ -253,20 +246,18 @@ func (s *LuaSession) CreateLuaSession(vendedID string) (*LuaSession, error) {
 	s.variableStore.CreateSession(vendedID, resolver)
 
 	_, err := s.execute(func() (interface{}, error) {
-		L := s.State
-
 		// Create session table for this frontend session
-		sessionTable := s.createSessionTable(L, vendedID)
+		sessionTable := s.createSessionTable(vendedID)
 
 		// Initialize session-specific fields on self
 		s.ID = vendedID
 		s.sessionTable = sessionTable
 
 		// Set session global
-		L.SetGlobal("session", sessionTable)
+		s.State.SetGlobal("session", sessionTable)
 
 		// Load main.lua for this session
-		if err := s.loadMainLua(L); err != nil {
+		if err := s.loadMainLua(); err != nil {
 			s.variableStore.DestroySession(vendedID)
 			return nil, err
 		}
@@ -284,13 +275,13 @@ func (s *LuaSession) CreateLuaSession(vendedID string) (*LuaSession, error) {
 // loadMainLua loads main.lua from filesystem or cached bundle code.
 // Registers the file in loadedModules for hot-reload tracking.
 // Uses ComputeTrackingKey to handle symlinks correctly.
-func (r *Runtime) loadMainLua(L *lua.LState) error {
+func (r *LuaSession) loadMainLua() error {
 	// Try cached bundle code first
 	if r.mainLuaCode != "" {
 		// Mark as loaded for hot-reload tracking
-		L.SetField(r.loadedModules, "main.lua", lua.LTrue)
-		if err := L.DoString(r.mainLuaCode); err != nil {
-			L.SetField(r.loadedModules, "main.lua", lua.LNil) // Unmark on error
+		r.State.SetField(r.loadedModules, "main.lua", lua.LTrue)
+		if err := r.State.DoString(r.mainLuaCode); err != nil {
+			r.State.SetField(r.loadedModules, "main.lua", lua.LNil) // Unmark on error
 			return fmt.Errorf("failed to execute main.lua: %w", err)
 		}
 		return nil
@@ -307,9 +298,9 @@ func (r *Runtime) loadMainLua(L *lua.LState) error {
 			}
 		}
 		// Mark as loaded for hot-reload tracking
-		L.SetField(r.loadedModules, trackingKey, lua.LTrue)
-		if err := L.DoFile(mainPath); err != nil {
-			L.SetField(r.loadedModules, trackingKey, lua.LNil) // Unmark on error
+		r.State.SetField(r.loadedModules, trackingKey, lua.LTrue)
+		if err := r.State.DoFile(mainPath); err != nil {
+			r.State.SetField(r.loadedModules, trackingKey, lua.LNil) // Unmark on error
 			return fmt.Errorf("failed to load main.lua: %w", err)
 		}
 		return nil
@@ -322,13 +313,13 @@ func (r *Runtime) loadMainLua(L *lua.LState) error {
 
 // DestroyLuaSession cleans up a Lua session.
 // Note: The actual Lua state cleanup is handled by Server calling Shutdown().
-func (r *Runtime) DestroyLuaSession(vendedID string) {
+func (r *LuaSession) DestroyLuaSession(vendedID string) {
 	r.Log(2, "LuaRuntime: destroyed Lua session %s", vendedID)
 }
 
 // GetLuaSession returns this session if the vendedID matches.
 // With per-session isolation, each LuaSession IS the session.
-func (r *Runtime) GetLuaSession(vendedID string) (*LuaSession, bool) {
+func (r *LuaSession) GetLuaSession(vendedID string) (*LuaSession, bool) {
 	if r.ID == vendedID {
 		return r, true
 	}
@@ -338,70 +329,70 @@ func (r *Runtime) GetLuaSession(vendedID string) (*LuaSession, bool) {
 // createSessionTable creates the session object using lib/lua/session.lua module.
 // Falls back to inline creation if module not loaded (for testing).
 // vendedID is the compact session ID (e.g., "1", "2") exposed to Lua code.
-func (r *Runtime) createSessionTable(L *lua.LState, vendedID string) *lua.LTable {
+func (r *LuaSession) createSessionTable(vendedID string) *lua.LTable {
 	// Get Session class from loaded module
-	sessionModule := L.GetGlobal("_SessionModule")
+	sessionModule := r.State.GetGlobal("_SessionModule")
 	var session *lua.LTable
 
 	if sessionModule != lua.LNil {
 		// Use session module
 		sessionModTbl := sessionModule.(*lua.LTable)
-		SessionClass := L.GetField(sessionModTbl, "Session").(*lua.LTable)
+		SessionClass := r.State.GetField(sessionModTbl, "Session").(*lua.LTable)
 
 		// Call Session.new() to create session instance (no backend = embedded mode)
-		L.Push(L.GetField(SessionClass, "new"))
-		L.Push(SessionClass)
-		if err := L.PCall(1, 1, nil); err != nil {
+		r.State.Push(r.State.GetField(SessionClass, "new"))
+		r.State.Push(SessionClass)
+		if err := r.State.PCall(1, 1, nil); err != nil {
 			r.Log(0, "Session.new() failed: %v", err)
-			session = r.createFallbackSessionTable(L, vendedID)
+			session = r.createFallbackSessionTable(vendedID)
 		} else {
-			session = L.Get(-1).(*lua.LTable)
-			L.Pop(1)
+			session = r.State.Get(-1).(*lua.LTable)
+			r.State.Pop(1)
 		}
 	} else {
 		// Fallback for tests - create minimal session table
-		session = r.createFallbackSessionTable(L, vendedID)
+		session = r.createFallbackSessionTable(vendedID)
 	}
 
 	// Store session ID
-	L.SetField(session, "_sessionID", lua.LString(vendedID))
+	r.State.SetField(session, "_sessionID", lua.LString(vendedID))
 
 	// Initialize reloading flag (used by hot-loader)
-	L.SetField(session, "reloading", lua.LFalse)
+	r.State.SetField(session, "reloading", lua.LFalse)
 
 	// Inject Go functions (only if module-based session)
 	if sessionModule != lua.LNil {
-		r.injectSessionFunctions(L, session, vendedID)
+		r.injectSessionFunctions(session, vendedID)
 	}
 
 	// Add Go-specific methods that need access to Go structs
-	r.addGoSessionMethods(L, session, vendedID)
+	r.addGoSessionMethods(session, vendedID)
 
 	return session
 }
 
 // createFallbackSessionTable creates a minimal session table for testing when module not loaded.
-func (r *Runtime) createFallbackSessionTable(L *lua.LState, vendedID string) *lua.LTable {
-	session := L.NewTable()
-	L.SetField(session, "_variables", L.NewTable())
-	L.SetField(session, "_watchers", L.NewTable())
+func (r *LuaSession) createFallbackSessionTable(vendedID string) *lua.LTable {
+	session := r.State.NewTable()
+	r.State.SetField(session, "_variables", r.State.NewTable())
+	r.State.SetField(session, "_watchers", r.State.NewTable())
 	// Create weak-keyed _objectToId table
-	objectToId := L.NewTable()
-	mt := L.NewTable()
-	L.SetField(mt, "__mode", lua.LString("k"))
-	L.SetMetatable(objectToId, mt)
-	L.SetField(session, "_objectToId", objectToId)
+	objectToId := r.State.NewTable()
+	mt := r.State.NewTable()
+	r.State.SetField(mt, "__mode", lua.LString("k"))
+	r.State.SetMetatable(objectToId, mt)
+	r.State.SetField(session, "_objectToId", objectToId)
 	return session
 }
 
 // injectSessionFunctions injects Go backend functions into a Lua session.
-func (r *Runtime) injectSessionFunctions(L *lua.LState, session *lua.LTable, vendedID string) {
+func (r *LuaSession) injectSessionFunctions(session *lua.LTable, vendedID string) {
 	// _setGetValueFn - get variable value
-	setGetValueFn := L.GetField(session, "_setGetValueFn")
+	setGetValueFn := r.State.GetField(session, "_setGetValueFn")
 	if setGetValueFn != lua.LNil {
-		L.Push(setGetValueFn)
-		L.Push(session)
-		L.Push(L.NewFunction(func(L *lua.LState) int {
+		r.State.Push(setGetValueFn)
+		r.State.Push(session)
+		r.State.Push(r.State.NewFunction(func(L *lua.LState) int {
 			id := L.CheckInt64(1)
 			value, _, ok := r.variableStore.Get(id)
 			if !ok {
@@ -412,18 +403,18 @@ func (r *Runtime) injectSessionFunctions(L *lua.LState, session *lua.LTable, ven
 			if len(value) > 0 {
 				json.Unmarshal(value, &goVal)
 			}
-			L.Push(r.goToLua(L, goVal))
+			L.Push(r.GoToLua(goVal))
 			return 1
 		}))
-		L.PCall(2, 0, nil)
+		r.State.PCall(2, 0, nil)
 	}
 
 	// _setGetPropertyFn - get variable property
-	setGetPropertyFn := L.GetField(session, "_setGetPropertyFn")
+	setGetPropertyFn := r.State.GetField(session, "_setGetPropertyFn")
 	if setGetPropertyFn != lua.LNil {
-		L.Push(setGetPropertyFn)
-		L.Push(session)
-		L.Push(L.NewFunction(func(L *lua.LState) int {
+		r.State.Push(setGetPropertyFn)
+		r.State.Push(session)
+		r.State.Push(r.State.NewFunction(func(L *lua.LState) int {
 			id := L.CheckInt64(1)
 			name := L.CheckString(2)
 			prop, ok := r.variableStore.GetProperty(id, name)
@@ -434,15 +425,15 @@ func (r *Runtime) injectSessionFunctions(L *lua.LState, session *lua.LTable, ven
 			L.Push(lua.LString(prop))
 			return 1
 		}))
-		L.PCall(2, 0, nil)
+		r.State.PCall(2, 0, nil)
 	}
 
 	// _setCreateFn - create variable (basic version, used by session.lua createVariable)
-	setCreateFn := L.GetField(session, "_setCreateFn")
+	setCreateFn := r.State.GetField(session, "_setCreateFn")
 	if setCreateFn != lua.LNil {
-		L.Push(setCreateFn)
-		L.Push(session)
-		L.Push(L.NewFunction(func(L *lua.LState) int {
+		r.State.Push(setCreateFn)
+		r.State.Push(session)
+		r.State.Push(r.State.NewFunction(func(L *lua.LState) int {
 			parentID := L.CheckInt64(1)
 			luaObject := L.CheckTable(2)
 			propsTable := L.OptTable(3, nil)
@@ -457,7 +448,7 @@ func (r *Runtime) injectSessionFunctions(L *lua.LState, session *lua.LTable, ven
 			}
 
 			// Extract type from metatable (frictionless convention)
-			r.extractTypeProperty(L, luaObject, props)
+			r.extractTypeProperty(luaObject, props)
 
 			id, err := r.variableStore.CreateVariable(vendedID, parentID, luaObject, props)
 			if err != nil {
@@ -467,15 +458,15 @@ func (r *Runtime) injectSessionFunctions(L *lua.LState, session *lua.LTable, ven
 			L.Push(lua.LNumber(id))
 			return 1
 		}))
-		L.PCall(2, 0, nil)
+		r.State.PCall(2, 0, nil)
 	}
 
 	// _setUpdateFn - update variable
-	setUpdateFn := L.GetField(session, "_setUpdateFn")
+	setUpdateFn := r.State.GetField(session, "_setUpdateFn")
 	if setUpdateFn != lua.LNil {
-		L.Push(setUpdateFn)
-		L.Push(session)
-		L.Push(L.NewFunction(func(L *lua.LState) int {
+		r.State.Push(setUpdateFn)
+		r.State.Push(session)
+		r.State.Push(r.State.NewFunction(func(L *lua.LState) int {
 			id := L.CheckInt64(1)
 			value := L.Get(2)
 			propsTable := L.OptTable(3, nil)
@@ -502,27 +493,27 @@ func (r *Runtime) injectSessionFunctions(L *lua.LState, session *lua.LTable, ven
 			r.variableStore.Update(id, jsonValue, props)
 			return 0
 		}))
-		L.PCall(2, 0, nil)
+		r.State.PCall(2, 0, nil)
 	}
 
 	// _setDestroyFn - destroy variable
-	setDestroyFn := L.GetField(session, "_setDestroyFn")
+	setDestroyFn := r.State.GetField(session, "_setDestroyFn")
 	if setDestroyFn != lua.LNil {
-		L.Push(setDestroyFn)
-		L.Push(session)
-		L.Push(L.NewFunction(func(L *lua.LState) int {
+		r.State.Push(setDestroyFn)
+		r.State.Push(session)
+		r.State.Push(r.State.NewFunction(func(L *lua.LState) int {
 			id := L.CheckInt64(1)
 			r.variableStore.Destroy(id)
 			return 0
 		}))
-		L.PCall(2, 0, nil)
+		r.State.PCall(2, 0, nil)
 	}
 }
 
 // addGoSessionMethods adds Go-specific methods that need access to Go structs.
-func (r *Runtime) addGoSessionMethods(L *lua.LState, session *lua.LTable, vendedID string) {
+func (r *LuaSession) addGoSessionMethods(session *lua.LTable, vendedID string) {
 	// createAppVariable - creates variable 1 and stores reference in Go struct
-	L.SetField(session, "createAppVariable", L.NewFunction(func(L *lua.LState) int {
+	r.State.SetField(session, "createAppVariable", r.State.NewFunction(func(L *lua.LState) int {
 		luaObject := L.CheckTable(2)
 		propsTable := L.OptTable(3, nil)
 
@@ -535,7 +526,7 @@ func (r *Runtime) addGoSessionMethods(L *lua.LState, session *lua.LTable, vended
 			})
 		}
 
-		r.extractTypeProperty(L, luaObject, props)
+		r.extractTypeProperty(luaObject, props)
 
 		// Create app variable (parentID 0)
 		id, err := r.variableStore.CreateVariable(vendedID, 0, luaObject, props)
@@ -570,7 +561,7 @@ func (r *Runtime) addGoSessionMethods(L *lua.LState, session *lua.LTable, vended
 	}))
 
 	// getApp - returns the Lua app object directly (not a wrapper)
-	L.SetField(session, "getApp", L.NewFunction(func(L *lua.LState) int {
+	r.State.SetField(session, "getApp", r.State.NewFunction(func(L *lua.LState) int {
 		luaSess, ok := r.GetLuaSession(vendedID)
 		if !ok || luaSess.appObject == nil {
 			L.Push(lua.LNil)
@@ -581,7 +572,7 @@ func (r *Runtime) addGoSessionMethods(L *lua.LState, session *lua.LTable, vended
 	}))
 
 	// Override createVariable to support parent lookup by object reference
-	L.SetField(session, "createVariable", L.NewFunction(func(L *lua.LState) int {
+	r.State.SetField(session, "createVariable", r.State.NewFunction(func(L *lua.LState) int {
 		var parentID int64
 		parentArg := L.Get(2)
 		switch p := parentArg.(type) {
@@ -619,7 +610,7 @@ func (r *Runtime) addGoSessionMethods(L *lua.LState, session *lua.LTable, vended
 			})
 		}
 
-		r.extractTypeProperty(L, luaObject, props)
+		r.extractTypeProperty(luaObject, props)
 
 		id, err := r.variableStore.CreateVariable(vendedID, parentID, luaObject, props)
 		if err != nil {
@@ -638,7 +629,7 @@ func (r *Runtime) addGoSessionMethods(L *lua.LState, session *lua.LTable, vended
 	}))
 
 	// Override destroyVariable to support object reference lookup
-	L.SetField(session, "destroyVariable", L.NewFunction(func(L *lua.LState) int {
+	r.State.SetField(session, "destroyVariable", r.State.NewFunction(func(L *lua.LState) int {
 		var id int64
 		arg := L.Get(2)
 		switch v := arg.(type) {
@@ -674,7 +665,7 @@ func (r *Runtime) addGoSessionMethods(L *lua.LState, session *lua.LTable, vended
 	}))
 
 	// newVersion - increment mutation version for hot-loading schema migrations
-	L.SetField(session, "newVersion", L.NewFunction(func(L *lua.LState) int {
+	r.State.SetField(session, "newVersion", r.State.NewFunction(func(L *lua.LState) int {
 		luaSess, ok := r.GetLuaSession(vendedID)
 		if !ok {
 			L.Push(lua.LNumber(0))
@@ -686,7 +677,7 @@ func (r *Runtime) addGoSessionMethods(L *lua.LState, session *lua.LTable, vended
 	}))
 
 	// getVersion - get current mutation version
-	L.SetField(session, "getVersion", L.NewFunction(func(L *lua.LState) int {
+	r.State.SetField(session, "getVersion", r.State.NewFunction(func(L *lua.LState) int {
 		luaSess, ok := r.GetLuaSession(vendedID)
 		if !ok {
 			L.Push(lua.LNumber(0))
@@ -698,7 +689,7 @@ func (r *Runtime) addGoSessionMethods(L *lua.LState, session *lua.LTable, vended
 
 	// needsMutation - check if object needs migration (obj._mutationVersion < session version)
 	// DEPRECATED: Use session:prototype() for automatic mutation instead
-	L.SetField(session, "needsMutation", L.NewFunction(func(L *lua.LState) int {
+	r.State.SetField(session, "needsMutation", r.State.NewFunction(func(L *lua.LState) int {
 		obj := L.CheckTable(2)
 
 		luaSess, ok := r.GetLuaSession(vendedID)
@@ -721,7 +712,7 @@ func (r *Runtime) addGoSessionMethods(L *lua.LState, session *lua.LTable, vended
 
 	// prototype - declare/update a prototype with instance field tracking
 	// session:prototype(name, init, base) -> prototype table
-	L.SetField(session, "prototype", L.NewFunction(func(L *lua.LState) int {
+	r.State.SetField(session, "prototype", r.State.NewFunction(func(L *lua.LState) int {
 		name := L.CheckString(2)
 		var init *lua.LTable
 		if L.GetTop() >= 3 && L.Get(3) != lua.LNil {
@@ -738,14 +729,14 @@ func (r *Runtime) addGoSessionMethods(L *lua.LState, session *lua.LTable, vended
 			return 1
 		}
 
-		prototype := luaSess.prototypeImpl(L, name, init, base)
+		prototype := luaSess.prototypeImpl(name, init, base)
 		L.Push(prototype)
 		return 1
 	}))
 
 	// create - create a tracked instance with weak reference
 	// session:create(prototype, instance) -> instance table
-	L.SetField(session, "create", L.NewFunction(func(L *lua.LState) int {
+	r.State.SetField(session, "create", r.State.NewFunction(func(L *lua.LState) int {
 		prototype := L.CheckTable(2)
 		var instance *lua.LTable
 		if L.GetTop() >= 3 && L.Get(3) != lua.LNil {
@@ -760,7 +751,7 @@ func (r *Runtime) addGoSessionMethods(L *lua.LState, session *lua.LTable, vended
 			return 1
 		}
 
-		luaSess.createInstance(L, prototype, instance)
+		luaSess.createInstance(prototype, instance)
 		L.Push(instance)
 		return 1
 	}))
@@ -768,7 +759,7 @@ func (r *Runtime) addGoSessionMethods(L *lua.LState, session *lua.LTable, vended
 	// removePrototype - remove a prototype from the registry
 	// session:removePrototype(name, children) -> nil
 	// CRC: crc-LuaSession.md
-	L.SetField(session, "removePrototype", L.NewFunction(func(L *lua.LState) int {
+	r.State.SetField(session, "removePrototype", r.State.NewFunction(func(L *lua.LState) int {
 		name := L.CheckString(2)
 		children := false
 		if L.GetTop() >= 3 {
@@ -785,7 +776,7 @@ func (r *Runtime) addGoSessionMethods(L *lua.LState, session *lua.LTable, vended
 	// unloadModule - remove all tracking related to a module
 	// session:unloadModule(moduleName) -> nil
 	// Seq: seq-unload-module.md
-	L.SetField(session, "unloadModule", L.NewFunction(func(L *lua.LState) int {
+	r.State.SetField(session, "unloadModule", r.State.NewFunction(func(L *lua.LState) int {
 		moduleName := L.CheckString(2)
 
 		luaSess, ok := r.GetLuaSession(vendedID)
@@ -798,7 +789,7 @@ func (r *Runtime) addGoSessionMethods(L *lua.LState, session *lua.LTable, vended
 	// unloadDirectory - unload all modules in a directory
 	// session:unloadDirectory(dirPath) -> nil
 	// Seq: seq-unload-module.md
-	L.SetField(session, "unloadDirectory", L.NewFunction(func(L *lua.LState) int {
+	r.State.SetField(session, "unloadDirectory", r.State.NewFunction(func(L *lua.LState) int {
 		dirPath := L.CheckString(2)
 
 		luaSess, ok := r.GetLuaSession(vendedID)
@@ -814,8 +805,8 @@ func (r *Runtime) addGoSessionMethods(L *lua.LState, session *lua.LTable, vended
 // Uses prototypeRegistry for lookup (not Lua globals), enabling dotted names like "contacts.Contact".
 // If base is nil, defaults to registered "Object" prototype (if exists).
 // Returns the prototype for the caller to assign to a global.
-func (r *Runtime) prototypeImpl(L *lua.LState, name string, init *lua.LTable, base *lua.LTable) *lua.LTable {
-	empty := L.GetGlobal("EMPTY")
+func (r *LuaSession) prototypeImpl(name string, init *lua.LTable, base *lua.LTable) *lua.LTable {
+	empty := r.State.GetGlobal("EMPTY")
 
 	// Resolve base prototype: use provided base, or default to "Object" if registered
 	if base == nil {
@@ -833,27 +824,27 @@ func (r *Runtime) prototypeImpl(L *lua.LState, name string, init *lua.LTable, ba
 		if init != nil {
 			prototype = init
 		} else {
-			prototype = L.NewTable()
+			prototype = r.State.NewTable()
 		}
 
 		// Set type and __index for instance method lookup
-		L.SetField(prototype, "type", lua.LString(name))
-		L.SetField(prototype, "__index", prototype)
+		r.State.SetField(prototype, "type", lua.LString(name))
+		r.State.SetField(prototype, "__index", prototype)
 
 		// Set up inheritance chain if base exists
 		if base != nil {
-			L.SetMetatable(prototype, base)
+			r.State.SetMetatable(prototype, base)
 		} else {
 			// Add default new method only if no base (base provides :new() via inheritance)
-			if L.GetField(prototype, "new") == lua.LNil {
-				L.SetField(prototype, "new", L.NewFunction(func(L *lua.LState) int {
+			if r.State.GetField(prototype, "new") == lua.LNil {
+				r.State.SetField(prototype, "new", r.State.NewFunction(func(L *lua.LState) int {
 					var instance *lua.LTable
 					if L.GetTop() >= 2 && L.Get(2) != lua.LNil {
 						instance = L.CheckTable(2)
 					} else {
 						instance = L.NewTable()
 					}
-					r.createInstance(L, prototype, instance)
+					r.createInstance(prototype, instance)
 					L.Push(instance)
 					return 1
 				}))
@@ -861,10 +852,10 @@ func (r *Runtime) prototypeImpl(L *lua.LState, name string, init *lua.LTable, ba
 		}
 
 		// Store shallow copy of init for change detection
-		storedInit := r.copyInitTable(L, init, empty)
+		storedInit := r.copyInitTable(init, empty)
 
 		// Remove EMPTY values from prototype (they should default to nil)
-		r.removeEmptyValues(L, prototype, empty)
+		r.removeEmptyValues(prototype, empty)
 
 		// Register prototype in registry
 		r.prototypeRegistry[name] = &prototypeInfo{
@@ -892,7 +883,7 @@ func (r *Runtime) prototypeImpl(L *lua.LState, name string, init *lua.LTable, ba
 	}
 
 	// Check if init differs from stored copy
-	newInit := r.copyInitTable(L, init, empty)
+	newInit := r.copyInitTable(init, empty)
 	if r.initTablesEqual(info.storedInit, newInit) {
 		return prototype
 	}
@@ -901,7 +892,7 @@ func (r *Runtime) prototypeImpl(L *lua.LState, name string, init *lua.LTable, ba
 	removedKeys := r.computeRemovedKeys(info.storedInit, newInit)
 
 	// Update prototype with new init values
-	r.updatePrototype(L, prototype, init, empty)
+	r.updatePrototype(prototype, init, empty)
 
 	// Store new init copy
 	info.storedInit = newInit
@@ -917,9 +908,9 @@ func (r *Runtime) prototypeImpl(L *lua.LState, name string, init *lua.LTable, ba
 
 // createInstance implements session:create(prototype, instance).
 // Sets metatable and registers instance for tracking with weak reference.
-func (r *Runtime) createInstance(L *lua.LState, prototype, instance *lua.LTable) {
+func (r *LuaSession) createInstance(prototype, instance *lua.LTable) {
 	// Set metatable to prototype
-	L.SetMetatable(instance, prototype)
+	r.State.SetMetatable(instance, prototype)
 
 	// Register instance for tracking with weak reference
 	weakInst := weakInstance{ptr: weak.Make(instance)}
@@ -928,7 +919,7 @@ func (r *Runtime) createInstance(L *lua.LState, prototype, instance *lua.LTable)
 
 // copyInitTable creates a shallow copy of init table for change detection.
 // Preserves EMPTY markers in the copy.
-func (r *Runtime) copyInitTable(L *lua.LState, init *lua.LTable, empty lua.LValue) map[string]lua.LValue {
+func (r *LuaSession) copyInitTable(init *lua.LTable, empty lua.LValue) map[string]lua.LValue {
 	result := make(map[string]lua.LValue)
 	if init == nil {
 		return result
@@ -948,7 +939,7 @@ func (r *Runtime) copyInitTable(L *lua.LState, init *lua.LTable, empty lua.LValu
 }
 
 // removeEmptyValues removes EMPTY marker values from a table (they should default to nil).
-func (r *Runtime) removeEmptyValues(L *lua.LState, tbl *lua.LTable, empty lua.LValue) {
+func (r *LuaSession) removeEmptyValues(tbl *lua.LTable, empty lua.LValue) {
 	var keysToRemove []lua.LValue
 	tbl.ForEach(func(key, value lua.LValue) {
 		if value == empty {
@@ -956,12 +947,12 @@ func (r *Runtime) removeEmptyValues(L *lua.LState, tbl *lua.LTable, empty lua.LV
 		}
 	})
 	for _, key := range keysToRemove {
-		L.SetTable(tbl, key, lua.LNil)
+		r.State.SetTable(tbl, key, lua.LNil)
 	}
 }
 
 // initTablesEqual compares two init table copies for equality.
-func (r *Runtime) initTablesEqual(a, b map[string]lua.LValue) bool {
+func (r *LuaSession) initTablesEqual(a, b map[string]lua.LValue) bool {
 	if len(a) != len(b) {
 		return false
 	}
@@ -979,7 +970,7 @@ func (r *Runtime) initTablesEqual(a, b map[string]lua.LValue) bool {
 }
 
 // computeRemovedKeys returns keys present in old but not in new.
-func (r *Runtime) computeRemovedKeys(old, new map[string]lua.LValue) []string {
+func (r *LuaSession) computeRemovedKeys(old, new map[string]lua.LValue) []string {
 	var removed []string
 	for key := range old {
 		if _, exists := new[key]; !exists {
@@ -990,7 +981,7 @@ func (r *Runtime) computeRemovedKeys(old, new map[string]lua.LValue) []string {
 }
 
 // updatePrototype updates an existing prototype with new init values.
-func (r *Runtime) updatePrototype(L *lua.LState, prototype, init *lua.LTable, empty lua.LValue) {
+func (r *LuaSession) updatePrototype(prototype, init *lua.LTable, empty lua.LValue) {
 	init.ForEach(func(key, value lua.LValue) {
 		if keyStr, ok := key.(lua.LString); ok {
 			keyName := string(keyStr)
@@ -1000,9 +991,9 @@ func (r *Runtime) updatePrototype(L *lua.LState, prototype, init *lua.LTable, em
 			}
 			// Set value (or nil if EMPTY)
 			if value == empty {
-				L.SetField(prototype, keyName, lua.LNil)
+				r.State.SetField(prototype, keyName, lua.LNil)
 			} else {
-				L.SetField(prototype, keyName, value)
+				r.State.SetField(prototype, keyName, value)
 			}
 		}
 	})
@@ -1010,7 +1001,7 @@ func (r *Runtime) updatePrototype(L *lua.LState, prototype, init *lua.LTable, em
 
 // ProcessMutationQueue processes queued prototypes after file load.
 // Called after LoadCode completes. Uses executor for thread safety.
-func (r *Runtime) ProcessMutationQueue() {
+func (r *LuaSession) ProcessMutationQueue() {
 	if len(r.mutationQueue) == 0 {
 		return
 	}
@@ -1023,15 +1014,13 @@ func (r *Runtime) ProcessMutationQueue() {
 
 // processMutationQueueDirect processes mutations without executor wrapping.
 // MUST only be called from within an execute() context.
-func (r *Runtime) processMutationQueueDirect() {
+func (r *LuaSession) processMutationQueueDirect() {
 	if len(r.mutationQueue) == 0 {
 		return
 	}
 
-	L := r.State
-
 	for _, entry := range r.mutationQueue {
-		r.processMutationEntry(L, entry)
+		r.processMutationEntry(entry)
 	}
 
 	// Clear the queue
@@ -1039,7 +1028,7 @@ func (r *Runtime) processMutationQueueDirect() {
 }
 
 // processMutationEntry processes a single mutation entry.
-func (r *Runtime) processMutationEntry(L *lua.LState, entry mutationEntry) {
+func (r *LuaSession) processMutationEntry(entry mutationEntry) {
 	prototype := entry.prototype
 	removedKeys := entry.removedKeys
 
@@ -1056,7 +1045,7 @@ func (r *Runtime) processMutationEntry(L *lua.LState, entry mutationEntry) {
 	r.instanceRegistry[prototype] = weakInstances
 
 	// Check if prototype has a mutate method
-	mutateMethod := L.GetField(prototype, "mutate")
+	mutateMethod := r.State.GetField(prototype, "mutate")
 	hasMutate := mutateMethod != lua.LNil && mutateMethod.Type() == lua.LTFunction
 
 	// Process each live instance
@@ -1064,19 +1053,19 @@ func (r *Runtime) processMutationEntry(L *lua.LState, entry mutationEntry) {
 		instance := weakInstances[i].ptr.Value()
 		// Call mutate method if exists (wrapped in pcall for error isolation)
 		if hasMutate {
-			err := L.CallByParam(lua.P{
+			err := r.State.CallByParam(lua.P{
 				Fn:      mutateMethod,
 				NRet:    0,
 				Protect: true,
 			}, instance)
 			if err != nil {
-				r.Log(1, "LuaRuntime: mutate error for %v: %v", GetType(L, prototype), err)
+				r.Log(1, "LuaRuntime: mutate error for %v: %v", GetType(r.State, prototype), err)
 			}
 		}
 
 		// Nil out removed fields
 		for _, key := range removedKeys {
-			L.SetField(instance, key, lua.LNil)
+			r.State.SetField(instance, key, lua.LNil)
 		}
 	}
 }
@@ -1084,7 +1073,7 @@ func (r *Runtime) processMutationEntry(L *lua.LState, entry mutationEntry) {
 // RemovePrototype removes a prototype from the registry.
 // If children is true, also removes prototypes whose name starts with "name." (dot-separated children).
 // CRC: crc-LuaSession.md
-func (r *Runtime) RemovePrototype(name string, children bool) {
+func (r *LuaSession) RemovePrototype(name string, children bool) {
 	if info, exists := r.prototypeRegistry[name]; exists {
 		delete(r.instanceRegistry, info.prototype)
 		delete(r.prototypeRegistry, name)
@@ -1104,14 +1093,14 @@ func (r *Runtime) RemovePrototype(name string, children bool) {
 }
 
 // SetHotLoaderCleanup sets the callback for cleaning up HotLoader state during unload.
-func (r *Runtime) SetHotLoaderCleanup(cleanup func(path string)) {
+func (r *LuaSession) SetHotLoaderCleanup(cleanup func(path string)) {
 	r.hotLoaderCleanup = cleanup
 }
 
 // UnloadModule removes all tracking related to a module.
 // This removes prototypes, presenter types, wrappers, and loadedModules entry.
 // It also cleans up HotLoader state via the cleanup callback.
-func (r *Runtime) UnloadModule(moduleName string) {
+func (r *LuaSession) UnloadModule(moduleName string) {
 	module, exists := r.modules[moduleName]
 	if !exists {
 		return
@@ -1161,7 +1150,7 @@ func (r *Runtime) UnloadModule(moduleName string) {
 }
 
 // UnloadDirectory unloads all modules in a directory and cleans up HotLoader state.
-func (r *Runtime) UnloadDirectory(dirPath string) {
+func (r *LuaSession) UnloadDirectory(dirPath string) {
 	modules, exists := r.moduleDirectories[dirPath]
 	if !exists {
 		return
@@ -1188,7 +1177,7 @@ func (r *Runtime) UnloadDirectory(dirPath string) {
 }
 
 // SetCurrentModule sets the module being loaded for resource tracking.
-func (r *Runtime) SetCurrentModule(trackingKey, directory string) {
+func (r *LuaSession) SetCurrentModule(trackingKey, directory string) {
 	module := NewModule(trackingKey, directory)
 	r.modules[trackingKey] = module
 	r.moduleDirectories[directory] = append(r.moduleDirectories[directory], module)
@@ -1196,20 +1185,20 @@ func (r *Runtime) SetCurrentModule(trackingKey, directory string) {
 }
 
 // ClearCurrentModule clears the current module after load completes.
-func (r *Runtime) ClearCurrentModule() {
+func (r *LuaSession) ClearCurrentModule() {
 	r.currentModule = nil
 }
 
 // GetCurrentModule returns the module currently being loaded, if any.
-func (r *Runtime) GetCurrentModule() *Module {
+func (r *LuaSession) GetCurrentModule() *Module {
 	return r.currentModule
 }
 
 // extractTypeProperty extracts type from metatable or direct field (frictionless convention).
-func (r *Runtime) extractTypeProperty(L *lua.LState, obj any, props map[string]string) {
+func (r *LuaSession) extractTypeProperty(obj any, props map[string]string) {
 	if props["type"] != "" {
 		return
-	} else if typ := GetType(L, obj); typ != "" {
+	} else if typ := GetType(r.State, obj); typ != "" {
 		props["type"] = typ
 	}
 }
@@ -1217,52 +1206,51 @@ func (r *Runtime) extractTypeProperty(L *lua.LState, obj any, props map[string]s
 // NotifyPropertyChange notifies Lua watchers of a property change for a session.
 // Called by external code when a variable property changes.
 // vendedID is the compact session ID (e.g., "1", "2").
-func (r *Runtime) NotifyPropertyChange(vendedID string, varID int64, property string, value interface{}) {
+func (r *LuaSession) NotifyPropertyChange(vendedID string, varID int64, property string, value interface{}) {
 	if r.ID != vendedID || r.sessionTable == nil {
 		return
 	}
 
 	r.execute(func() (interface{}, error) {
-		L := r.State
-		r.notifyPropertyChangeInternal(L, r.sessionTable, varID, property, value)
+		r.notifyPropertyChangeInternal(varID, property, value)
 		return nil, nil
 	})
 }
 
 // notifyPropertyChangeInternal notifies watchers (must be called from executor).
-func (r *Runtime) notifyPropertyChangeInternal(L *lua.LState, session *lua.LTable, varID int64, property string, value interface{}) {
-	watchers := L.GetField(session, "_watchers").(*lua.LTable)
+func (r *LuaSession) notifyPropertyChangeInternal(varID int64, property string, value interface{}) {
+	watchers := r.State.GetField(r.sessionTable, "_watchers").(*lua.LTable)
 	key := fmt.Sprintf("%d", varID)
 
-	varWatchers := L.GetField(watchers, key)
+	varWatchers := r.State.GetField(watchers, key)
 	if varWatchers == lua.LNil {
 		return
 	}
 
-	luaValue := r.goToLua(L, value)
+	luaValue := r.GoToLua(value)
 
 	// Call property-specific watchers
-	propWatchers := L.GetField(varWatchers.(*lua.LTable), property)
+	propWatchers := r.State.GetField(varWatchers.(*lua.LTable), property)
 	if propWatchers != lua.LNil {
-		r.callWatchers(L, propWatchers.(*lua.LTable), luaValue)
+		r.callWatchers(propWatchers.(*lua.LTable), luaValue)
 	}
 
 	// Call wildcard watchers
-	wildcardWatchers := L.GetField(varWatchers.(*lua.LTable), "*")
+	wildcardWatchers := r.State.GetField(varWatchers.(*lua.LTable), "*")
 	if wildcardWatchers != lua.LNil {
-		r.callWatchers(L, wildcardWatchers.(*lua.LTable), luaValue, lua.LString(property))
+		r.callWatchers(wildcardWatchers.(*lua.LTable), luaValue, lua.LString(property))
 	}
 }
 
 // callWatchers calls all watcher callbacks in a table.
-func (r *Runtime) callWatchers(L *lua.LState, watchers *lua.LTable, args ...lua.LValue) {
+func (r *LuaSession) callWatchers(watchers *lua.LTable, args ...lua.LValue) {
 	watchers.ForEach(func(_, cb lua.LValue) {
 		if fn, ok := cb.(*lua.LFunction); ok {
-			L.Push(fn)
+			r.State.Push(fn)
 			for _, arg := range args {
-				L.Push(arg)
+				r.State.Push(arg)
 			}
-			if err := L.PCall(len(args), 0, nil); err != nil {
+			if err := r.State.PCall(len(args), 0, nil); err != nil {
 				r.Log(0, "Watcher callback error: %v", err)
 			}
 		}
@@ -1270,7 +1258,7 @@ func (r *Runtime) callWatchers(L *lua.LState, watchers *lua.LTable, args ...lua.
 }
 
 // startExecutor creates the goroutine that processes work items.
-func (r *Runtime) startExecutor() {
+func (r *LuaSession) startExecutor() {
 	go func() {
 		for {
 			select {
@@ -1285,7 +1273,7 @@ func (r *Runtime) startExecutor() {
 }
 
 // execute queues a function on the executor and blocks until complete.
-func (r *Runtime) execute(fn func() (interface{}, error)) (interface{}, error) {
+func (r *LuaSession) execute(fn func() (interface{}, error)) (interface{}, error) {
 	result := make(chan WorkResult, 1)
 	r.executorChan <- WorkItem{fn: fn, result: result}
 	res := <-result
@@ -1297,7 +1285,7 @@ func (r *Runtime) execute(fn func() (interface{}, error)) (interface{}, error) {
 // Spec: mcp.md
 // CRC: crc-LuaRuntime.md
 // Sequence: seq-mcp-run.md
-func (r *Runtime) ExecuteInSession(sessionID string, fn func() (interface{}, error)) (interface{}, error) {
+func (r *LuaSession) ExecuteInSession(sessionID string, fn func() (interface{}, error)) (interface{}, error) {
 	if r.ID != sessionID {
 		return nil, fmt.Errorf("session %s not found (this session is %s)", sessionID, r.ID)
 	}
@@ -1317,7 +1305,7 @@ func (r *Runtime) ExecuteInSession(sessionID string, fn func() (interface{}, err
 // It is used by the MCP server in Configured state.
 // Spec: mcp.md
 // CRC: crc-LuaRuntime.md
-func (r *Runtime) RedirectOutput(logPath, errPath string) error {
+func (r *LuaSession) RedirectOutput(logPath, errPath string) error {
 	// Create/Open log files
 	logFile, err := os.OpenFile(logPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 	if err != nil {
@@ -1374,14 +1362,14 @@ type VariableUpdate struct {
 	Properties map[string]string
 }
 
-func (r *Runtime) TriggerBatch() {
+func (r *LuaSession) TriggerBatch() {
 	r.batchTriggered = true
 }
 
 // AfterBatch triggers change detection for a session after processing a message batch.
 // Returns a list of variable updates that need to be sent to the frontend.
 // vendedID is the compact session ID (e.g., "1", "2").
-func (r *Runtime) AfterBatch(vendedID string) []VariableUpdate {
+func (r *LuaSession) AfterBatch(vendedID string) []VariableUpdate {
 	// Use tracker's DetectChanges
 	for range 4 {
 		if !r.variableStore.DetectChanges(vendedID) || !r.batchTriggered {
@@ -1494,7 +1482,7 @@ func (r *Runtime) AfterBatch(vendedID string) []VariableUpdate {
 // Spec: protocol.md - create(id, parentId, value, properties, nowatch?, unbound?)
 // The id is provided by the frontend (frontend-vended IDs).
 // Returns the resolved value (wrapped if applicable) and properties.
-func (r *Runtime) HandleFrontendCreate(sessionID string, id int64, parentID int64, properties map[string]string) error {
+func (r *LuaSession) HandleFrontendCreate(sessionID string, id int64, parentID int64, properties map[string]string) error {
 	path := properties["path"]
 	if path == "" {
 		return fmt.Errorf("HandleFrontendCreate: path property required")
@@ -1541,7 +1529,7 @@ func WrapTrackerVariable(session *LuaSession, v *changetracker.Variable) *Tracke
 // Updates the backend object via the variable's path using v.Set().
 // CRC: crc-LuaRuntime.md
 // Sequence: seq-relay-message.md
-func (r *Runtime) HandleFrontendUpdate(sessionID string, varID int64, value json.RawMessage) error {
+func (r *LuaSession) HandleFrontendUpdate(sessionID string, varID int64, value json.RawMessage) error {
 	tracker := r.variableStore.GetTracker(sessionID)
 	if tracker == nil {
 		return fmt.Errorf("session %s tracker not found", sessionID)
@@ -1574,7 +1562,7 @@ func (r *Runtime) HandleFrontendUpdate(sessionID string, varID int64, value json
 // Uses unified loadedModules table shared with hot-loader.
 // Handles circular dependencies by marking as loaded before executing.
 // Stores under both module name (for require lookups) and tracking key (for hot-reload).
-func (r *Runtime) registerRequire() {
+func (r *LuaSession) registerRequire() {
 	L := r.State
 	loaded := r.loadedModules // Use unified load tracker
 
@@ -1618,7 +1606,7 @@ func (r *Runtime) registerRequire() {
 }
 
 // registerUIModule adds the ui.* API to Lua.
-func (r *Runtime) registerUIModule() {
+func (r *LuaSession) registerUIModule() {
 	L := r.State
 
 	// Create ui module
@@ -1687,7 +1675,7 @@ func (r *Runtime) registerUIModule() {
 			L.Push(lua.LString(err.Error()))
 			return 2
 		}
-		L.Push(r.goToLua(L, val))
+		L.Push(r.GoToLua(val))
 		return 1
 	}))
 
@@ -1724,14 +1712,14 @@ func (r *Runtime) registerUIModule() {
 
 // LoadFile loads and executes a Lua file via executor (relative to luaDir).
 // Deprecated: Use RequireLuaFile for hot-reload compatible loading.
-func (r *Runtime) LoadFile(filename string) error {
+func (r *LuaSession) LoadFile(filename string) error {
 	path := filepath.Join(r.luaDir, filename)
 	return r.LoadFileAbsolute(path)
 }
 
 // LoadFileAbsolute loads and executes a Lua file via executor (absolute path).
 // Deprecated: Use RequireLuaFile for hot-reload compatible loading.
-func (r *Runtime) LoadFileAbsolute(path string) error {
+func (r *LuaSession) LoadFileAbsolute(path string) error {
 	_, err := r.execute(func() (interface{}, error) {
 		return nil, r.loadFileInternal(path)
 	})
@@ -1740,7 +1728,7 @@ func (r *Runtime) LoadFileAbsolute(path string) error {
 
 // loadFileInternal is the non-executor version used internally.
 // Uses unified load tracker with circularity handling.
-func (r *Runtime) loadFileInternal(path string) error {
+func (r *LuaSession) loadFileInternal(path string) error {
 	L := r.State
 	loaded := r.loadedModules
 
@@ -1766,7 +1754,7 @@ func (r *Runtime) loadFileInternal(path string) error {
 // The trackingKey should be a baseDir-relative path (e.g., "apps/myapp/app.lua").
 // Used by hot-loader to skip files not yet loaded.
 // CRC: crc-LuaSession.md
-func (r *Runtime) IsFileLoaded(trackingKey string) bool {
+func (r *LuaSession) IsFileLoaded(trackingKey string) bool {
 	var loaded bool
 	r.execute(func() (interface{}, error) {
 		loaded = r.State.GetField(r.loadedModules, trackingKey) != lua.LNil
@@ -1776,14 +1764,14 @@ func (r *Runtime) IsFileLoaded(trackingKey string) bool {
 }
 
 // BaseDir returns the site root directory from config.
-func (r *Runtime) BaseDir() string {
+func (r *LuaSession) BaseDir() string {
 	return r.config.Server.Dir
 }
 
 // RequireLuaFile loads a Lua file using the unified load tracker.
 // Skips if already loaded (like require()). Returns error if file not found or execution fails.
 // This is the preferred method for hot-reload compatible file loading.
-func (r *Runtime) RequireLuaFile(filename string) error {
+func (r *LuaSession) RequireLuaFile(filename string) error {
 	_, err := r.execute(func() (any, error) {
 		return r.DirectRequireLuaFile(filename)
 	})
@@ -1794,7 +1782,7 @@ func (r *Runtime) RequireLuaFile(filename string) error {
 // The filename can be relative to luaDir (e.g., "mcp.lua") or relative to baseDir
 // (e.g., "apps/myapp/init.lua"). Symlinks are resolved to compute the tracking key.
 // CRC: crc-LuaSession.md
-func (r *Runtime) DirectRequireLuaFile(filename string) (lua.LValue, error) {
+func (r *LuaSession) DirectRequireLuaFile(filename string) (lua.LValue, error) {
 	L := r.State
 	loaded := r.loadedModules
 
@@ -1880,7 +1868,7 @@ func (r *Runtime) DirectRequireLuaFile(filename string) (lua.LValue, error) {
 
 // ComputeTrackingKey computes a baseDir-relative tracking key for a file.
 // Symlinks are resolved to get the actual target path.
-// This is a package-level function used by both Runtime and HotLoader.
+// This is a package-level function used by both LuaSession and HotLoader.
 // CRC: crc-LuaSession.md
 func ComputeTrackingKey(baseDir, absPath string) (string, error) {
 	// Resolve symlinks to get the actual target path
@@ -1899,7 +1887,7 @@ func ComputeTrackingKey(baseDir, absPath string) (string, error) {
 
 // SetReloading sets the session.reloading flag.
 // Called by hot-loader before/after reloading files.
-func (r *Runtime) SetReloading(reloading bool) {
+func (r *LuaSession) SetReloading(reloading bool) {
 	r.execute(func() (interface{}, error) {
 		if r.sessionTable != nil {
 			if reloading {
@@ -1917,7 +1905,7 @@ func (r *Runtime) SetReloading(reloading bool) {
 // After execution, processes any queued prototype mutations.
 // Spec: mcp.md, libraries.md
 // CRC: crc-LuaRuntime.md, crc-LuaSession.md
-func (r *Runtime) LoadCode(name, code string) (interface{}, error) {
+func (r *LuaSession) LoadCode(name, code string) (interface{}, error) {
 	return r.execute(func() (interface{}, error) {
 		// Load the string into a function
 		fn, err := r.State.LoadString(code)
@@ -1953,7 +1941,7 @@ func (r *Runtime) LoadCode(name, code string) (interface{}, error) {
 // Use this when already inside ExecuteInSession to avoid deadlock.
 // After execution, processes any queued prototype mutations.
 // MUST only be called from within an execute() context.
-func (r *Runtime) LoadCodeDirect(name, code string) (interface{}, error) {
+func (r *LuaSession) LoadCodeDirect(name, code string) (interface{}, error) {
 	// Load the string into a function
 	fn, err := r.State.LoadString(code)
 	if err != nil {
@@ -1984,7 +1972,7 @@ func (r *Runtime) LoadCodeDirect(name, code string) (interface{}, error) {
 }
 
 // GetPresenterType returns a registered presenter type.
-func (r *Runtime) GetPresenterType(name string) (*PresenterType, bool) {
+func (r *LuaSession) GetPresenterType(name string) (*PresenterType, bool) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	pt, ok := r.presenterTypes[name]
@@ -1992,7 +1980,7 @@ func (r *Runtime) GetPresenterType(name string) (*PresenterType, bool) {
 }
 
 // ListPresenterTypes returns all registered presenter type names.
-func (r *Runtime) ListPresenterTypes() []string {
+func (r *LuaSession) ListPresenterTypes() []string {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
@@ -2004,7 +1992,7 @@ func (r *Runtime) ListPresenterTypes() []string {
 }
 
 // CallMethod invokes a method on a Lua presenter instance via executor.
-func (r *Runtime) CallMethod(instance *lua.LTable, method string, args ...interface{}) (interface{}, error) {
+func (r *LuaSession) CallMethod(instance *lua.LTable, method string, args ...interface{}) (interface{}, error) {
 	return r.execute(func() (interface{}, error) {
 		L := r.State
 
@@ -2024,7 +2012,7 @@ func (r *Runtime) CallMethod(instance *lua.LTable, method string, args ...interf
 
 		// Push arguments
 		for _, arg := range args {
-			L.Push(r.goToLua(L, arg))
+			L.Push(r.GoToLua(arg))
 		}
 
 		// Call method (self + args)
@@ -2043,7 +2031,7 @@ func (r *Runtime) CallMethod(instance *lua.LTable, method string, args ...interf
 // CallLuaWrapperMethod invokes a method on a Lua wrapper table via executor.
 // Used by LuaWrapper to call computeValue and destroy methods.
 // The instance can be any interface{} but must be a *lua.LTable at runtime.
-func (r *Runtime) CallLuaWrapperMethod(instance interface{}, method string, args ...interface{}) (interface{}, error) {
+func (r *LuaSession) CallLuaWrapperMethod(instance interface{}, method string, args ...interface{}) (interface{}, error) {
 	tbl, ok := instance.(*lua.LTable)
 	if !ok {
 		return nil, fmt.Errorf("wrapper instance is not a Lua table")
@@ -2075,10 +2063,10 @@ func (r *Runtime) CallLuaWrapperMethod(instance interface{}, method string, args
 				if err := json.Unmarshal(raw, &val); err != nil {
 					L.Push(lua.LNil)
 				} else {
-					L.Push(r.goToLua(L, val))
+					L.Push(r.GoToLua(val))
 				}
 			} else {
-				L.Push(r.goToLua(L, arg))
+				L.Push(r.GoToLua(arg))
 			}
 		}
 
@@ -2096,7 +2084,7 @@ func (r *Runtime) CallLuaWrapperMethod(instance interface{}, method string, args
 }
 
 // CreateInstance creates a new instance of a presenter type via executor.
-func (r *Runtime) CreateInstance(typeName string, props map[string]interface{}) (*lua.LTable, error) {
+func (r *LuaSession) CreateInstance(typeName string, props map[string]interface{}) (*lua.LTable, error) {
 	result, err := r.execute(func() (interface{}, error) {
 		r.mu.RLock()
 		pt, ok := r.presenterTypes[typeName]
@@ -2118,7 +2106,7 @@ func (r *Runtime) CreateInstance(typeName string, props map[string]interface{}) 
 
 		// Set initial properties
 		for k, v := range props {
-			L.SetField(instance, k, r.goToLua(L, v))
+			L.SetField(instance, k, r.GoToLua(v))
 		}
 
 		// Call init method if exists
@@ -2150,7 +2138,7 @@ type ItemWrapperInstance struct {
 // CreateItemWrapper creates an ItemWrapper instance for a ViewListItem.
 // The ItemWrapper constructor receives the ViewListItem: ItemWrapper(viewListItem).
 // Returns nil if no itemType is specified or the type isn't registered.
-func (r *Runtime) CreateItemWrapper(typeName string, viewItem *ViewListItem) (*ItemWrapperInstance, error) {
+func (r *LuaSession) CreateItemWrapper(typeName string, viewItem *ViewListItem) (*ItemWrapperInstance, error) {
 	if typeName == "" {
 		return nil, nil
 	}
@@ -2192,7 +2180,7 @@ func (r *Runtime) CreateItemWrapper(typeName string, viewItem *ViewListItem) (*I
 
 		// Set ViewListItem properties on the instance
 		// The presenter can access: viewListItem.item, viewListItem.list, viewListItem.index
-		L.SetField(instance, "viewListItem", r.createViewListItemLuaWrapper(L, viewItem))
+		L.SetField(instance, "viewListItem", r.createViewListItemLuaWrapper(viewItem))
 
 		// Call init method if exists, passing the viewListItem
 		initFn := L.GetField(pt.Table, "init")
@@ -2221,27 +2209,27 @@ func (r *Runtime) CreateItemWrapper(typeName string, viewItem *ViewListItem) (*I
 }
 
 func (s *LuaSession) createLuaViewListItem(viewItem *ViewListItem) *lua.LTable {
-	return s.createViewListItemLuaWrapper(s.State, viewItem)
+	return s.createViewListItemLuaWrapper(viewItem)
 }
 
 // createViewListItemLuaWrapper creates a Lua wrapper for a ViewListItem.
-func (r *Runtime) createViewListItemLuaWrapper(L *lua.LState, viewItem *ViewListItem) *lua.LTable {
-	wrapper := L.NewTable()
+func (r *LuaSession) createViewListItemLuaWrapper(viewItem *ViewListItem) *lua.LTable {
+	wrapper := r.State.NewTable()
 
 	// viewListItem.item - the domain object
-	L.SetField(wrapper, "item", r.goToLua(L, viewItem.GetItem()))
+	r.State.SetField(wrapper, "item", r.GoToLua(viewItem.GetItem()))
 
 	// viewListItem.item - the domain object
-	L.SetField(wrapper, "baseItem", r.goToLua(L, viewItem.GetBaseItem()))
+	r.State.SetField(wrapper, "baseItem", r.GoToLua(viewItem.GetBaseItem()))
 
 	// viewListItem.index - position in list
-	L.SetField(wrapper, "index", lua.LNumber(viewItem.GetIndex()))
+	r.State.SetField(wrapper, "index", lua.LNumber(viewItem.GetIndex()))
 
 	return wrapper
 }
 
 // GetValue gets a value from a Lua table via executor.
-func (r *Runtime) GetValue(tbl *lua.LTable, key string) interface{} {
+func (r *LuaSession) GetValue(tbl *lua.LTable, key string) interface{} {
 	result, _ := r.execute(func() (interface{}, error) {
 		val := r.State.GetField(tbl, key)
 		return LuaToGo(val), nil
@@ -2250,15 +2238,15 @@ func (r *Runtime) GetValue(tbl *lua.LTable, key string) interface{} {
 }
 
 // SetValue sets a value on a Lua table via executor.
-func (r *Runtime) SetValue(tbl *lua.LTable, key string, value interface{}) {
+func (r *LuaSession) SetValue(tbl *lua.LTable, key string, value interface{}) {
 	r.execute(func() (interface{}, error) {
-		r.State.SetField(tbl, key, r.goToLua(r.State, value))
+		r.State.SetField(tbl, key, r.GoToLua(value))
 		return nil, nil
 	})
 }
 
 // Shutdown cleans up the Lua VM and stops executor.
-func (r *Runtime) Shutdown() {
+func (r *LuaSession) Shutdown() {
 	close(r.done)
 
 	r.mu.Lock()
@@ -2267,8 +2255,8 @@ func (r *Runtime) Shutdown() {
 	r.State.Close()
 }
 
-// goToLua converts a Go value to Lua.
-func (r *Runtime) goToLua(L *lua.LState, val any) lua.LValue {
+// GoToLua converts a Go value to Lua.
+func (r *LuaSession) GoToLua(val any) lua.LValue {
 	if val == nil {
 		return lua.LNil
 	}
@@ -2288,17 +2276,17 @@ func (r *Runtime) goToLua(L *lua.LState, val any) lua.LValue {
 	case string:
 		return lua.LString(v)
 	case *ViewListItem:
-		return r.createViewListItemLuaWrapper(L, v)
+		return r.createViewListItemLuaWrapper(v)
 	case []any:
-		tbl := L.NewTable()
+		tbl := r.State.NewTable()
 		for i, item := range v {
-			L.RawSetInt(tbl, i+1, r.goToLua(L, item))
+			r.State.RawSetInt(tbl, i+1, r.GoToLua(item))
 		}
 		return tbl
 	case map[string]interface{}:
-		tbl := L.NewTable()
+		tbl := r.State.NewTable()
 		for k, item := range v {
-			L.SetField(tbl, k, r.goToLua(L, item))
+			r.State.SetField(tbl, k, r.GoToLua(item))
 		}
 		return tbl
 	default:

@@ -13,7 +13,7 @@ import (
 // Re-export server types for MCP integration
 type (
 	Server         = server.Server
-	LuaRuntime     = lua.Runtime
+	LuaRuntime     = lua.LuaSession
 	ViewdefManager = viewdef.ViewdefManager
 	// Change-tracker types for variable inspection
 	Variable      = changetracker.Variable
