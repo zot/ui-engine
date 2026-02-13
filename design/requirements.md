@@ -59,6 +59,7 @@
 - **R38:** View destruction must clear any pending buffer timeout
 - **R50:** On re-render, obsolete elements must have their `id` attribute removed to prevent `getElementById` from finding stale elements
 - **R51:** View must filter internal CSS classes (`ui-view-*`, `ui-new-view`, `ui-obsolete-view`) from the captured `originalClass` to prevent class leakage between views
+- **R52:** View must apply originalClass and originalStyle to the first rendered element that is not a `<script>` or `<style>` element
 
 ## Feature: Server-to-Frontend Batching
 **Source:** specs/protocol.md

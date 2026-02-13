@@ -1,7 +1,7 @@
 # View
 
 **Source Spec:** viewdefs.md
-**Requirements:** R32, R33, R34, R35, R36, R37, R38, R50, R51
+**Requirements:** R32, R33, R34, R35, R36, R37, R38, R50, R51, R52
 
 ## Responsibilities
 
@@ -83,10 +83,10 @@ Views replace their element(s) in the DOM rather than adding children to a conta
 
 ### Class and Style Preservation
 
-The original `ui-view` element's `class` and `style` attributes are preserved and applied to the first rendered element:
+The original `ui-view` element's `class` and `style` attributes are preserved and applied to the first rendered element that is not a `<script>` or `<style>`:
 
 1. **Constructor captures:** When the View is created, it stores the original element's `class` and `style` attribute values, filtering out internal classes (`ui-view-*`, `ui-new-view`, `ui-obsolete-view`) to prevent class leakage between views
-2. **Render applies:**
+2. **Render applies** to the first non-script/style root element:
    - Classes are split and added individually to preserve any existing classes from the viewdef template
    - Style is merged with existing style (viewdef style first, original style appended with `;`)
 3. **Use case:** Allows styling the view container without modifying viewdef templates
@@ -95,7 +95,7 @@ The original `ui-view` element's `class` and `style` attributes are preserved an
 <!-- Original element -->
 <div ui-view="person" class="highlight" style="margin: 10px"></div>
 
-<!-- After render, first element has both viewdef classes AND original classes/style -->
+<!-- After render, first non-script/style element has both viewdef classes AND original classes/style -->
 <div id="ui-42" class="person-card highlight" style="padding: 5px; margin: 10px">...</div>
 ```
 

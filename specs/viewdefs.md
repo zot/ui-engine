@@ -478,9 +478,10 @@ The `address` view inherits `COMPACT` from the intermediate `<div>`, not from th
 
 **Class and style preservation:**
 
-The `class` and `style` attributes from the original `ui-view` element are preserved and applied to the first rendered element:
+The `class` and `style` attributes from the original `ui-view` element are preserved and applied to the first rendered element that is not a `<script>` or `<style>` element:
 - Classes are added individually (merged with viewdef template's classes)
 - Style is appended to any existing style from the viewdef template
+- `<script>` and `<style>` elements are skipped when finding the target element
 
 ```html
 <!-- Original -->

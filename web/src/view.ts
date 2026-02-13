@@ -274,20 +274,24 @@ export class View {
       rootElements[i].id = vendElementId();
     }
 
-    // Apply original class and style from ui-view element to first rendered element
-    if (this.originalClass) {
-      // Split and add each class individually to preserve existing classes
-      for (const cls of this.originalClass.split(/\s+/)) {
-        if (cls) rootElements[0].classList.add(cls);
+    // Apply original class and style to first non-script/style element
+    // CRC: crc-View.md | R52
+    const classStyleTarget = rootElements.find(
+      el => el.tagName !== 'SCRIPT' && el.tagName !== 'STYLE'
+    );
+    if (classStyleTarget) {
+      if (this.originalClass) {
+        for (const cls of this.originalClass.split(/\s+/)) {
+          if (cls) classStyleTarget.classList.add(cls);
+        }
       }
-    }
-    if (this.originalStyle) {
-      // Merge with existing style attribute
-      const existingStyle = rootElements[0].getAttribute('style') || '';
-      const merged = existingStyle
-        ? `${existingStyle}; ${this.originalStyle}`
-        : this.originalStyle;
-      rootElements[0].setAttribute('style', merged);
+      if (this.originalStyle) {
+        const existingStyle = classStyleTarget.getAttribute('style') || '';
+        const merged = existingStyle
+          ? `${existingStyle}; ${this.originalStyle}`
+          : this.originalStyle;
+        classStyleTarget.setAttribute('style', merged);
+      }
     }
 
     // Add viewClass to all new elements for tracking
