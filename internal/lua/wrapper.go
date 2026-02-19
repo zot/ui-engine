@@ -8,6 +8,7 @@
 package lua
 
 import (
+	"reflect"
 	"sync"
 )
 
@@ -24,7 +25,7 @@ var globalCreateFactories = struct {
 }
 
 // RegisterCreateFactory registers a Go create factory globally.
-func RegisterCreateFactory(typeName string, factory CreateFactory) {
+func RegisterCreateFactory(typeName string, typ reflect.Type, factory CreateFactory) {
 	globalCreateFactories.mu.Lock()
 	defer globalCreateFactories.mu.Unlock()
 	globalCreateFactories.factories[typeName] = factory
@@ -51,7 +52,7 @@ var globalWrapperFactories = struct {
 }
 
 // RegisterWrapperType registers a Go wrapper factory globally.
-func RegisterWrapperType(typeName string, factory WrapperFactory) {
+func RegisterWrapperType(typeName string, typ reflect.Type, factory WrapperFactory) {
 	globalWrapperFactories.mu.Lock()
 	defer globalWrapperFactories.mu.Unlock()
 	globalWrapperFactories.factories[typeName] = factory

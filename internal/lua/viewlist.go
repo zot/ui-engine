@@ -6,6 +6,7 @@ package lua
 
 import (
 	"fmt"
+	"reflect"
 	"sync"
 
 	changetracker "github.com/zot/change-tracker"
@@ -154,7 +155,7 @@ func (vl *ViewList) Destroy() error {
 
 // init auto-registers the ViewList wrapper when package is imported.
 func init() {
-	RegisterWrapperType("lua.ViewList", func(sess *LuaSession, variable *TrackerVariableAdapter) interface{} {
+	RegisterWrapperType("lua.ViewList", reflect.TypeFor[ViewList](), func(sess *LuaSession, variable *TrackerVariableAdapter) interface{} {
 		return NewViewList(sess, variable)
 	})
 }

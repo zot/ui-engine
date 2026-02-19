@@ -440,19 +440,22 @@ func GetType(L *lua.LState, obj any) string {
 			return lua.LVAsString(typeVal)
 		}
 	} else if obj != nil {
-		v := reflect.ValueOf(obj)
-		typ := v.Type()
-		if typ.Kind() == reflect.Pointer || typ.Kind() == reflect.UnsafePointer {
-			typ = typ.Elem()
-		}
-		typename := typ.String()
-		_, ok1 := GetGlobalCreateFactory(typename)
-		_, ok2 := GetGlobalWrapperFactory(typename)
-		if ok1 || ok2 {
-			return typename
-		}
+		_, typename := TypeName(obj)
+		return typename
 	}
 	return ""
+}
+
+func TypeName(val any) (reflect.Type, string) {
+	if val == nil {
+		return nil, "nil"
+	}
+	v := reflect.ValueOf(val)
+	typ := v.Type()
+	if typ.Kind() == reflect.Pointer || typ.Kind() == reflect.UnsafePointer {
+		typ = typ.Elem()
+	}
+	return typ, typ.String()
 }
 
 // createLuaVariableWrapper creates a Lua table that wraps a change-tracker Variable.

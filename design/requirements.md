@@ -79,3 +79,11 @@
 - **R47:** (inferred) No createResponse message is needed - create is push-only
 - **R48:** (inferred) VariableStore.create() must be synchronous (no Promise)
 - **R49:** Connection class must maintain nextVarId counter for frontend ID vending
+
+## Feature: Null View Clearing
+**Source:** specs/viewdefs.md (Null view clearing)
+
+- **R53:** When a rendered view's `type` property becomes empty, the view must clear its rendered content from the DOM
+- **R54:** After clearing, a placeholder element must be inserted preserving the view's element ID so it can re-render later
+- **R55:** After clearing, the view must be added to the pending views list
+- **R56:** (inferred) Clearing must destroy child views and viewlists to prevent resource leaks

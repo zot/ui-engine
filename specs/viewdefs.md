@@ -542,6 +542,17 @@ If a view cannot render (missing `type` or viewdef), it's added to a pending vie
 3. Remove views that return `true` (successfully rendered)
 4. Views that return `false` remain pending
 
+**Null view clearing:**
+
+If a view was previously rendered and the `type` property becomes empty (e.g., because the backend value became `nil`), the view must clear its rendered content:
+1. Destroy child views and viewlists
+2. Remove all rendered elements from the DOM
+3. Insert a placeholder element (preserving the view's element ID) so the view can re-render if the type becomes non-empty later
+4. Mark the view as not rendered
+5. Add the view to the pending views list (it will re-render when a type arrives)
+
+This ensures that when a Lua value becomes `nil`, the corresponding UI area becomes empty rather than showing stale content.
+
 **Hot-reload re-rendering:**
 
 When updated viewdefs arrive (viewdefs that were already sent):

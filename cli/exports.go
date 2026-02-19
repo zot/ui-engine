@@ -16,8 +16,8 @@ type (
 	LuaRuntime     = lua.LuaSession
 	ViewdefManager = viewdef.ViewdefManager
 	// Change-tracker types for variable inspection
-	Variable      = changetracker.Variable
-	Tracker       = changetracker.Tracker
+	Variable = changetracker.Variable
+	Tracker  = changetracker.Tracker
 	// Debug types
 	DebugVariable = server.DebugVariable
 )
@@ -29,11 +29,12 @@ var (
 
 // Re-export bundle functions for MCP integration
 var (
-	IsBundled                   = bundle.IsBundled
-	BundleListFiles             = bundle.ListFilesInDir
-	BundleListFilesRecursive    = bundle.ListFilesInDirRecursive
-	BundleListFilesWithInfo     = bundle.ListFilesWithInfo
-	BundleReadFile              = bundle.ReadFile
+	IsBundled                = bundle.IsBundled
+	BundleListFiles          = bundle.ListFilesInDir
+	BundleListFilesRecursive = bundle.ListFilesInDirRecursive
+	BundleListFilesWithInfo  = bundle.ListFilesWithInfo
+	BundleReadFile           = bundle.ReadFile
+	TypeName                 = lua.TypeName
 )
 
 // Re-export bundle types

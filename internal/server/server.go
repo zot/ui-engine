@@ -782,10 +782,21 @@ func (s *Server) getDebugVariables(tracker *changetracker.Tracker) ([]DebugVaria
 	// Convert to DebugVariable
 	result := make([]DebugVariable, len(sorted))
 	for i, v := range sorted {
+		j := v.WrapperJSON
+		if j == nil {
+			j = v.ValueJSON
+		}
+		vtyp := ""
+		if v.Value != nil {
+			vtyp = tracker.Resolver.GetType(v, v.Value)
+		}
 		info := DebugVariable{
 			ID:         v.ID,
 			ParentID:   v.ParentID,
+			Value:      j,
+			BaseValue:  v.ValueJSON,
 			Type:       v.Properties["type"],
+			GoType:     vtyp,
 			Path:       v.Properties["path"],
 			Properties: v.Properties,
 			ChildIDs:   v.ChildIDs,
@@ -793,11 +804,6 @@ func (s *Server) getDebugVariables(tracker *changetracker.Tracker) ([]DebugVaria
 		if v.Error != nil {
 			info.Error = v.Error.Error()
 		}
-		// Get value - convert to interface{} for JSON serialization
-		if v.Value != nil {
-			info.Value = tracker.ToValueJSON(v.Value)
-		}
-
 		result[i] = info
 	}
 

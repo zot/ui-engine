@@ -11,6 +11,8 @@ import (
 	"path/filepath"
 	"strings"
 
+	changetracker "github.com/zot/change-tracker"
+	"github.com/zot/ui-engine/internal/lua"
 	"github.com/zot/ui-engine/internal/protocol"
 )
 
@@ -24,14 +26,19 @@ type RootSessionProvider func() string
 
 // DebugVariable represents a variable for the debug tree view.
 type DebugVariable struct {
-	ID         int64             `json:"id"`
-	ParentID   int64             `json:"parentId"`
-	Type       string            `json:"type,omitempty"`
-	Path       string            `json:"path,omitempty"`
-	Value      any               `json:"value,omitempty"`
-	Properties map[string]string `json:"properties,omitempty"`
-	ChildIDs   []int64           `json:"childIds,omitempty"`
-	Error      string            `json:"error,omitempty"`
+	Session    *lua.LuaSession         `json:"omit"`
+	Tracker    *changetracker.Tracker  `json:"omit"`
+	Variable   *changetracker.Variable `json:"omit"`
+	ID         int64                   `json:"id"`
+	ParentID   int64                   `json:"parentId"`
+	Type       string                  `json:"type,omitempty"`
+	GoType     string                  `json:"goType,omitempty"`
+	Path       string                  `json:"path,omitempty"`
+	Value      any                     `json:"value,omitempty"`
+	BaseValue  any                     `json:"baseValue,omitempty"`
+	Properties map[string]string       `json:"properties,omitempty"`
+	ChildIDs   []int64                 `json:"childIds,omitempty"`
+	Error      string                  `json:"error,omitempty"`
 }
 
 // HTTPEndpoint handles HTTP requests.

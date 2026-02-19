@@ -137,6 +137,18 @@
         </sl-button>
       </div>
 
+      <!-- Selected Contact Detail -->
+      <div style="margin-bottom: var(--sl-spacing-large); padding: var(--sl-spacing-medium); background: var(--sl-color-primary-50); border: 1px solid var(--sl-color-primary-200); border-radius: var(--sl-border-radius-medium);">
+        <div style="display: flex; align-items: center; gap: var(--sl-spacing-medium); margin-bottom: var(--sl-spacing-small);">
+          <strong>Selected Contact:</strong>
+          <sl-button size="small" variant="default" ui-action="deselectContact()">
+            <sl-icon slot="prefix" name="x-lg"></sl-icon>
+            Deselect
+          </sl-button>
+        </div>
+        <div ui-view="selectedContact"></div>
+      </div>
+
       <!-- Contact List (each contact wrapped with ContactPresenter) -->
       <div class="contact-list" ui-view="contacts()?wrapper=lua.ViewList&itemWrapper=ContactPresenter"></div>
 

@@ -1,7 +1,7 @@
 # View
 
 **Source Spec:** viewdefs.md
-**Requirements:** R32, R33, R34, R35, R36, R37, R38, R50, R51, R52
+**Requirements:** R32, R33, R34, R35, R36, R37, R38, R50, R51, R52, R53, R54, R55, R56
 
 ## Responsibilities
 
@@ -24,6 +24,7 @@
 - destroy: Cleanup view - unwatch, remove from pending, clear DOM, destroy associated variable
 - getElement: Look up first DOM element by elementId (via document.getElementById)
 - getElements: Look up all DOM elements owned by this view (via querySelectorAll with viewClass)
+- clearIfRendered: When type becomes empty on a rendered view, clear DOM content, insert placeholder, mark pending
 - markPending: Add to pending views list (missing type or viewdef)
 - removePending: Remove from pending views list after successful render
 - resolveNamespace: Apply 3-tier resolution (namespace -> fallbackNamespace -> DEFAULT)
@@ -122,6 +123,18 @@ Views use ancestor-aware timer buffering to prevent visual flashing during re-re
    - Rapid re-renders: Timer already pending → add obsolete class, don't start new timer
    - View destroyed during buffer: Clear timeout, remove elements
    - Nested views: Render normally (ancestor handles buffering)
+
+### Null View Clearing
+
+When a rendered view's type property becomes empty (backend value became nil):
+1. Destroy child views/viewlists via `clearChildren()` (removes their elements from DOM)
+2. Unbind remaining elements via `BindingEngine.unbindElement()` to destroy binding-created variables
+3. Remove all rendered elements from the DOM
+4. Insert a plain `<div>` placeholder with the view's `elementId` and `viewClass`
+5. Set `rendered = false` and `valueType = ''`
+6. Call `markPending()` so the view re-renders if type becomes non-empty later
+
+This is handled inline in `render()` when `!type && this.rendered`.
 
 ### Hot-Reload Support
 

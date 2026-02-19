@@ -5,6 +5,7 @@
 package lua
 
 import (
+	"reflect"
 	"sync"
 )
 
@@ -78,7 +79,7 @@ func (vli *ViewListItem) SetIndex(index int) {
 
 // init auto-registers the ViewList wrapper when package is imported.
 func init() {
-	RegisterCreateFactory("lua.ViewListItem", func(sess *LuaSession, value any) interface{} {
+	RegisterCreateFactory("lua.ViewListItem", reflect.TypeFor[ViewListItem](), func(sess *LuaSession, value any) interface{} {
 		//return NewViewList(sess, variable)
 		// can't create these from the front end
 		return nil

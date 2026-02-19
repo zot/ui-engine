@@ -172,7 +172,30 @@ export class View {
 
     const type = data.properties['type'];
     if (!type) {
-      this.markPending();  // No type property yet
+      // CRC: crc-View.md | R53, R54, R55, R56
+      if (this.rendered) {
+        // Destroy child views/viewlists first (removes their elements from DOM)
+        this.clearChildren();
+        // Unbind remaining elements to destroy binding-created variables
+        const elements = this.getElements();
+        if (this.binding) {
+          for (const el of elements) this.binding.unbindElement(el);
+        }
+        if (elements.length > 0) {
+          const parent = elements[0].parentNode as HTMLElement | null;
+          const insertBefore = elements[elements.length - 1].nextSibling;
+          for (const el of elements) el.remove();
+          if (parent) {
+            const placeholder = document.createElement('div');
+            placeholder.id = this.elementId;
+            placeholder.classList.add(this.viewClass);
+            parent.insertBefore(placeholder, insertBefore);
+          }
+        }
+        this.rendered = false;
+        this.valueType = '';
+      }
+      this.markPending();
       return false;
     }
 

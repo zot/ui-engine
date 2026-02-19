@@ -64,6 +64,10 @@ function ContactPresenter:edit()
     contactApp:editContact(self.contact)
 end
 
+function ContactPresenter:select()
+    contactApp:selectContact(self.contact)
+end
+
 function ContactPresenter:delete()
     contactApp:deleteContact(self.contact)
 end
@@ -110,6 +114,8 @@ function ContactApp:new(tbl)
     tbl.editEmergencyContactId = ""
     -- Currently editing contact (nil = creating new)
     tbl._editingContact = nil
+    -- Selected contact for detail view (nil = none selected)
+    tbl.selectedContact = nil
     return tbl
 end
 
@@ -226,6 +232,16 @@ function ContactApp:cancelEdit()
     self.isEditView = false
     self.isListView = true
     self.error = nil
+end
+
+-- Select a contact for detail view
+function ContactApp:selectContact(contact)
+    self.selectedContact = contact
+end
+
+-- Deselect the current contact
+function ContactApp:deselectContact()
+    self.selectedContact = nil
 end
 
 -- Filter contacts based on search query (returns filtered array)
