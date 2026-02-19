@@ -152,6 +152,10 @@ All hot-loading features (Lua files, viewdefs, etc.) must track symlinks. See sp
 - [x] seq-bootstrap.md
 - [x] seq-app-startup.md
 
+### Variable Browser
+- [x] crc-VariableBrowser.md → `internal/server/variables_html.go`
+- [x] crc-HTTPEndpoint.md → `internal/server/http.go`
+
 ### Test Designs
 - [x] test-HotLoader.md
 - [x] test-Lua.md

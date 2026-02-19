@@ -106,7 +106,7 @@ func New(cfg *config.Config) *Server {
 		s.setupLua(cfg)
 
 		// Set up debug data provider for /debug/variables page
-		s.httpEndpoint.SetDebugDataProvider(func(sessionID string) ([]DebugVariable, error) {
+		s.httpEndpoint.SetDebugDataProvider(func(sessionID string, diagLevel int) ([]DebugVariable, error) {
 			s.luaSessionsMu.RLock()
 			luaSession := s.luaSessions[sessionID]
 			s.luaSessionsMu.RUnlock()
@@ -116,6 +116,11 @@ func New(cfg *config.Config) *Server {
 			tracker := luaSession.GetTracker()
 			if tracker == nil {
 				return nil, fmt.Errorf("tracker not found")
+			}
+			// CRC: crc-HTTPEndpoint.md (R62)
+			if diagLevel > 0 {
+				tracker.DiagLevel = diagLevel
+				defer func() { tracker.DiagLevel = 0 }()
 			}
 			return s.getDebugVariables(tracker)
 		})
@@ -732,47 +737,60 @@ func (s *Server) HandleFrontendUpdate(sessionID string, varID int64, value json.
 }
 
 // getDebugVariables returns all variables in topological order from a tracker.
+// CRC: crc-HTTPEndpoint.md (R57, R59, R60, R61)
 func (s *Server) getDebugVariables(tracker *changetracker.Tracker) ([]DebugVariable, error) {
-	// Get all variables
 	allVars := tracker.Variables()
 
-	// Build map for quick lookup
+	// Build map for quick lookup and depth computation
 	varMap := make(map[int64]*changetracker.Variable)
 	for _, v := range allVars {
 		varMap[v.ID] = v
 	}
 
+	// Compute depth for each variable
+	depthMap := make(map[int64]int)
+	var computeDepth func(id int64) int
+	computeDepth = func(id int64) int {
+		if d, ok := depthMap[id]; ok {
+			return d
+		}
+		v := varMap[id]
+		if v == nil || v.ParentID == 0 {
+			depthMap[id] = 0
+			return 0
+		}
+		d := computeDepth(v.ParentID) + 1
+		depthMap[id] = d
+		return d
+	}
+	for id := range varMap {
+		computeDepth(id)
+	}
+
 	// Topological sort: BFS from roots
 	var sorted []*changetracker.Variable
 	visited := make(map[int64]bool)
-
-	// Start with root variables (parentID == 0)
 	queue := make([]*changetracker.Variable, 0)
 	for _, v := range allVars {
 		if v.ParentID == 0 {
 			queue = append(queue, v)
 		}
 	}
-
 	for len(queue) > 0 {
 		v := queue[0]
 		queue = queue[1:]
-
 		if visited[v.ID] {
 			continue
 		}
 		visited[v.ID] = true
 		sorted = append(sorted, v)
-
-		// Add children to queue
 		for _, childID := range v.ChildIDs {
 			if child := varMap[childID]; child != nil && !visited[childID] {
 				queue = append(queue, child)
 			}
 		}
 	}
-
-	// Add any orphans (shouldn't happen, but be safe)
+	// Add any orphans
 	for _, v := range allVars {
 		if !visited[v.ID] {
 			sorted = append(sorted, v)
@@ -782,24 +800,36 @@ func (s *Server) getDebugVariables(tracker *changetracker.Tracker) ([]DebugVaria
 	// Convert to DebugVariable
 	result := make([]DebugVariable, len(sorted))
 	for i, v := range sorted {
-		j := v.WrapperJSON
-		if j == nil {
-			j = v.ValueJSON
+		displayValue := v.WrapperJSON
+		if displayValue == nil {
+			displayValue = v.ValueJSON
 		}
-		vtyp := ""
+		goType := ""
 		if v.Value != nil {
-			vtyp = tracker.Resolver.GetType(v, v.Value)
+			goType = tracker.Resolver.GetType(v, v.Value)
 		}
 		info := DebugVariable{
 			ID:         v.ID,
 			ParentID:   v.ParentID,
-			Value:      j,
+			Value:      displayValue,
 			BaseValue:  v.ValueJSON,
 			Type:       v.Properties["type"],
-			GoType:     vtyp,
+			GoType:     goType,
 			Path:       v.Properties["path"],
 			Properties: v.Properties,
 			ChildIDs:   v.ChildIDs,
+			Active:     v.Active,
+			Access:     v.Properties["access"],
+			Depth:      depthMap[v.ID],
+		}
+		if v.ComputeTime > 0 {
+			info.ComputeTime = formatDuration(v.ComputeTime)
+		}
+		if v.MaxComputeTime > 0 {
+			info.MaxComputeTime = formatDuration(v.MaxComputeTime)
+		}
+		if len(v.Diags) > 0 {
+			info.Diags = v.Diags
 		}
 		if v.Error != nil {
 			info.Error = v.Error.Error()
@@ -808,6 +838,20 @@ func (s *Server) getDebugVariables(tracker *changetracker.Tracker) ([]DebugVaria
 	}
 
 	return result, nil
+}
+
+// formatDuration formats a time.Duration as a human-readable string.
+func formatDuration(d time.Duration) string {
+	if d < time.Microsecond {
+		return fmt.Sprintf("%dns", d.Nanoseconds())
+	}
+	if d < time.Millisecond {
+		return fmt.Sprintf("%.1fus", float64(d.Nanoseconds())/1000)
+	}
+	if d < time.Second {
+		return fmt.Sprintf("%.2fms", float64(d.Nanoseconds())/1e6)
+	}
+	return fmt.Sprintf("%.3fs", d.Seconds())
 }
 
 // GetViewdefManager returns the viewdef manager.

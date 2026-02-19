@@ -87,3 +87,30 @@
 - **R54:** After clearing, a placeholder element must be inserted preserving the view's element ID so it can re-render later
 - **R55:** After clearing, the view must be added to the pending views list
 - **R56:** (inferred) Clearing must destroy child views and viewlists to prevent resource leaks
+
+## Feature: Variable Browser
+**Source:** specs/variable-browser.md
+
+- **R57:** Backend must serve a JSON endpoint at `/{session-id}/variables.json` returning the variable array
+- **R58:** Backend must serve a static HTML page at `/{session-id}/variables` (replacing server-rendered HTML)
+- **R59:** DebugVariable must include `computeTime` and `maxComputeTime` fields (formatted duration strings)
+- **R60:** DebugVariable must include `active` (bool), `access` (string), and `diags` (string array) fields
+- **R61:** DebugVariable must include `depth` (int) for tree indentation
+- **R62:** JSON endpoint must accept `?diag=N` query parameter to set tracker DiagLevel before collecting
+- **R63:** Browser must display variables in an HTML table with fixed header; columns content-sized and left-justified with a spacer column extending the table to full container width
+- **R64:** Browser must support tree mode with indented rows and expand/collapse per node; clicking the path name must also toggle expand/collapse
+- **R65:** Browser must support flat mode (the default) with all variables as flat sortable rows
+- **R66:** Flat/tree toggle must switch between display modes; flat is listed first and is the default
+- **R67:** Refresh button must reload data manually (default interaction)
+- **R68:** Poll toggle must enable automatic polling at selectable intervals (1s, 2s, 5s)
+- **R69:** Column picker must allow showing/hiding individual columns
+- **R70:** Default visible columns: Diags, ID, Path, Type, Value, Time, Error
+- **R71:** Default hidden columns: GoType, Max Time, Access, Active, Props
+- **R72:** In flat mode, column headers must be clickable to sort ascending/descending; numeric columns (Time, Max Time) must default to descending on first click
+- **R73:** Diagnostics toggle button must appear per-row when `diags` is non-empty
+- **R74:** Clicking the diag toggle must expand/collapse a sub-row showing diagnostic messages
+- **R75:** Value cells must show truncated text with a tooltip containing the full JSON
+- **R76:** Error cells must use red highlight styling
+- **R77:** (inferred) The HTML page must use no external dependencies or build step
+- **R78:** (inferred) ID column must be fixed-width to prevent Path column from shifting when data changes
+- **R79:** (inferred) Column display order must match spec table: Diags, ID, Path, Type, GoType, Value, Time, Max Time, Error, Access, Active, Props

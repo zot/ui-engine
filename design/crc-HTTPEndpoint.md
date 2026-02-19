@@ -1,7 +1,7 @@
 # HTTPEndpoint
 
 **Source Spec:** interfaces.md, deployment.md
-**Requirements:** R23, R24, R25
+**Requirements:** R23, R24, R25, R57, R58, R59, R60, R61, R62
 
 ## Responsibilities
 
@@ -24,6 +24,8 @@
 - handleProtocolCommand: Process CLI protocol commands (create, destroy, update, watch, unwatch, get, poll)
 - attachPendingResponses: Add pending messages to every response
 - renderVariableError: Display variable errors with red styling in debug tree (R23, R24, R25)
+- serveVariableBrowser: Serve static HTML browser page at /{session-id}/variables (R58)
+- handleVariablesJSON: Serve JSON variable data at /{session-id}/variables.json (R57, R59, R60, R61, R62)
 
 ## Collaborators
 

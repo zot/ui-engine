@@ -129,18 +129,18 @@ func TestHTTPDebugEndpoint(t *testing.T) {
 
 	// Set up debug data provider - receives vended ID (numeric)
 	var receivedVendedID string
-	endpoint.SetDebugDataProvider(func(vendedID string) ([]DebugVariable, error) {
+	endpoint.SetDebugDataProvider(func(vendedID string, diagLevel int) ([]DebugVariable, error) {
 		receivedVendedID = vendedID
 		return []DebugVariable{
-			{ID: 1, Type: "App", Value: map[string]string{"name": "Test"}},
+			{ID: 1, Type: "App", Value: map[string]string{"name": "Test"}, Active: true},
 		}, nil
 	})
 
 	// Create a session
 	sess, vendedID, _ := sessions.CreateSession()
 
-	// Request debug page using internal session ID (UUID) in URL
-	req := httptest.NewRequest("GET", "/"+sess.ID+"/variables", nil)
+	// Request JSON endpoint using internal session ID (UUID) in URL
+	req := httptest.NewRequest("GET", "/"+sess.ID+"/variables.json", nil)
 	w := httptest.NewRecorder()
 
 	endpoint.ServeHTTP(w, req)
@@ -158,9 +158,9 @@ func TestHTTPDebugEndpoint(t *testing.T) {
 	body, _ := io.ReadAll(resp.Body)
 	bodyStr := string(body)
 
-	// Should contain HTML tree view
-	if !strings.Contains(bodyStr, "html") {
-		t.Error("Expected HTML response")
+	// Should contain JSON response with variable data
+	if !strings.Contains(bodyStr, `"id"`) {
+		t.Error("Expected JSON response with variable data")
 	}
 }
 
@@ -170,7 +170,7 @@ func TestHTTPDebugEndpointInvalidSession(t *testing.T) {
 	endpoint := NewHTTPEndpoint(sessions, nil, nil)
 
 	// Set up debug data provider
-	endpoint.SetDebugDataProvider(func(vendedID string) ([]DebugVariable, error) {
+	endpoint.SetDebugDataProvider(func(vendedID string, diagLevel int) ([]DebugVariable, error) {
 		return nil, nil
 	})
 

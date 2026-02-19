@@ -17,7 +17,7 @@ import (
 )
 
 // DebugDataProvider is called to get variable data for the debug page.
-type DebugDataProvider func(sessionID string) ([]DebugVariable, error)
+type DebugDataProvider func(sessionID string, diagLevel int) ([]DebugVariable, error)
 
 // RootSessionProvider returns the session ID to use for the root path "/".
 // If it returns an empty string, the default behavior (create new session and redirect) is used.
@@ -25,20 +25,27 @@ type DebugDataProvider func(sessionID string) ([]DebugVariable, error)
 type RootSessionProvider func() string
 
 // DebugVariable represents a variable for the debug tree view.
+// CRC: crc-HTTPEndpoint.md (R57, R59, R60, R61)
 type DebugVariable struct {
-	Session    *lua.LuaSession         `json:"omit"`
-	Tracker    *changetracker.Tracker  `json:"omit"`
-	Variable   *changetracker.Variable `json:"omit"`
-	ID         int64                   `json:"id"`
-	ParentID   int64                   `json:"parentId"`
-	Type       string                  `json:"type,omitempty"`
-	GoType     string                  `json:"goType,omitempty"`
-	Path       string                  `json:"path,omitempty"`
-	Value      any                     `json:"value,omitempty"`
-	BaseValue  any                     `json:"baseValue,omitempty"`
-	Properties map[string]string       `json:"properties,omitempty"`
-	ChildIDs   []int64                 `json:"childIds,omitempty"`
-	Error      string                  `json:"error,omitempty"`
+	Session        *lua.LuaSession         `json:"-"`
+	Tracker        *changetracker.Tracker   `json:"-"`
+	Variable       *changetracker.Variable  `json:"-"`
+	ID             int64             `json:"id"`
+	ParentID       int64             `json:"parentId"`
+	Type           string            `json:"type,omitempty"`
+	GoType         string            `json:"goType,omitempty"`
+	Path           string            `json:"path,omitempty"`
+	Value          any               `json:"value,omitempty"`
+	BaseValue      any               `json:"baseValue,omitempty"`
+	Properties     map[string]string `json:"properties,omitempty"`
+	ChildIDs       []int64           `json:"childIds,omitempty"`
+	Error          string            `json:"error,omitempty"`
+	ComputeTime    string            `json:"computeTime,omitempty"`
+	MaxComputeTime string            `json:"maxComputeTime,omitempty"`
+	Active         bool              `json:"active"`
+	Access         string            `json:"access,omitempty"`
+	Diags          []string          `json:"diags,omitempty"`
+	Depth          int               `json:"depth"`
 }
 
 // HTTPEndpoint handles HTTP requests.
@@ -133,10 +140,16 @@ func (h *HTTPEndpoint) handleRoot(w http.ResponseWriter, r *http.Request) {
 	if h.sessions.SessionExists(sessionID) {
 		// Set session cookie for this session
 		h.setSessionCookie(w, sessionID)
-		// Check for /SESSION-ID/variables debug endpoint
-		if len(parts) > 1 && parts[1] == "variables" {
-			h.handleDebugVariables(w, r, sessionID)
-			return
+		// CRC: crc-HTTPEndpoint.md (R57, R58)
+		if len(parts) > 1 {
+			switch parts[1] {
+			case "variables":
+				h.serveVariableBrowser(w, r)
+				return
+			case "variables.json":
+				h.handleVariablesJSON(w, r, sessionID)
+				return
+			}
 		}
 		// Serve the SPA - it will handle the routing client-side
 		h.serveStatic(w, r, "index.html")
@@ -248,172 +261,40 @@ func (h *HTTPEndpoint) HandleProtocolCommand(msg *protocol.Message) (*protocol.R
 	return h.handler.HandleMessage("cli", msg)
 }
 
-// handleDebugVariables renders a debug page with a variable tree.
-// sessionID is the internal UUID from the URL path.
-func (h *HTTPEndpoint) handleDebugVariables(w http.ResponseWriter, r *http.Request, sessionID string) {
-	// Translate internal session ID (UUID) to vended ID (numeric)
+// serveVariableBrowser serves the embedded variable browser HTML page.
+// CRC: crc-HTTPEndpoint.md (R58)
+func (h *HTTPEndpoint) serveVariableBrowser(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.Write([]byte(variableBrowserHTML))
+}
+
+// handleVariablesJSON returns variable data as JSON.
+// CRC: crc-HTTPEndpoint.md (R57, R62)
+func (h *HTTPEndpoint) handleVariablesJSON(w http.ResponseWriter, r *http.Request, sessionID string) {
 	vendedID := h.sessions.GetVendedID(sessionID)
 	if vendedID == "" {
 		http.Error(w, "Session not found", http.StatusNotFound)
 		return
 	}
 
-	// Get variable data using vended ID
-	var variables []DebugVariable
-	var dataErr error
-	if h.debugDataProvider != nil {
-		variables, dataErr = h.debugDataProvider(vendedID)
-	}
+	w.Header().Set("Content-Type", "application/json")
 
-	// Generate HTML
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-
-	html := `<!DOCTYPE html>
-<html>
-<head>
-  <title>Debug: Variables</title>
-  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@shoelace-style/shoelace@2.19.1/cdn/themes/light.css" />
-  <script type="module" src="https://cdn.jsdelivr.net/npm/@shoelace-style/shoelace@2.19.1/cdn/shoelace-autoloader.js"></script>
-  <style>
-    body { font-family: system-ui, sans-serif; padding: 20px; max-width: 1200px; margin: 0 auto; }
-    h1 { color: #333; }
-    .error { color: red; padding: 10px; background: #fee; border-radius: 4px; }
-    .tree-container { margin-top: 20px; }
-    sl-tree { --indent-size: 20px; }
-    sl-tree-item::part(item) { padding: 4px 0; }
-    .var-id { color: #666; font-size: 0.9em; margin-right: 8px; }
-    .var-type { color: #0066cc; font-weight: bold; margin-right: 8px; }
-    .var-path { color: #666; font-style: italic; margin-right: 8px; }
-    .var-value { color: #228b22; font-family: monospace; font-size: 0.9em; }
-    .var-error { color: #cc0000; font-family: monospace; font-size: 0.9em; background: #fee; padding: 2px 6px; border-radius: 3px; margin-left: 8px; }
-    .var-props { color: #888; font-size: 0.8em; margin-left: 16px; }
-    .refresh-btn { margin-bottom: 16px; }
-    pre { background: #f5f5f5; padding: 10px; border-radius: 4px; overflow-x: auto; }
-  </style>
-</head>
-<body>
-  <h1>Variable Tree - Session ` + sessionID + `</h1>
-  <sl-button class="refresh-btn" onclick="location.reload()">
-    <sl-icon slot="prefix" name="arrow-clockwise"></sl-icon>
-    Refresh
-  </sl-button>
-`
-
-	if dataErr != nil {
-		html += `<div class="error">Error: ` + dataErr.Error() + `</div>`
-	} else if len(variables) == 0 {
-		html += `<div class="error">No variables found for session ` + sessionID + `</div>`
-	} else {
-		// Build tree HTML
-		html += `<div class="tree-container"><sl-tree>`
-		html += h.renderVariableTree(variables)
-		html += `</sl-tree></div>`
-
-		// Also show raw JSON
-		jsonBytes, _ := json.MarshalIndent(variables, "", "  ")
-		html += `<h2>Raw JSON</h2><pre>` + string(jsonBytes) + `</pre>`
-	}
-
-	html += `</body></html>`
-	w.Write([]byte(html))
-}
-
-// renderVariableTree renders variables as nested sl-tree-item elements.
-func (h *HTTPEndpoint) renderVariableTree(variables []DebugVariable) string {
-	// Build a map for quick lookup
-	varMap := make(map[int64]DebugVariable)
-	for _, v := range variables {
-		varMap[v.ID] = v
-	}
-
-	// Find roots (parentID == 0)
-	var roots []int64
-	for _, v := range variables {
-		if v.ParentID == 0 {
-			roots = append(roots, v.ID)
-		}
-	}
-
-	// Render recursively
-	var result strings.Builder
-	for _, rootID := range roots {
-		h.renderVariableNode(&result, varMap, rootID)
-	}
-	return result.String()
-}
-
-// renderVariableNode renders a single variable and its children.
-func (h *HTTPEndpoint) renderVariableNode(sb *strings.Builder, varMap map[int64]DebugVariable, varID int64) {
-	v, ok := varMap[varID]
-	if !ok {
+	if h.debugDataProvider == nil {
+		json.NewEncoder(w).Encode([]DebugVariable{})
 		return
 	}
 
-	// Format value as JSON
-	valueStr := ""
-	if v.Value != nil {
-		valueBytes, _ := json.Marshal(v.Value)
-		valueStr = string(valueBytes)
-		if len(valueStr) > 100 {
-			valueStr = valueStr[:100] + "..."
-		}
+	diagLevel := 0
+	if d := r.URL.Query().Get("diag"); d != "" {
+		fmt.Sscanf(d, "%d", &diagLevel)
 	}
 
-	// Build label
-	label := `<span class="var-id">#` + fmt.Sprintf("%d", v.ID) + `</span>`
-	if v.Type != "" {
-		label += `<span class="var-type">` + v.Type + `</span>`
+	variables, err := h.debugDataProvider(vendedID, diagLevel)
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+		return
 	}
-	if v.Path != "" {
-		label += `<span class="var-path">` + v.Path + `</span>`
-	}
-	if valueStr != "" {
-		label += `<span class="var-value">` + escapeHTML(valueStr) + `</span>`
-	}
-	// CRC: crc-HTTPEndpoint.md (R23, R24, R25)
-	if v.Error != "" {
-		label += `<span class="var-error">` + escapeHTML(v.Error) + `</span>`
-	}
-
-	hasChildren := len(v.ChildIDs) > 0
-
-	if hasChildren {
-		sb.WriteString(`<sl-tree-item expanded>`)
-	} else {
-		sb.WriteString(`<sl-tree-item>`)
-	}
-	sb.WriteString(label)
-
-	// Render properties if any (excluding type and path which are already shown)
-	if len(v.Properties) > 0 {
-		sb.WriteString(`<div class="var-props">`)
-		first := true
-		for k, val := range v.Properties {
-			if k == "type" || k == "path" {
-				continue
-			}
-			if !first {
-				sb.WriteString(", ")
-			}
-			sb.WriteString(k + "=" + val)
-			first = false
-		}
-		sb.WriteString(`</div>`)
-	}
-
-	// Render children
-	for _, childID := range v.ChildIDs {
-		h.renderVariableNode(sb, varMap, childID)
-	}
-
-	sb.WriteString(`</sl-tree-item>`)
+	json.NewEncoder(w).Encode(variables)
 }
 
-// escapeHTML escapes special HTML characters.
-func escapeHTML(s string) string {
-	s = strings.ReplaceAll(s, "&", "&amp;")
-	s = strings.ReplaceAll(s, "<", "&lt;")
-	s = strings.ReplaceAll(s, ">", "&gt;")
-	s = strings.ReplaceAll(s, "\"", "&quot;")
-	return s
-}

@@ -1496,7 +1496,6 @@ func (r *LuaSession) HandleFrontendCreate(sessionID string, id int64, parentID i
 	if tracker == nil {
 		return fmt.Errorf("session %s tracker not found", r.ID)
 	}
-
 	// Create the child variable in the tracker with the frontend-provided ID.
 	// This automatically triggers Resolver.CreateWrapper if the property is set.
 	v := tracker.CreateVariableWithId(id, nil, parentID, path, properties)
