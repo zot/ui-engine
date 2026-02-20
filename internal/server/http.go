@@ -96,6 +96,11 @@ func (h *HTTPEndpoint) SetRootSessionProvider(provider RootSessionProvider) {
 	h.rootSessionProvider = provider
 }
 
+// HandleFunc registers a custom handler on the HTTP mux.
+func (h *HTTPEndpoint) HandleFunc(pattern string, handler http.HandlerFunc) {
+	h.mux.HandleFunc(pattern, handler)
+}
+
 // setupRoutes configures HTTP routes.
 func (h *HTTPEndpoint) setupRoutes() {
 	h.mux.HandleFunc("/", h.handleRoot)
