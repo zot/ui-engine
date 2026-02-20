@@ -54,7 +54,9 @@ An HTML table with fixed header and scrollable body. Columns are content-sized a
 | Type     | yes             | yes                  | Lua type from properties                 |
 | GoType   | no              | yes                  | Go type from resolver                    |
 | Value    | yes             | no (text)            | Truncated; tooltip shows full JSON       |
+| Changes  | no              | yes (numeric)        | Variable change count                    |
 | Time     | yes             | yes (numeric)        | ComputeTime                              |
+| Avg Time | no              | yes (numeric)        | ComputeTime / tracker refresh count      |
 | Max Time | no              | yes (numeric)        | MaxComputeTime                           |
 | Error    | yes             | yes                  | Error message; red highlight when present|
 | Access   | no              | yes                  | rw / r / w / action                      |

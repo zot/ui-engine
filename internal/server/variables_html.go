@@ -1,5 +1,5 @@
 // CRC: crc-VariableBrowser.md
-// CRC: crc-HTTPEndpoint.md (R58, R63-R77)
+// CRC: crc-HTTPEndpoint.md (R58, R63-R77, R82, R83)
 package server
 
 const variableBrowserHTML = `<!DOCTYPE html>
@@ -44,7 +44,9 @@ tr:hover { background: #f8f8ff; }
 .col-type { color: #0066cc; font-weight: 600; }
 .col-value { color: #228b22; font-family: monospace; font-size: 0.95em; max-width: 300px; overflow: hidden; text-overflow: ellipsis; }
 .col-gotype { color: #666; font-family: monospace; font-size: 0.9em; }
+.col-changes { font-family: monospace; font-size: 0.9em; color: #555; }
 .col-time { font-family: monospace; font-size: 0.9em; color: #555; }
+.col-avgtime { font-family: monospace; font-size: 0.9em; color: #555; }
 .col-maxtime { font-family: monospace; font-size: 0.9em; color: #555; }
 .col-error { color: #cc0000; font-family: monospace; font-size: 0.9em; }
 .col-access { font-family: monospace; font-size: 0.9em; color: #666; }
@@ -117,7 +119,9 @@ tr.diag-row li::before { content: "- "; color: #999; }
     { key: 'type',    label: 'Type',     visible: true,  sortable: true },
     { key: 'goType',  label: 'GoType',   visible: false, sortable: true },
     { key: 'value',   label: 'Value',    visible: true,  sortable: false },
+    { key: 'changes', label: 'Changes',  visible: false, sortable: true, numeric: true },
     { key: 'time',    label: 'Time',     visible: true,  sortable: true, numeric: true },
+    { key: 'avgTime', label: 'Avg Time', visible: false, sortable: true, numeric: true },
     { key: 'maxTime', label: 'Max Time', visible: false, sortable: true, numeric: true },
     { key: 'error',   label: 'Error',    visible: true,  sortable: true },
     { key: 'access',  label: 'Access',   visible: false, sortable: true },
@@ -126,6 +130,7 @@ tr.diag-row li::before { content: "- "; color: #999; }
   ];
 
   let variables = [];
+  let trackerRefreshCount = 0; // R83: from X-Change-Count header
   let viewMode = 'flat';      // R64, R65, R66
   let sortCol = null;
   let sortDir = 'asc';
@@ -144,6 +149,7 @@ tr.diag-row li::before { content: "- "; color: #999; }
     try {
       const resp = await fetch(url);
       if (!resp.ok) throw new Error(resp.status + ' ' + resp.statusText);
+      trackerRefreshCount = parseInt(resp.headers.get('X-Change-Count'), 10) || 0;
       variables = await resp.json();
       render();
       document.getElementById('status').textContent =
@@ -248,13 +254,38 @@ tr.diag-row li::before { content: "- "; color: #999; }
     return sorted.map(v => ({ v, depth: 0, hasChildren: false, collapsed: false }));
   }
 
+  // Parse Go duration string to milliseconds
+  function parseTimeMs(s) {
+    if (!s) return 0;
+    const m = s.match(/^([0-9.]+)\s*(ns|µs|us|ms|s)$/);
+    if (!m) return parseFloat(s) || 0;
+    const n = parseFloat(m[1]);
+    switch (m[2]) {
+      case 'ns': return n / 1e6;
+      case 'µs': case 'us': return n / 1e3;
+      case 'ms': return n;
+      case 's':  return n * 1e3;
+      default:   return n;
+    }
+  }
+
+  // Format milliseconds to human-readable duration
+  function formatTimeMs(ms) {
+    if (ms >= 1000) return (ms / 1000).toFixed(2) + 's';
+    if (ms >= 1)    return ms.toFixed(2) + 'ms';
+    if (ms >= 0.001) return (ms * 1000).toFixed(2) + 'µs';
+    return (ms * 1e6).toFixed(2) + 'ns';
+  }
+
   function getCellValue(v, colKey) {
     switch (colKey) {
       case 'id': return v.id;
       case 'path': return v.path || '';
       case 'type': return v.type || '';
-      case 'time': return v.computeTime || '';
-      case 'maxTime': return v.maxComputeTime || '';
+      case 'changes': return v.changeCount || 0;
+      case 'time': return parseTimeMs(v.computeTime);
+      case 'avgTime': return trackerRefreshCount > 0 ? parseTimeMs(v.computeTime) / trackerRefreshCount : 0;
+      case 'maxTime': return parseTimeMs(v.maxComputeTime);
       case 'error': return v.error || '';
       case 'goType': return v.goType || '';
       case 'access': return v.access || '';
@@ -330,9 +361,23 @@ tr.diag-row li::before { content: "- "; color: #999; }
           break;
         }
 
+        case 'changes':
+          // R82: variable change count
+          td.textContent = v.changeCount || 0;
+          break;
+
         case 'time':
           td.textContent = v.computeTime || '';
           break;
+
+        case 'avgTime': {
+          // R83: compute time / tracker refresh count
+          if (trackerRefreshCount > 0) {
+            const ms = parseTimeMs(v.computeTime) / trackerRefreshCount;
+            td.textContent = formatTimeMs(ms);
+          }
+          break;
+        }
 
         case 'maxTime':
           td.textContent = v.maxComputeTime || '';

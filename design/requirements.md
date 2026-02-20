@@ -113,10 +113,12 @@
 - **R76:** Error cells must use red highlight styling
 - **R77:** (inferred) The HTML page must use no external dependencies or build step
 - **R78:** (inferred) ID column must be fixed-width to prevent Path column from shifting when data changes
-- **R79:** (inferred) Column display order must match spec table: Diags, ID, Path, Type, GoType, Value, Time, Max Time, Error, Access, Active, Props
+- **R79:** (inferred) Column display order must match spec table: Diags, ID, Path, Type, GoType, Value, Changes, Time, Avg Time, Max Time, Error, Access, Active, Props
 
 ## Feature: Change Count Tracking
 **Source:** specs/change-count.md
 
 - **R80:** DebugVariable must include a `changeCount` field with the variable's change count
 - **R81:** HandleVariablesJSON must set an `X-Change-Count` response header with the tracker's global change count
+- **R82:** Variable browser must display a Changes column (default hidden) showing the variable's change count
+- **R83:** Variable browser must display an Avg Time column (default hidden) computed as ComputeTime / tracker refresh count (from X-Change-Count header)
