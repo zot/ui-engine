@@ -9,6 +9,7 @@ import (
 	"mime"
 	"net/http"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	changetracker "github.com/zot/change-tracker"
@@ -17,7 +18,8 @@ import (
 )
 
 // DebugDataProvider is called to get variable data for the debug page.
-type DebugDataProvider func(sessionID string, diagLevel int) ([]DebugVariable, error)
+// Returns variables, tracker change count, and error.
+type DebugDataProvider func(sessionID string, diagLevel int) ([]DebugVariable, int64, error)
 
 // RootSessionProvider returns the session ID to use for the root path "/".
 // If it returns an empty string, the default behavior (create new session and redirect) is used.
@@ -28,24 +30,25 @@ type RootSessionProvider func() string
 // CRC: crc-HTTPEndpoint.md (R57, R59, R60, R61)
 type DebugVariable struct {
 	Session        *lua.LuaSession         `json:"-"`
-	Tracker        *changetracker.Tracker   `json:"-"`
-	Variable       *changetracker.Variable  `json:"-"`
-	ID             int64             `json:"id"`
-	ParentID       int64             `json:"parentId"`
-	Type           string            `json:"type,omitempty"`
-	GoType         string            `json:"goType,omitempty"`
-	Path           string            `json:"path,omitempty"`
-	Value          any               `json:"value,omitempty"`
-	BaseValue      any               `json:"baseValue,omitempty"`
-	Properties     map[string]string `json:"properties,omitempty"`
-	ChildIDs       []int64           `json:"childIds,omitempty"`
-	Error          string            `json:"error,omitempty"`
-	ComputeTime    string            `json:"computeTime,omitempty"`
-	MaxComputeTime string            `json:"maxComputeTime,omitempty"`
-	Active         bool              `json:"active"`
-	Access         string            `json:"access,omitempty"`
-	Diags          []string          `json:"diags,omitempty"`
-	Depth          int               `json:"depth"`
+	Tracker        *changetracker.Tracker  `json:"-"`
+	Variable       *changetracker.Variable `json:"-"`
+	ID             int64                   `json:"id"`
+	ParentID       int64                   `json:"parentId"`
+	Type           string                  `json:"type,omitempty"`
+	GoType         string                  `json:"goType,omitempty"`
+	Path           string                  `json:"path,omitempty"`
+	Value          any                     `json:"value,omitempty"`
+	BaseValue      any                     `json:"baseValue,omitempty"`
+	Properties     map[string]string       `json:"properties,omitempty"`
+	ChildIDs       []int64                 `json:"childIds,omitempty"`
+	Error          string                  `json:"error,omitempty"`
+	ComputeTime    string                  `json:"computeTime,omitempty"`
+	MaxComputeTime string                  `json:"maxComputeTime,omitempty"`
+	Active         bool                    `json:"active"`
+	Access         string                  `json:"access,omitempty"`
+	Diags          []string                `json:"diags,omitempty"`
+	ChangeCount    int64                   `json:"changeCount"`
+	Depth          int                     `json:"depth"`
 }
 
 // HTTPEndpoint handles HTTP requests.
@@ -144,10 +147,10 @@ func (h *HTTPEndpoint) handleRoot(w http.ResponseWriter, r *http.Request) {
 		if len(parts) > 1 {
 			switch parts[1] {
 			case "variables":
-				h.serveVariableBrowser(w, r)
+				h.ServeVariableBrowser(w, r)
 				return
 			case "variables.json":
-				h.handleVariablesJSON(w, r, sessionID)
+				h.HandleVariablesJSON(w, r, sessionID)
 				return
 			}
 		}
@@ -261,16 +264,16 @@ func (h *HTTPEndpoint) HandleProtocolCommand(msg *protocol.Message) (*protocol.R
 	return h.handler.HandleMessage("cli", msg)
 }
 
-// serveVariableBrowser serves the embedded variable browser HTML page.
+// ServeVariableBrowser serves the embedded variable browser HTML page.
 // CRC: crc-HTTPEndpoint.md (R58)
-func (h *HTTPEndpoint) serveVariableBrowser(w http.ResponseWriter, r *http.Request) {
+func (h *HTTPEndpoint) ServeVariableBrowser(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Write([]byte(variableBrowserHTML))
 }
 
-// handleVariablesJSON returns variable data as JSON.
-// CRC: crc-HTTPEndpoint.md (R57, R62)
-func (h *HTTPEndpoint) handleVariablesJSON(w http.ResponseWriter, r *http.Request, sessionID string) {
+// HandleVariablesJSON returns variable data as JSON.
+// CRC: crc-HTTPEndpoint.md (R57, R62, R80, R81)
+func (h *HTTPEndpoint) HandleVariablesJSON(w http.ResponseWriter, r *http.Request, sessionID string) {
 	vendedID := h.sessions.GetVendedID(sessionID)
 	if vendedID == "" {
 		http.Error(w, "Session not found", http.StatusNotFound)
@@ -289,12 +292,12 @@ func (h *HTTPEndpoint) handleVariablesJSON(w http.ResponseWriter, r *http.Reques
 		fmt.Sscanf(d, "%d", &diagLevel)
 	}
 
-	variables, err := h.debugDataProvider(vendedID, diagLevel)
+	variables, changeCount, err := h.debugDataProvider(vendedID, diagLevel)
 	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
 		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
 		return
 	}
+	w.Header().Set("X-Change-Count", strconv.FormatInt(changeCount, 10))
 	json.NewEncoder(w).Encode(variables)
 }
-

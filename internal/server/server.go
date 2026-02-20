@@ -37,7 +37,7 @@ type Server struct {
 	handler          *protocol.Handler
 	pendingQueues    *PendingQueueManager
 	httpServer       *http.Server
-	httpEndpoint     *HTTPEndpoint
+	HttpEndpoint     *HTTPEndpoint
 	wsEndpoint       *WebSocketEndpoint
 	backendSocket    *BackendSocket
 	luaSessions      map[string]*lua.LuaSession // vendedID -> per-session Lua runtime
@@ -79,7 +79,7 @@ func New(cfg *config.Config) *Server {
 	s.wsEndpoint = NewWebSocketEndpoint(cfg, sessions, s.handler)
 
 	// Create HTTP endpoint
-	s.httpEndpoint = NewHTTPEndpoint(sessions, s.handler, s.wsEndpoint)
+	s.HttpEndpoint = NewHTTPEndpoint(sessions, s.handler, s.wsEndpoint)
 
 	// Set up site serving (bundle or custom directory)
 	s.setupSite(cfg)
@@ -88,7 +88,7 @@ func New(cfg *config.Config) *Server {
 	s.setupViewdefs(cfg)
 
 	// Create backend socket
-	s.backendSocket = NewBackendSocket(cfg, cfg.Server.Socket, s.handler, s.httpEndpoint)
+	s.backendSocket = NewBackendSocket(cfg, cfg.Server.Socket, s.handler, s.HttpEndpoint)
 
 	// Set verbosity on all components
 	// Note: Components now use Config.Log directly via the passed config object.
@@ -106,23 +106,24 @@ func New(cfg *config.Config) *Server {
 		s.setupLua(cfg)
 
 		// Set up debug data provider for /debug/variables page
-		s.httpEndpoint.SetDebugDataProvider(func(sessionID string, diagLevel int) ([]DebugVariable, error) {
+		s.HttpEndpoint.SetDebugDataProvider(func(sessionID string, diagLevel int) ([]DebugVariable, int64, error) {
 			s.luaSessionsMu.RLock()
 			luaSession := s.luaSessions[sessionID]
 			s.luaSessionsMu.RUnlock()
 			if luaSession == nil {
-				return nil, fmt.Errorf("session %s not found", sessionID)
+				return nil, 0, fmt.Errorf("session %s not found", sessionID)
 			}
 			tracker := luaSession.GetTracker()
 			if tracker == nil {
-				return nil, fmt.Errorf("tracker not found")
+				return nil, 0, fmt.Errorf("tracker not found")
 			}
 			// CRC: crc-HTTPEndpoint.md (R62)
 			if diagLevel > 0 {
 				tracker.DiagLevel = diagLevel
 				defer func() { tracker.DiagLevel = 0 }()
 			}
-			return s.getDebugVariables(tracker)
+			vars, err := s.getDebugVariables(tracker)
+			return vars, tracker.ChangeCount, err
 		})
 
 		// Set viewdef manager on store adapter so it can send viewdefs when new types appear
@@ -181,7 +182,7 @@ func (s *Server) Start() error {
 		return err
 	}
 	s.config.Log(0, "HTTP server listening on %s", url)
-	s.config.Log(0, "Serving site from directory: %s", s.httpEndpoint.staticDir)
+	s.config.Log(0, "Serving site from directory: %s", s.HttpEndpoint.staticDir)
 	// Block until shutdown
 	if err := srv.Serve(ln); err != nil && err != http.ErrServerClosed {
 		return fmt.Errorf("HTTP server error: %v", err)
@@ -202,7 +203,7 @@ func (s *Server) configureHTTP(port int) (*http.Server, net.Listener, string, er
 	addr := fmt.Sprintf("%s:%d", s.config.Server.Host, port)
 	s.httpServer = &http.Server{
 		Addr:    addr,
-		Handler: s.httpEndpoint,
+		Handler: s.HttpEndpoint,
 	}
 
 	// We need to capture the actual port if 0 was passed
@@ -287,7 +288,7 @@ func (s *Server) setupSite(cfg *config.Config) {
 	// If --dir is specified, use that directory's html/ subdirectory
 	if cfg.Server.Dir != "" {
 		htmlDir := cfg.Server.Dir + "/html"
-		s.httpEndpoint.SetStaticDir(htmlDir)
+		s.HttpEndpoint.SetStaticDir(htmlDir)
 		s.config.Log(0, "Serving site from directory: %s", htmlDir)
 		return
 	}
@@ -301,7 +302,7 @@ func (s *Server) setupSite(cfg *config.Config) {
 
 	if zipReader != nil {
 		// NewZipFileSystem automatically serves from html/ subdirectory
-		s.httpEndpoint.SetEmbeddedSite(bundle.NewZipFileSystem(zipReader))
+		s.HttpEndpoint.SetEmbeddedSite(bundle.NewZipFileSystem(zipReader))
 		s.config.Log(0, "Serving site from embedded bundle (html/)")
 		return
 	}
@@ -404,14 +405,14 @@ func (s *Server) triggerSessionRefresh(vendedID string) {
 
 // SetSiteFS sets a custom filesystem for serving static files.
 func (s *Server) SetSiteFS(siteFS fs.FS) {
-	s.httpEndpoint.SetEmbeddedSite(siteFS)
+	s.HttpEndpoint.SetEmbeddedSite(siteFS)
 }
 
 // SetRootSessionProvider sets a provider for the root path "/" session.
 // If the provider returns a session ID, that session is used instead of creating a new one.
 // This allows MCP-style servers to serve an existing session at "/" without redirect.
 func (s *Server) SetRootSessionProvider(provider RootSessionProvider) {
-	s.httpEndpoint.SetRootSessionProvider(provider)
+	s.HttpEndpoint.SetRootSessionProvider(provider)
 }
 
 // serverMessageSender implements protocol.MessageSender.
@@ -818,9 +819,10 @@ func (s *Server) getDebugVariables(tracker *changetracker.Tracker) ([]DebugVaria
 			Path:       v.Properties["path"],
 			Properties: v.Properties,
 			ChildIDs:   v.ChildIDs,
-			Active:     v.Active,
-			Access:     v.Properties["access"],
-			Depth:      depthMap[v.ID],
+			Active:      v.Active,
+			Access:      v.Properties["access"],
+			ChangeCount: v.ChangeCount,
+			Depth:       depthMap[v.ID],
 		}
 		if v.ComputeTime > 0 {
 			info.ComputeTime = formatDuration(v.ComputeTime)
@@ -868,7 +870,7 @@ func (s *Server) StartAsync(port int) (string, error) {
 	}
 
 	s.config.Log(0, "HTTP server listening on %s", url)
-	s.config.Log(0, "Serving site from directory: %s", s.httpEndpoint.staticDir)
+	s.config.Log(0, "Serving site from directory: %s", s.HttpEndpoint.staticDir)
 
 	go func() {
 		if err := srv.Serve(ln); err != nil && err != http.ErrServerClosed {

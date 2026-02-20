@@ -129,11 +129,11 @@ func TestHTTPDebugEndpoint(t *testing.T) {
 
 	// Set up debug data provider - receives vended ID (numeric)
 	var receivedVendedID string
-	endpoint.SetDebugDataProvider(func(vendedID string, diagLevel int) ([]DebugVariable, error) {
+	endpoint.SetDebugDataProvider(func(vendedID string, diagLevel int) ([]DebugVariable, int64, error) {
 		receivedVendedID = vendedID
 		return []DebugVariable{
 			{ID: 1, Type: "App", Value: map[string]string{"name": "Test"}, Active: true},
-		}, nil
+		}, 42, nil
 	})
 
 	// Create a session
@@ -170,8 +170,8 @@ func TestHTTPDebugEndpointInvalidSession(t *testing.T) {
 	endpoint := NewHTTPEndpoint(sessions, nil, nil)
 
 	// Set up debug data provider
-	endpoint.SetDebugDataProvider(func(vendedID string, diagLevel int) ([]DebugVariable, error) {
-		return nil, nil
+	endpoint.SetDebugDataProvider(func(vendedID string, diagLevel int) ([]DebugVariable, int64, error) {
+		return nil, 0, nil
 	})
 
 	// Request with non-existent session ID
