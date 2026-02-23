@@ -49,6 +49,7 @@ type DebugVariable struct {
 	Diags          []string                `json:"diags,omitempty"`
 	ChangeCount    int64                   `json:"changeCount"`
 	Depth          int                     `json:"depth"`
+	ElementId      string                  `json:"elementId"`
 }
 
 // HTTPEndpoint handles HTTP requests.

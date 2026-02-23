@@ -357,6 +357,10 @@ export class VariableStore {
     }
     if (options.widget) {
       variable.widget = options.widget;
+      // CRC: crc-VariableStore.md | R84, R85
+      if (!variable.properties['elementId']) {
+        variable.properties['elementId'] = options.widget.elementId;
+      }
     }
     this.variables.set(varId, variable);
 

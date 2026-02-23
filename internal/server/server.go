@@ -727,14 +727,14 @@ func (s *Server) HandleFrontendCreate(sessionID string, id int64, parentID int64
 
 // HandleFrontendUpdate implements PathVariableHandler.
 // It delegates to the per-session LuaSession.
-func (s *Server) HandleFrontendUpdate(sessionID string, varID int64, value json.RawMessage) error {
+func (s *Server) HandleFrontendUpdate(sessionID string, varID int64, value json.RawMessage, properties map[string]string) error {
 	s.luaSessionsMu.RLock()
 	luaSession := s.luaSessions[sessionID]
 	s.luaSessionsMu.RUnlock()
 	if luaSession == nil {
 		return fmt.Errorf("Lua session %s not found", sessionID)
 	}
-	return luaSession.HandleFrontendUpdate(sessionID, varID, value)
+	return luaSession.HandleFrontendUpdate(sessionID, varID, value, properties)
 }
 
 // getDebugVariables returns all variables in topological order from a tracker.
@@ -810,19 +810,20 @@ func (s *Server) getDebugVariables(tracker *changetracker.Tracker) ([]DebugVaria
 			goType = tracker.Resolver.GetType(v, v.Value)
 		}
 		info := DebugVariable{
-			ID:         v.ID,
-			ParentID:   v.ParentID,
-			Value:      displayValue,
-			BaseValue:  v.ValueJSON,
-			Type:       v.Properties["type"],
-			GoType:     goType,
-			Path:       v.Properties["path"],
-			Properties: v.Properties,
-			ChildIDs:   v.ChildIDs,
+			ID:          v.ID,
+			ParentID:    v.ParentID,
+			Value:       displayValue,
+			BaseValue:   v.ValueJSON,
+			Type:        v.Properties["type"],
+			GoType:      goType,
+			Path:        v.Properties["path"],
+			Properties:  v.Properties,
+			ChildIDs:    v.ChildIDs,
 			Active:      v.Active,
 			Access:      v.Properties["access"],
 			ChangeCount: v.ChangeCount,
 			Depth:       depthMap[v.ID],
+			ElementId:   v.Properties["elementId"],
 		}
 		if v.ComputeTime > 0 {
 			info.ComputeTime = formatDuration(v.ComputeTime)

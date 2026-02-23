@@ -122,3 +122,19 @@
 - **R81:** HandleVariablesJSON must set an `X-Change-Count` response header with the tracker's global change count
 - **R82:** Variable browser must display a Changes column (default hidden) showing the variable's change count
 - **R83:** Variable browser must display an Avg Time column (default hidden) computed as ComputeTime / tracker refresh count (from X-Change-Count header)
+
+## Feature: elementId Variable Property
+**Source:** specs/element-id-property.md
+
+- **R84:** Every variable created with a widget reference must have `elementId` set in its properties
+- **R85:** `elementId` must be set centrally in `VariableStore.create()` when a `widget` option is provided
+- **R86:** Variables created by View and ViewList (which already set `elementId` in properties) must continue to work — their explicit value takes precedence
+
+## Feature: viewdef Variable Property
+**Source:** specs/viewdef-variable-property.md
+
+- **R87:** After a View renders, it must set a `viewdef` property on its variable containing the resolved viewdef key
+- **R88:** The `viewdef` property must be sent to the backend so the variable browser can display it
+- **R89:** The `viewdef` property must update when the viewdef changes (type change triggers re-render)
+- **R90:** ViewList item views must also record their viewdef (they render through the same View.render path)
+- **R91:** When a view is cleared (type becomes empty), the `viewdef` property must be cleared

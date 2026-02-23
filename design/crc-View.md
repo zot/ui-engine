@@ -1,7 +1,7 @@
 # View
 
 **Source Spec:** viewdefs.md
-**Requirements:** R32, R33, R34, R35, R36, R37, R38, R50, R51, R52, R53, R54, R55, R56
+**Requirements:** R32, R33, R34, R35, R36, R37, R38, R50, R51, R52, R53, R54, R55, R56, R87, R89, R90, R91
 
 ## Responsibilities
 
@@ -11,14 +11,14 @@
 - bufferTimeoutId: Pending reveal timer (only set on buffer root views)
 - variable: Variable bound to this view (object reference)
 - rendered: Whether view has been successfully rendered
-- viewdefKey: The resolved viewdef key (e.g., "Contact.COMPACT") stored as `ui-viewdef` attribute on first element
+- viewdefKey: The resolved viewdef key (e.g., "Contact.COMPACT") stored as `ui-viewdef` attribute on first element and as `viewdef` property on the variable
 - viewUnbindHandlers: Array of cleanup handlers called when widget unbinds
 - originalClass: Class attribute from original ui-view element (applied to first rendered element)
 - originalStyle: Style attribute from original ui-view element (applied to first rendered element)
 
 ### Does
 - create: Initialize view from element with ui-view attribute, vend element ID if needed, set variable namespace properties, register widget
-- render: Render variable by replacing view's element(s) with template content, supports multi-element templates, returns boolean
+- render: Render variable by replacing view's element(s) with template content, supports multi-element templates, sets `viewdef` property on variable, returns boolean
 - setVariable: Update bound variable (triggers re-render)
 - clear: Remove all view elements from DOM (from elementId to lastElementId), destroy child views
 - destroy: Cleanup view - unwatch, remove from pending, clear DOM, destroy associated variable
@@ -132,7 +132,8 @@ When a rendered view's type property becomes empty (backend value became nil):
 3. Remove all rendered elements from the DOM
 4. Insert a plain `<div>` placeholder with the view's `elementId` and `viewClass`
 5. Set `rendered = false` and `valueType = ''`
-6. Call `markPending()` so the view re-renders if type becomes non-empty later
+6. Clear the `viewdef` property on the variable (R91)
+7. Call `markPending()` so the view re-renders if type becomes non-empty later
 
 This is handled inline in `render()` when `!type && this.rendered`.
 

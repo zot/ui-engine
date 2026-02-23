@@ -47,32 +47,6 @@ Reusable patterns. Consult when:
 4. Generate a clear commit message with terse bullet points
 5. Create the commit and verify success
 
-## Design Workflow
-
-Use the mini-spec skill for all design and implementation work.
-
-**3-level architecture:**
-- `specs/` - Human specs (WHAT & WHY)
-- `design/` - Design docs (HOW - architecture)
-- `src/` - Implementation (code)
-
-**Commands:**
-- "design this" → generates design docs only
-- "implement this" → writes code, updates Artifacts checkboxes
-- After code changes → unchecks Artifacts, asks about design updates
-
-**Design Entry Point:**
-- `design/design.md` is the central tracking file
-- Lists all artifacts with implementation status checkboxes
-- Gaps section tracks spec→design and design→code gaps
-
-**Traceability Comment Format:**
-- Use simple filenames WITHOUT directory paths
-- ✅ Correct: `CRC: crc-Person.md`, `Spec: main.md`, `Sequence: seq-create-user.md`
-- ❌ Wrong: `CRC: design/crc-Person.md`, `Spec: specs/main.md`
-
-See `.claude/skills/mini-spec/SKILL.md` for the full methodology.
-
 ## Versioning and Releasing
 
 Release versions use semantic versioning in `README.md` (the `**Version: X.Y.Z**` line near the top).

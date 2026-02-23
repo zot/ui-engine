@@ -1,7 +1,7 @@
 # VariableStore
 
 **Source Spec:** protocol.md, data-models.md
-**Requirements:** R43, R48, R49
+**Requirements:** R43, R48, R49, R84, R85, R86, R88
 
 ## Responsibilities
 
@@ -11,7 +11,7 @@
 - nextVarId: Counter for generating unique IDs (frontend starts at 2, server at -1)
 
 ### Does
-- create: Create variable with sender-provided ID, optional parent, value, properties (synchronous)
+- create: Create variable with sender-provided ID, optional parent, value, properties (synchronous). When a widget is provided, sets `elementId` in properties to `widget.elementId`
 - createVarId: Vend next variable ID (frontend: 2+, server: -1 and below)
 - get: Retrieve variable by ID
 - getByName: Retrieve standard variable by @NAME

@@ -194,6 +194,8 @@ export class View {
         }
         this.rendered = false;
         this.valueType = '';
+        // CRC: crc-View.md | R91
+        this.variableStore.update(this.variableId, undefined, { viewdef: '' });
       }
       this.markPending();
       return false;
@@ -357,6 +359,9 @@ export class View {
 
     this.rendered = true;
     this.valueType = type;
+
+    // CRC: crc-View.md | R87, R88, R89
+    this.variableStore.update(this.variableId!, undefined, { viewdef: viewdef.key });
 
     // Register view with widget for hot-reload
     // Spec: viewdefs.md - Hot-reload re-rendering

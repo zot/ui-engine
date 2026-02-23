@@ -1528,7 +1528,7 @@ func WrapTrackerVariable(session *LuaSession, v *changetracker.Variable) *Tracke
 // Updates the backend object via the variable's path using v.Set().
 // CRC: crc-LuaRuntime.md
 // Sequence: seq-relay-message.md
-func (r *LuaSession) HandleFrontendUpdate(sessionID string, varID int64, value json.RawMessage) error {
+func (r *LuaSession) HandleFrontendUpdate(sessionID string, varID int64, value json.RawMessage, properties map[string]string) error {
 	tracker := r.variableStore.GetTracker(sessionID)
 	if tracker == nil {
 		return fmt.Errorf("session %s tracker not found", sessionID)
@@ -1537,6 +1537,16 @@ func (r *LuaSession) HandleFrontendUpdate(sessionID string, varID int64, value j
 	v := tracker.GetVariable(varID)
 	if v == nil {
 		return fmt.Errorf("variable %d not found in tracker", varID)
+	}
+
+	// Apply frontend-sent properties to tracker variable
+	for k, val := range properties {
+		v.SetProperty(k, val)
+	}
+
+	// Skip value update if no value sent (properties-only update)
+	if len(value) == 0 {
+		return nil
 	}
 
 	// Parse the JSON value to a Go value

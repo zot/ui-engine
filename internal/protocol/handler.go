@@ -33,7 +33,7 @@ type PathVariableHandler interface {
 
 	// HandleFrontendUpdate handles an update to a path-based variable from frontend.
 	// Updates the backend object via the variable's path and returns error if any.
-	HandleFrontendUpdate(sessionID string, varID int64, value json.RawMessage) error
+	HandleFrontendUpdate(sessionID string, varID int64, value json.RawMessage, properties map[string]string) error
 }
 
 // BackendLookup provides per-connection backend lookup.
@@ -212,7 +212,7 @@ func (h *Handler) handleUpdate(connectionID string, data json.RawMessage) (*Resp
 		if sessionID == "" {
 			return &Response{Error: "session context required for path variables"}, nil
 		}
-		if err := h.pathVariableHandler.HandleFrontendUpdate(sessionID, msg.VarID, msg.Value); err != nil {
+		if err := h.pathVariableHandler.HandleFrontendUpdate(sessionID, msg.VarID, msg.Value, msg.Properties); err != nil {
 			h.Log(0, "ERROR, handleUpdate: backend update failed for var %d: %v", msg.VarID, err)
 			return &Response{Error: err.Error()}, nil
 		}
