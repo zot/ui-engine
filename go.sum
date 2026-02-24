@@ -14,5 +14,7 @@ github.com/zot/change-tracker v1.0.0 h1:HGvNFxKIDrLOK8NKoZ9V9uLzjlMDQ6gDXXwpqr0z
 github.com/zot/change-tracker v1.0.0/go.mod h1:V9pUIOLAIfmi+oNDrI2ObW2dHkkTXs/OzoYQ0VybnQQ=
 github.com/zot/change-tracker v1.1.0 h1:6d3SkGsp6L21k8PfwrYQVSSEC85GeXlaCa4TBUeVlHM=
 github.com/zot/change-tracker v1.1.0/go.mod h1:V9pUIOLAIfmi+oNDrI2ObW2dHkkTXs/OzoYQ0VybnQQ=
+github.com/zot/change-tracker v1.2.0 h1:65BIg5R7Lrnx7D6JheYlUtPblaZKeewyRDvKXJBnfQE=
+github.com/zot/change-tracker v1.2.0/go.mod h1:V9pUIOLAIfmi+oNDrI2ObW2dHkkTXs/OzoYQ0VybnQQ=
 golang.org/x/sys v0.40.0 h1:DBZZqJ2Rkml6QMQsZywtnjnnGvHza6BTfYFWY9kjEWQ=
 golang.org/x/sys v0.40.0/go.mod h1:OgkHotnGiDImocRcuBABYBEXf8A9a87e/uXjp9XT3ks=
