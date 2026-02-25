@@ -134,6 +134,21 @@ func (ws *WebSocketEndpoint) ExecuteInSession(sessionID string, fn func() (inter
 	})
 }
 
+// ExecuteInSessionAsync is a fire-and-forget variant of ExecuteInSession.
+// It queues execution through ChanSvc using Svc (async) instead of SvcSync (blocking).
+// AfterBatch is called after execution to detect and push any changes.
+// CRC: crc-LuaSession.md
+// Seq: seq-session-timer.md
+func (ws *WebSocketEndpoint) ExecuteInSessionAsync(sessionID string, fn func() (interface{}, error)) {
+	svc := ws.getOrCreateSvc(sessionID)
+	Svc(svc, func() {
+		fn()
+		if ws.afterBatch != nil && ws.HasConnectionsForSession(sessionID) {
+			ws.afterBatch(sessionID, false)
+		}
+	})
+}
+
 // HandleWebSocket handles incoming WebSocket connections.
 func (ws *WebSocketEndpoint) HandleWebSocket(w http.ResponseWriter, r *http.Request, sessionID string) {
 	conn, err := upgrader.Upgrade(w, r, nil)

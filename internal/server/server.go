@@ -117,11 +117,6 @@ func New(cfg *config.Config) *Server {
 			if tracker == nil {
 				return nil, 0, fmt.Errorf("tracker not found")
 			}
-			// CRC: crc-HTTPEndpoint.md (R62)
-			if diagLevel > 0 {
-				tracker.DiagLevel = diagLevel
-				defer func() { tracker.DiagLevel = 0 }()
-			}
 			vars, err := s.getDebugVariables(tracker)
 			return vars, tracker.ChangeCount, err
 		})
@@ -516,6 +511,12 @@ func (s *Server) CreateLuaBackendForSession(vendedID string, sess *Session) erro
 	// Set wrapper registry on session (allows ui.registerWrapper from Lua)
 	luaSession.SetWrapperRegistry(s.wrapperRegistry)
 
+	// Set defer callback for session timers (setImmediate/setTimeout/setInterval)
+	// Seq: seq-session-timer.md
+	luaSession.SetDeferCallback(func(fn func() (interface{}, error)) {
+		s.ExecuteInSessionAsync(vendedID, fn)
+	})
+
 	// Create LuaBackend with resolver
 	lb := backend.NewLuaBackend(s.config, vendedID, &lua.LuaResolver{})
 
@@ -690,6 +691,30 @@ func (s *Server) ExecuteInSession(vendedID string, fn func() (interface{}, error
 	// Delegate to websocket endpoint (queues through session's executor)
 	// Wrap fn to set up Lua session context
 	return s.wsEndpoint.ExecuteInSession(internalID, func() (interface{}, error) {
+		return luaSession.ExecuteInSession(vendedID, fn)
+	})
+}
+
+// ExecuteInSessionAsync is a fire-and-forget variant of ExecuteInSession.
+// It queues execution through ChanSvc without blocking the caller.
+// Used by session timers (setImmediate/setTimeout/setInterval) to avoid deadlock
+// when Lua code schedules deferred execution from within the executor.
+// CRC: crc-LuaSession.md
+// Seq: seq-session-timer.md
+func (s *Server) ExecuteInSessionAsync(vendedID string, fn func() (interface{}, error)) {
+	internalID := s.sessions.GetInternalID(vendedID)
+	if internalID == "" {
+		return
+	}
+
+	s.luaSessionsMu.RLock()
+	luaSession := s.luaSessions[vendedID]
+	s.luaSessionsMu.RUnlock()
+	if luaSession == nil {
+		return
+	}
+
+	s.wsEndpoint.ExecuteInSessionAsync(internalID, func() (interface{}, error) {
 		return luaSession.ExecuteInSession(vendedID, fn)
 	})
 }

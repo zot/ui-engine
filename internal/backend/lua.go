@@ -32,6 +32,7 @@ type LuaBackend struct {
 func NewLuaBackend(cfg *config.Config, sessionID string, resolver changetracker.Resolver) *LuaBackend {
 	tracker := changetracker.NewTracker()
 	tracker.Resolver = resolver
+	tracker.DiagLevel = cfg.Logging.Verbosity
 
 	return &LuaBackend{
 		config:            cfg,

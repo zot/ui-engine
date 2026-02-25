@@ -138,3 +138,27 @@
 - **R89:** The `viewdef` property must update when the viewdef changes (type change triggers re-render)
 - **R90:** ViewList item views must also record their viewdef (they render through the same View.render path)
 - **R91:** When a view is cleared (type becomes empty), the `viewdef` property must be cleared
+
+## Feature: Session Timers
+**Source:** specs/session-defer.md
+
+- **R92:** LuaSession must expose `session:setImmediate(fn)` returning an integer handle
+- **R93:** LuaSession must expose `session:setTimeout(fn, ms)` returning an integer handle
+- **R94:** LuaSession must expose `session:setInterval(fn, ms)` returning an integer handle
+- **R95:** LuaSession must expose `session:clearImmediate(handle)`, `session:clearTimeout(handle)`, `session:clearInterval(handle)`
+- **R96:** All timer functions must return immediately without blocking
+- **R97:** Scheduled functions must run with the `session` global set (same context as ExecuteInSession)
+- **R98:** Change detection (afterBatch) must run after each scheduled function invocation
+- **R99:** `setImmediate` must run in the next ChanSvc turn; multiple calls queue in order
+- **R100:** `setTimeout` must run once after the specified delay in milliseconds
+- **R101:** `setInterval` must run repeatedly at the specified interval in milliseconds
+- **R102:** Clear functions must cancel a pending timer by handle; no-op if already fired or cancelled
+- **R103:** LuaSession must capture `tracker.ComputingVar` at schedule-time and restore it before running
+- **R104:** Before running a scheduled function, `savedVar.Diags` must be set to nil
+- **R105:** If a scheduled function errors, `savedVar.Error` must be set using `changetracker.DeferredCode` error type
+- **R106:** After a scheduled function runs, `tracker.ComputingVar` must be set to nil
+- **R107:** Server must provide `ExecuteInSessionAsync` — a fire-and-forget variant using `Svc` instead of `SvcSync`
+- **R108:** If the session is destroyed before a timer fires, the timer must be silently cancelled
+- **R109:** On session Shutdown, all active timers must be cancelled
+- **R110:** (inferred) LuaSession must accept an `onDefer` callback set by the Server to decouple session from server
+- **R111:** (inferred) LuaSession must maintain a timer registry with sequential integer handles

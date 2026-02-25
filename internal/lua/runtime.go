@@ -16,6 +16,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"time"
 	"weak"
 
 	lua "github.com/yuin/gopher-lua"
@@ -77,6 +78,12 @@ type LuaSession struct {
 	moduleDirectories map[string][]*Module // directory path -> modules in that directory
 	currentModule     *Module              // module being loaded (for resource tracking)
 	hotLoaderCleanup  func(path string)    // callback to clean up HotLoader state
+
+	// Session timers (setImmediate/setTimeout/setInterval)
+	// Seq: seq-session-timer.md
+	onDefer         func(fn func() (interface{}, error)) // callback to Server.ExecuteInSessionAsync
+	timerRegistry   map[int64]*timerEntry                // handle -> timer entry
+	nextTimerHandle int64                                // sequential counter for handle allocation
 }
 
 // prototypeInfo stores information about a registered prototype for change detection.
@@ -95,6 +102,13 @@ type weakInstance struct {
 type mutationEntry struct {
 	prototype   *lua.LTable
 	removedKeys []string
+}
+
+// timerEntry tracks a scheduled timer for cancellation.
+// Seq: seq-session-timer.md
+type timerEntry struct {
+	cancelled bool
+	stop      func() // nil for setImmediate; stops timer/ticker for setTimeout/setInterval
 }
 
 // PresenterType represents a Lua-defined presenter type.
@@ -158,6 +172,9 @@ func NewRuntime(cfg *config.Config, luaDir string, vdm *viewdef.ViewdefManager) 
 	// Register EMPTY global for declaring nil fields tracked for mutation
 	s.registerEmptyGlobal()
 
+	// Register diag() global for per-variable diagnostics
+	s.registerDiagGlobal()
+
 	// Try to load session module (lib/lua/session.lua) - optional for testing
 	s.loadSessionModule()
 
@@ -190,6 +207,24 @@ func (r *LuaSession) registerEmptyGlobal() {
 	L := r.State
 	empty := L.NewTable()
 	L.SetGlobal("EMPTY", empty)
+}
+
+// registerDiagGlobal creates the diag(level, message) global for per-variable diagnostics.
+// Calls are attached to whichever variable is currently being computed.
+// diag(level, message) — level is an integer, message is a string.
+// Messages only appear when the tracker's DiagLevel >= level.
+func (r *LuaSession) registerDiagGlobal() {
+	L := r.State
+	L.SetGlobal("diag", L.NewFunction(func(L *lua.LState) int {
+		level := L.CheckInt(1)
+		message := L.CheckString(2)
+		if r.variableStore != nil {
+			if tracker := r.GetTracker(); tracker != nil {
+				tracker.Diag(level, "%s", message)
+			}
+		}
+		return 0
+	}))
 }
 
 // Log logs a message via the config.
@@ -798,6 +833,87 @@ func (r *LuaSession) addGoSessionMethods(session *lua.LTable, vendedID string) {
 		}
 		return 0
 	}))
+
+	// setImmediate - schedule function for next ChanSvc turn
+	// session:setImmediate(fn) -> handle
+	// CRC: crc-LuaSession.md | Seq: seq-session-timer.md
+	r.State.SetField(session, "setImmediate", r.State.NewFunction(func(L *lua.LState) int {
+		fn := L.CheckFunction(2)
+		luaSess, ok := r.GetLuaSession(vendedID)
+		if !ok || luaSess.onDefer == nil {
+			L.Push(lua.LNumber(0))
+			return 1
+		}
+		handle := luaSess.allocTimerHandle(nil)
+		luaSess.scheduleDeferred(handle, fn)
+		L.Push(lua.LNumber(handle))
+		return 1
+	}))
+
+	// setTimeout - schedule function after delay
+	// session:setTimeout(fn, ms) -> handle
+	// CRC: crc-LuaSession.md | Seq: seq-session-timer.md
+	r.State.SetField(session, "setTimeout", r.State.NewFunction(func(L *lua.LState) int {
+		fn := L.CheckFunction(2)
+		ms := L.CheckInt(3)
+		luaSess, ok := r.GetLuaSession(vendedID)
+		if !ok || luaSess.onDefer == nil {
+			L.Push(lua.LNumber(0))
+			return 1
+		}
+		var timer *time.Timer
+		handle := luaSess.allocTimerHandle(func() { timer.Stop() })
+		timer = time.AfterFunc(time.Duration(ms)*time.Millisecond, func() {
+			luaSess.scheduleDeferred(handle, fn)
+		})
+		L.Push(lua.LNumber(handle))
+		return 1
+	}))
+
+	// setInterval - schedule repeating function
+	// session:setInterval(fn, ms) -> handle
+	// CRC: crc-LuaSession.md | Seq: seq-session-timer.md
+	r.State.SetField(session, "setInterval", r.State.NewFunction(func(L *lua.LState) int {
+		fn := L.CheckFunction(2)
+		ms := L.CheckInt(3)
+		luaSess, ok := r.GetLuaSession(vendedID)
+		if !ok || luaSess.onDefer == nil {
+			L.Push(lua.LNumber(0))
+			return 1
+		}
+		done := make(chan struct{})
+		handle := luaSess.allocTimerHandle(func() { close(done) })
+		go func() {
+			ticker := time.NewTicker(time.Duration(ms) * time.Millisecond)
+			defer ticker.Stop()
+			for {
+				select {
+				case <-done:
+					return
+				case <-luaSess.done:
+					return
+				case <-ticker.C:
+					luaSess.scheduleDeferred(handle, fn)
+				}
+			}
+		}()
+		L.Push(lua.LNumber(handle))
+		return 1
+	}))
+
+	// clearImmediate/clearTimeout/clearInterval - cancel a timer by handle
+	// CRC: crc-LuaSession.md | Seq: seq-session-timer.md
+	clearFn := r.State.NewFunction(func(L *lua.LState) int {
+		handle := L.CheckInt64(2)
+		luaSess, ok := r.GetLuaSession(vendedID)
+		if ok {
+			luaSess.cancelTimer(handle)
+		}
+		return 0
+	})
+	r.State.SetField(session, "clearImmediate", clearFn)
+	r.State.SetField(session, "clearTimeout", clearFn)
+	r.State.SetField(session, "clearInterval", clearFn)
 }
 
 // prototypeImpl implements session:prototype(name, init, base).
@@ -2258,10 +2374,93 @@ func (r *LuaSession) SetValue(tbl *lua.LTable, key string, value interface{}) {
 func (r *LuaSession) Shutdown() {
 	close(r.done)
 
+	// Cancel all active timers
+	for handle := range r.timerRegistry {
+		r.cancelTimer(handle)
+	}
+	r.timerRegistry = nil
+
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
 	r.State.Close()
+}
+
+// SetDeferCallback sets the callback for fire-and-forget async execution.
+// Called by Server during session setup to decouple LuaSession from Server.
+// CRC: crc-LuaSession.md
+// Seq: seq-session-timer.md
+func (r *LuaSession) SetDeferCallback(cb func(fn func() (interface{}, error))) {
+	r.onDefer = cb
+}
+
+// allocTimerHandle allocates a new timer handle and registers it.
+func (r *LuaSession) allocTimerHandle(stop func()) int64 {
+	if r.timerRegistry == nil {
+		r.timerRegistry = make(map[int64]*timerEntry)
+	}
+	r.nextTimerHandle++
+	handle := r.nextTimerHandle
+	r.timerRegistry[handle] = &timerEntry{stop: stop}
+	return handle
+}
+
+// cancelTimer cancels a timer by handle. No-op if already fired or cancelled.
+func (r *LuaSession) cancelTimer(handle int64) {
+	if entry, ok := r.timerRegistry[handle]; ok {
+		entry.cancelled = true
+		if entry.stop != nil {
+			entry.stop()
+		}
+	}
+}
+
+// scheduleDeferred wraps a Lua function with diagnostic context and schedules it via onDefer.
+// Captures tracker.ComputingVar at call-time for attribution.
+// CRC: crc-LuaSession.md
+// Seq: seq-session-timer.md
+func (r *LuaSession) scheduleDeferred(handle int64, fn *lua.LFunction) {
+	// Capture diagnostic context at schedule-time
+	tracker := r.variableStore.GetTracker(r.ID)
+	var savedVar *changetracker.Variable
+	if tracker != nil {
+		savedVar = tracker.ComputingVar
+	}
+
+	r.onDefer(func() (interface{}, error) {
+		// Check cancelled flag before touching Lua VM
+		if entry, ok := r.timerRegistry[handle]; ok && entry.cancelled {
+			return nil, nil
+		}
+
+		// Restore diagnostic context (savedVar != nil implies tracker != nil)
+		if savedVar != nil {
+			savedVar.Diags = nil
+			tracker.ComputingVar = savedVar
+		}
+
+		// Execute the Lua function
+		err := r.State.CallByParam(lua.P{
+			Fn:      fn,
+			NRet:    0,
+			Protect: true,
+		})
+
+		// Set error on variable if deferred code failed
+		if err != nil && savedVar != nil {
+			savedVar.Error = &changetracker.VariableError{
+				ErrorType: changetracker.DeferredCode,
+				Message:   err.Error(),
+			}
+		}
+
+		// Clear diagnostic context
+		if tracker != nil {
+			tracker.ComputingVar = nil
+		}
+
+		return nil, err
+	})
 }
 
 // GoToLua converts a Go value to Lua.

@@ -10,7 +10,7 @@ require (
 require (
 	github.com/fsnotify/fsnotify v1.9.0
 	github.com/yuin/gopher-lua v1.1.1
-	github.com/zot/change-tracker v1.2.0
+	github.com/zot/change-tracker v1.3.1
 )
 
 require golang.org/x/sys v0.40.0 // indirect

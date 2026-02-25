@@ -1,7 +1,7 @@
 # LuaSession
 
-**Source Spec:** libraries.md, interfaces.md, protocol.md, deployment.md, remove-prototype.md, module-tracking.md
-**Requirements:** R1, R2, R3, R4, R5, R6, R7, R9, R10, R11, R12, R13, R14, R15, R16, R17, R18, R19, R20, R21
+**Source Spec:** libraries.md, interfaces.md, protocol.md, deployment.md, remove-prototype.md, module-tracking.md, session-defer.md
+**Requirements:** R1, R2, R3, R4, R5, R6, R7, R9, R10, R11, R12, R13, R14, R15, R16, R17, R18, R19, R20, R21, R92, R93, R94, R95, R96, R97, R98, R99, R100, R101, R102, R103, R104, R105, R106, R109, R110, R111, R107, R108
 
 ## Responsibilities
 
@@ -26,6 +26,9 @@
 - moduleDirectories: Map of directory path to list of Module instances
 - currentModule: The Module currently being loaded (set during require/RequireLuaFile)
 - hotLoaderCleanup: Callback function to clean up HotLoader state for a module/directory
+- onDefer: Callback function set by Server for fire-and-forget async execution (decouples LuaSession from Server)
+- timerRegistry: Map of handle (int64) to timerEntry (cancelled flag, stop func)
+- nextTimerHandle: Sequential counter for timer handle allocation
 
 ### Does
 - CreateLuaSession(vendedID): Initialize session, create session table, load main.lua
@@ -38,6 +41,10 @@
 - HandleFrontendCreate: Handle path-based variable creation from frontend
 - HandleFrontendUpdate: Handle updates to path-based variables from frontend
 - ExecuteInSession: Execute function within session context (sets global 'session')
+- setImmediate(fn): Schedule fn for next ChanSvc turn, return handle
+- setTimeout(fn, ms): Schedule fn after delay, return handle
+- setInterval(fn, ms): Schedule fn to repeat at interval, return handle
+- clearImmediate/clearTimeout/clearInterval(handle): Cancel a timer by handle
 - AfterBatch: Trigger change detection and return updates after message batch
 - Shutdown: Close executor channel, clean up Lua state
 - prototype(name, init, base): Declare/update prototype with instance field tracking (see below)
@@ -103,6 +110,7 @@
 - seq-prototype-mutation.md: Post-load mutation processing for schema migrations
 - seq-require-lua-file.md: require() and RequireLuaFile flow with module tracking
 - seq-unload-module.md: Module and directory unloading
+- seq-session-timer.md: setImmediate/setTimeout/setInterval execution flow
 
 ## Notes
 
@@ -138,3 +146,10 @@
   - Removes module's wrappers from wrapperRegistry
   - Removes module's entry from loadedModules
   - Cleans up HotLoader state via callback (watchers, symlinkTargets, pendingReloads)
+- **Session Timers**: setImmediate/setTimeout/setInterval for deferred async execution:
+  - All share the same path: capture ComputingVar → schedule via onDefer → ExecuteInSessionAsync
+  - setImmediate: onDefer directly (next ChanSvc turn)
+  - setTimeout: time.AfterFunc wrapping onDefer
+  - setInterval: goroutine with time.Ticker, each tick calls onDefer
+  - Timer registry tracks handles with cancelled flag and stop function
+  - Shutdown cancels all active timers
