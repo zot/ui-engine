@@ -313,6 +313,45 @@ func (lb *LuaBackend) Shutdown() {
 	lb.varToSession = nil
 }
 
+// DestroyVariable removes a variable and all its descendants.
+// Returns the list of destroyed variable IDs (children before parents).
+func (lb *LuaBackend) DestroyVariable(varID int64) []int64 {
+	lb.mu.Lock()
+	defer lb.mu.Unlock()
+
+	allVars := lb.tracker.Variables()
+
+	// Collect descendants
+	var descendants []int64
+	for _, v := range allVars {
+		if v.ID == varID {
+			continue
+		}
+		if lb.isDescendantOf(v.ID, varID, allVars) {
+			descendants = append(descendants, v.ID)
+		}
+	}
+
+	// Build full list: descendants (reversed for children-first) then root
+	destroyed := make([]int64, 0, len(descendants)+1)
+	for i := len(descendants) - 1; i >= 0; i-- {
+		destroyed = append(destroyed, descendants[i])
+	}
+	destroyed = append(destroyed, varID)
+
+	// Remove all from tracker and maps
+	for _, id := range destroyed {
+		lb.tracker.DestroyVariable(id)
+		delete(lb.varToSession, id)
+		delete(lb.watchCounts, id)
+		delete(lb.watchers, id)
+		delete(lb.inactiveVariables, id)
+	}
+
+	lb.Log(3, "Destroyed variable %d and %d descendants", varID, len(descendants))
+	return destroyed
+}
+
 // ClearDescendants removes all descendant variables of the given root.
 // Used when a page reconnects to clear stale child variables.
 func (lb *LuaBackend) ClearDescendants(rootID int64) {

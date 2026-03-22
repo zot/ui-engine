@@ -521,13 +521,15 @@ func (r *LuaResolver) ConvertToValueJSON(tracker *changetracker.Tracker, value a
 
 	// Check if it's an array table
 	if r.Session.isArray(tbl) {
-		// Convert array to slice, recursively calling tracker.ToValueJSON for elements
+		// Convert Lua array to Go slice with raw Go values.
+		// Do NOT call tracker.ToValueJSON here — the caller (ToValueJSON) will
+		// process each element. Calling it here causes double-processing where
+		// ObjectRef structs get converted to nil by the struct handler.
 		length := tbl.Len()
 		result := make([]any, length)
 		for i := 1; i <= length; i++ {
 			elem := r.Session.State.RawGetInt(tbl, i)
-			// Recursively convert elements (handles nested tables, etc.)
-			result[i-1] = tracker.ToValueJSON(r.luaElementToGo(elem))
+			result[i-1] = r.luaElementToGo(elem)
 		}
 		return result
 	}

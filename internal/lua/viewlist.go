@@ -48,7 +48,7 @@ func NewViewList(sess *LuaSession, variable *TrackerVariableAdapter) interface{}
 		// Set fallbackNamespace for namespace resolution cascade (high priority)
 		variable.SetProperty("fallbackNamespace:high", "list-item")
 	}
-	vl.Update(variable.NavigationValue())
+	vl.Update(variable.Value)
 	return vl
 }
 

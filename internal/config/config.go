@@ -50,7 +50,6 @@ type LoggingConfig struct {
 	Verbosity int    `toml:"verbosity"` // 0=none, 1=connections, 2=messages, 3=variables, 4=values
 }
 
-
 // verbosityCounter implements flag.Value for counting -v flags.
 type verbosityCounter int
 
@@ -67,9 +66,9 @@ func (v *verbosityCounter) IsBoolFlag() bool {
 	return true
 }
 
-// expandVerbosityFlags preprocesses args to expand -vvv into -v -v -v.
+// ExpandVerbosityFlags preprocesses args to expand -vvv into -v -v -v.
 // This allows both "-v -v -v" and "-vvv" styles to work.
-func expandVerbosityFlags(args []string) []string {
+func ExpandVerbosityFlags(args []string) []string {
 	result := make([]string, 0, len(args))
 	for _, arg := range args {
 		// Check if this is a -v... flag (but not --verbose or -version etc.)
@@ -154,7 +153,7 @@ func Load(args []string) (*Config, error) {
 	cfg := DefaultConfig()
 
 	// Preprocess args to expand -vvv into -v -v -v
-	args = expandVerbosityFlags(args)
+	args = ExpandVerbosityFlags(args)
 
 	// Parse CLI flags first to get --dir if specified
 	fs := flag.NewFlagSet("remote-ui", flag.ContinueOnError)

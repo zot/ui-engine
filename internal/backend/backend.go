@@ -61,6 +61,10 @@ type Backend interface {
 	// Only meaningful for LuaBackend; ProxiedBackend returns nil.
 	GetTracker() *changetracker.Tracker
 
+	// DestroyVariable removes a variable and all its descendants.
+	// Returns the list of destroyed variable IDs (children before parents).
+	DestroyVariable(varID int64) []int64
+
 	// SetInactive marks a variable as inactive (updates not relayed).
 	SetInactive(varID int64, inactive bool)
 

@@ -280,6 +280,7 @@ export class VariableStore {
   private handleDestroy(varId: number): void {
     this.variables.delete(varId);
     this.watchers.delete(varId);
+    this.errors.delete(varId);
   }
 
   watch(varId: number, callback: ValueCallback, send?: boolean): () => void {

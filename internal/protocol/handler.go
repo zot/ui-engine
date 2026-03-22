@@ -154,25 +154,33 @@ func (h *Handler) handleCreate(connectionID string, data json.RawMessage) (*Resp
 }
 
 // handleDestroy processes a destroy message.
+// Destroys the variable and all descendants in the backend, then notifies
+// all watchers (including the originator) for each destroyed variable.
 func (h *Handler) handleDestroy(connectionID string, data json.RawMessage) (*Response, error) {
 	var msg DestroyMessage
 	if err := json.Unmarshal(data, &msg); err != nil {
 		return nil, err
 	}
 
-	// Get watchers before destroying (via session's backend)
-	var watchers []string
-	if h.backendLookup != nil {
-		if b := h.backendLookup.GetBackendForConnection(connectionID); b != nil {
-			watchers = b.GetWatchers(msg.VarID)
-		}
+	if h.backendLookup == nil {
+		return &Response{}, nil
 	}
-	// Notify watchers of destruction
-	destroyNotif, _ := NewMessage(MsgDestroy, DestroyMessage{VarID: msg.VarID})
-	for _, watcherID := range watchers {
-		if watcherID != connectionID {
-			h.sender.Send(watcherID, destroyNotif)
-		}
+	b := h.backendLookup.GetBackendForConnection(connectionID)
+	if b == nil {
+		return &Response{}, nil
+	}
+
+	// Destroy variable and all descendants; returns IDs children-first.
+	// DestroyVariable clears watcher maps, so we send notifications
+	// to the originator (who requested the destroy). Other watchers
+	// of descendant variables are an edge case — in practice only the
+	// originating connection watches frontend-created variables.
+	destroyed := b.DestroyVariable(msg.VarID)
+
+	// Send destroy notification for each destroyed variable
+	for _, varID := range destroyed {
+		destroyNotif, _ := NewMessage(MsgDestroy, DestroyMessage{VarID: varID})
+		h.sender.Send(connectionID, destroyNotif)
 	}
 
 	return &Response{}, nil

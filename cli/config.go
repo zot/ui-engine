@@ -18,6 +18,7 @@ type (
 
 // Re-export config functions for public API
 var (
-	DefaultConfig = config.DefaultConfig
-	Load          = config.Load
+	DefaultConfig        = config.DefaultConfig
+	Load                 = config.Load
+	ExpandVerbosityFlags = config.ExpandVerbosityFlags
 )

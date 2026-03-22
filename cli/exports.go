@@ -34,6 +34,8 @@ var (
 	BundleListFilesRecursive = bundle.ListFilesInDirRecursive
 	BundleListFilesWithInfo  = bundle.ListFilesWithInfo
 	BundleReadFile           = bundle.ReadFile
+	BundleCreateBundle       = bundle.CreateBundle
+	BundleExtractBundle      = bundle.ExtractBundle
 	TypeName                 = lua.TypeName
 )
 
