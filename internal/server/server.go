@@ -75,6 +75,9 @@ func New(cfg *config.Config) *Server {
 	// Set up backend lookup for per-session watch management
 	s.handler.SetBackendLookup(&serverBackendLookup{server: s})
 
+	// Route handler outgoing messages through session batchers
+	s.handler.SetQueuer(&serverMessageQueuer{server: s})
+
 	// Create WebSocket endpoint
 	s.wsEndpoint = NewWebSocketEndpoint(cfg, sessions, s.handler)
 
@@ -421,6 +424,41 @@ func (sms *serverMessageSender) Send(connectionID string, msg *protocol.Message)
 
 func (sms *serverMessageSender) Broadcast(sessionID string, msg *protocol.Message) error {
 	return sms.server.wsEndpoint.Broadcast(sessionID, msg)
+}
+
+// serverMessageQueuer implements protocol.MessageQueuer.
+// It routes messages through the session's OutgoingBatcher for a given connection.
+// CRC: crc-ProtocolHandler.md | R112, R113
+type serverMessageQueuer struct {
+	server *Server
+}
+
+func (smq *serverMessageQueuer) Queue(msg *protocol.Message, watchers []string) {
+	// All watchers share the same session, so use the first to look up the batcher.
+	if len(watchers) == 0 {
+		smq.server.config.Log(0, "QUEUER: no watchers")
+		return
+	}
+	sessionID := smq.server.wsEndpoint.GetSessionIDForConnection(watchers[0])
+	if sessionID == "" {
+		smq.server.config.Log(0, "QUEUER: no session for connection %s", watchers[0])
+		return
+	}
+	sess := smq.server.sessions.Get(sessionID)
+	if sess == nil {
+		smq.server.config.Log(0, "QUEUER: session %s not found", sessionID)
+		return
+	}
+	if batcher := sess.GetBatcher(); batcher != nil {
+		smq.server.config.Log(0, "QUEUER: routing %s through batcher for session %s", msg.Type, sessionID)
+		// Enqueue without starting a timer — AfterBatch handles flush
+		batcher.Enqueue(msg, watchers)
+	} else {
+		smq.server.config.Log(0, "QUEUER: no batcher, sending directly for session %s", sessionID)
+		for _, connID := range watchers {
+			smq.server.wsEndpoint.Send(connID, msg)
+		}
+	}
 }
 
 // serverBackendLookup implements protocol.BackendLookup.

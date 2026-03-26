@@ -280,16 +280,17 @@ export class ViewList {
 
   // Clear all items
   clear(): void {
-    for (const view of this.itemViews) {
-      view.destroy();
-    }
-    this.itemViews = [];
-
-    // Clear any remaining children from list element
+    // Detach children from live DOM before recursive destroy to avoid
+    // O(n) forced reflows — each view.destroy() removes elements individually
     const listElement = this.getElement();
     if (listElement) {
       listElement.replaceChildren();
     }
+
+    for (const view of this.itemViews) {
+      view.destroy();
+    }
+    this.itemViews = [];
   }
 
   // Get number of items

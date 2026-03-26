@@ -44,11 +44,19 @@ type BackendLookup interface {
 	GetBackendForConnection(connectionID string) backend.Backend
 }
 
+// CRC: crc-ProtocolHandler.md | R112, R113
+// MessageQueuer queues outgoing messages through the session's OutgoingBatcher.
+type MessageQueuer interface {
+	// Queue adds a message to the batcher's pending queue for the given watchers.
+	Queue(msg *Message, watchers []string)
+}
+
 // Handler processes protocol messages.
 type Handler struct {
 	config              *config.Config
 	backendLookup       BackendLookup
 	sender              MessageSender
+	queuer              MessageQueuer
 	pending             PendingQueuer
 	pathVariableHandler PathVariableHandler // For path-based frontend creates
 }
@@ -64,6 +72,12 @@ func NewHandler(cfg *config.Config, sender MessageSender) *Handler {
 // SetBackendLookup sets the backend lookup for per-session watch operations.
 func (h *Handler) SetBackendLookup(lookup BackendLookup) {
 	h.backendLookup = lookup
+}
+
+// SetQueuer sets the message queuer for batched outgoing messages.
+// CRC: crc-ProtocolHandler.md | R113
+func (h *Handler) SetQueuer(queuer MessageQueuer) {
+	h.queuer = queuer
 }
 
 // SetPendingQueuer sets the pending queue manager.
@@ -177,10 +191,18 @@ func (h *Handler) handleDestroy(connectionID string, data json.RawMessage) (*Res
 	// originating connection watches frontend-created variables.
 	destroyed := b.DestroyVariable(msg.VarID)
 
-	// Send destroy notification for each destroyed variable
+	// CRC: crc-ProtocolHandler.md | Seq: seq-destroy-variable.md | R112
+	// Queue destroy notifications through batcher so they coalesce into
+	// a single outgoing WebSocket frame instead of N individual frames.
 	for _, varID := range destroyed {
 		destroyNotif, _ := NewMessage(MsgDestroy, DestroyMessage{VarID: varID})
-		h.sender.Send(connectionID, destroyNotif)
+		if h.queuer != nil {
+			h.Log(0, "DESTROY: using queuer for var %d", varID)
+			h.queuer.Queue(destroyNotif, []string{connectionID})
+		} else {
+			h.Log(0, "DESTROY: queuer is nil, sending directly for var %d", varID)
+			h.sender.Send(connectionID, destroyNotif)
+		}
 	}
 
 	return &Response{}, nil
@@ -295,6 +317,7 @@ func (h *Handler) handleUnwatch(connectionID string, data json.RawMessage) (*Res
 }
 
 // SendError sends an error message to a connection.
+// Routes through queuer when available to maintain message ordering.
 func (h *Handler) SendError(connectionID string, varID int64, description string) error {
 	msg, err := NewMessage(MsgError, ErrorMessage{
 		VarID:       varID,
@@ -302,6 +325,10 @@ func (h *Handler) SendError(connectionID string, varID int64, description string
 	})
 	if err != nil {
 		return err
+	}
+	if h.queuer != nil {
+		h.queuer.Queue(msg, []string{connectionID})
+		return nil
 	}
 	return h.sender.Send(connectionID, msg)
 }

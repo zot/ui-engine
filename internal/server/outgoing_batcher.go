@@ -68,6 +68,22 @@ func (b *OutgoingBatcher) Queue(msg *protocol.Message, watchers []string) {
 	}
 }
 
+// Enqueue adds a message to the pending queue without starting a timer.
+// Used during message processing when AfterBatch will handle flushing.
+func (b *OutgoingBatcher) Enqueue(msg *protocol.Message, watchers []string) {
+	if msg == nil || len(watchers) == 0 {
+		return
+	}
+
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	b.pendingUpdates = append(b.pendingUpdates, pendingUpdate{
+		msg:      msg,
+		watchers: watchers,
+	})
+}
+
 // EnsureDebounceStarted ensures the debounce timer is running.
 // Called before processing to run debounce concurrently with processing.
 // If timer already running, does nothing (preserves existing deadline).

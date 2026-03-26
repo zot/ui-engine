@@ -238,12 +238,6 @@ func (ws *WebSocketEndpoint) processMessage(connectionID, sessionID string, mess
 	}
 	ws.Log(4, "[IN] BATCH %d (%s)", count, evtMsg)
 
-	// For non-user events, start debounce timer BEFORE processing
-	// so timer runs concurrently with message handling
-	if !userEvent && session != nil {
-		session.EnsureDebounceStarted()
-	}
-
 	// Process each message in the batch
 	for _, msg := range msgs {
 		resp, err := ws.handler.HandleMessage(connectionID, msg)

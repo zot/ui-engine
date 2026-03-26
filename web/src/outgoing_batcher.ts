@@ -31,9 +31,10 @@ export class FrontendOutgoingBatcher {
   private insertionOrder = 0;
   private userEvent = false; // True if batch contains user-triggered messages
   private sendFn: (data: string) => void;
+  private batchStartTime = 0; // Timestamp of first enqueue in current batch
 
   readonly debounceInterval = 10; // ms
-  //readonly debounceInterval = 50; // ms
+  readonly maxBatchWait = 50; // ms — flush even if messages keep arriving
 
   constructor(sendFn: (data: string) => void) {
     this.sendFn = sendFn;
@@ -42,6 +43,9 @@ export class FrontendOutgoingBatcher {
   // Add message to pending queue with priority (debounced send)
   // userEvent=false for server-triggered changes
   enqueue(msg: Message, priority: Priority = 'medium'): void {
+    if (this.pendingMessages.length === 0) {
+      this.batchStartTime = performance.now();
+    }
     this.pendingMessages.push({
       message: msg,
       priority,
@@ -90,7 +94,9 @@ export class FrontendOutgoingBatcher {
     this.pendingMessages = [];
     this.insertionOrder = 0;
     this.userEvent = false;
+    this.batchStartTime = 0;
 
+    console.log("SENDING ", batch.messages.length)
     // Send as JSON wrapper (new batched format per spec)
     this.sendFn(JSON.stringify(batch));
   }
@@ -103,8 +109,14 @@ export class FrontendOutgoingBatcher {
     }, this.debounceInterval);
   }
 
-  // Start/restart 10ms debounce timer (resets on each call)
+  // Start/restart 10ms debounce timer (resets on each call).
+  // If the batch has been accumulating longer than maxBatchWait, flush immediately.
   private startDebounce(): void {
+    if (this.batchStartTime > 0 &&
+        performance.now() - this.batchStartTime >= this.maxBatchWait) {
+      this.flushNow();
+      return;
+    }
     this.cancelDebounce();
     this.debounceTimer = this.createDebounceTimer();
   }

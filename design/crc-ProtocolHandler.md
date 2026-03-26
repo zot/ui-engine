@@ -1,7 +1,7 @@
 # ProtocolHandler
 
 **Source Spec:** protocol.md, deployment.md, interfaces.md
-**Requirements:** R43, R44, R45, R46, R47
+**Requirements:** R43, R44, R45, R46, R47, R112, R113
 
 ## Responsibilities
 
@@ -12,7 +12,7 @@
 
 ### Does
 - handleCreate: Process create(id, parentId, value, properties, nowatch?, unbound?) message - id is provided by sender
-- handleDestroy: Process destroy(varId) message
+- handleDestroy: Process destroy(varId) message, queue notifications via Queuer
 - handleUpdate: Process update(varId, value?, properties?) message
 - handleWatch: Process watch(varId) message
 - handleUnwatch: Process unwatch(varId) message
@@ -40,6 +40,7 @@
 - LuaSession: Per-session Lua environment (receives routed messages when Lua enabled)
 - HTTPEndpoint: Receives messages via REST/CLI
 - Config: Logging delegate (protocol messages and errors)
+- Queuer: Queues outgoing messages through session's OutgoingBatcher (for destroy notifications)
 
 ## Sequences
 

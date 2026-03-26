@@ -56,11 +56,12 @@ export class Connection {
           // Check if it's a batch (JSON array) from server
           // Spec: protocol.md - Server sends batched messages as JSON arrays
           if (Array.isArray(data)) {
-            console.log('RECEIVED BATCH', data.length, 'messages');
+            console.log('RECEIVED BATCH X', data.length, 'messages');
             for (const item of data) {
               this.processIncomingItem(item);
             }
           } else {
+            console.log('RECEIVED SINGLE MESSAGE X', data)
             this.processIncomingItem(data);
           }
         } catch (e) {
@@ -104,7 +105,7 @@ export class Connection {
     }
 
     // All incoming items should be messages (no more responses)
-    console.log('RECEIVED MESSAGE', JSON.stringify(data));
+    //console.log('RECEIVED MESSAGE', JSON.stringify(data));
     this.handleMessage(data as Message);
   }
 
@@ -243,7 +244,7 @@ export class VariableStore {
       this.variables.set(varId, existing);
     }
 
-    console.log('handleUpdate varId', varId, 'parentId', existing.parentId)
+    //console.log('handleUpdate varId', varId, 'parentId', existing.parentId)
     if (value !== undefined) {
       existing.value = value;
     }
@@ -366,7 +367,7 @@ export class VariableStore {
     this.variables.set(varId, variable);
 
     // Send create message with the vended ID (no response expected)
-    console.log('SENDING CREATE id=', varId);
+    //console.log('SENDING CREATE id=', varId);
     this.connection.send({
       type: 'create',
       data: { id: varId, ...options }
@@ -408,6 +409,14 @@ export class VariableStore {
   }
 
   destroy(varId: number): void {
+    // Optimistic local destroy — remove immediately so the frontend
+    // doesn't wait for the backend round-trip. The backend notification
+    // arrives later and handleDestroy is idempotent (map.delete on
+    // an absent key is a no-op).
+    
+    setTimeout(()=> {
+      this.handleDestroy(varId)
+    })
     this.connection.send({ type: 'destroy', data: { varId } });
   }
 

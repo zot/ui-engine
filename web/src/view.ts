@@ -174,23 +174,25 @@ export class View {
     if (!type) {
       // CRC: crc-View.md | R53, R54, R55, R56
       if (this.rendered) {
-        // Destroy child views/viewlists first (removes their elements from DOM)
+        // Detach elements from live DOM before recursive destroy
+        const elements = this.getElements();
+        const detached = document.createDocumentFragment();
+        const clearParent = elements.length > 0 ? elements[0].parentNode as HTMLElement | null : null;
+        const clearInsertBefore = elements.length > 0 ? elements[elements.length - 1].nextSibling : null;
+        for (const el of elements) detached.appendChild(el);
+        // Now operates on detached DOM — no layout cost
         this.clearChildren();
         // Unbind remaining elements to destroy binding-created variables
-        const elements = this.getElements();
         if (this.binding) {
-          for (const el of elements) this.binding.unbindElement(el);
-        }
-        if (elements.length > 0) {
-          const parent = elements[0].parentNode as HTMLElement | null;
-          const insertBefore = elements[elements.length - 1].nextSibling;
-          for (const el of elements) el.remove();
-          if (parent) {
-            const placeholder = document.createElement('div');
-            placeholder.id = this.elementId;
-            placeholder.classList.add(this.viewClass);
-            parent.insertBefore(placeholder, insertBefore);
+          for (const el of Array.from(detached.children)) {
+            this.binding.unbindElement(el as Element);
           }
+        }
+        if (clearParent) {
+          const placeholder = document.createElement('div');
+          placeholder.id = this.elementId;
+          placeholder.classList.add(this.viewClass);
+          clearParent.insertBefore(placeholder, clearInsertBefore);
         }
         this.rendered = false;
         this.valueType = '';
@@ -259,24 +261,30 @@ export class View {
       }
     }
 
+    // Detach old elements from live DOM before destroying children.
+    // clearChildren recurses through destroy -> clear -> el.remove() on every
+    // descendant view. With elements in the live DOM, each removal triggers
+    // style recalculation and layout — O(n) forced reflows. Moving the subtree
+    // to a DocumentFragment first makes all those removes free (detached tree).
+    const detachedFragment = document.createDocumentFragment();
+    for (const el of oldElements) {
+      detachedFragment.appendChild(el);
+    }
+
     // CRITICAL: Destroy old child views/viewlists FIRST
     // Widgets are keyed by elementId, so we must clear them before reusing IDs
+    // Now operates on detached DOM — no layout cost
     this.clearChildren();
 
-    // Handle old elements based on buffering mode
-    if (isInsideAncestorBuffer) {
-      // Inside ancestor's buffer - remove immediately (already hidden)
-      for (const el of oldElements) {
-        el.remove();
-      }
-    } else {
-      // We are the buffer root - mark old elements as obsolete (keep hidden until timer)
-      // Also add viewClass so the timer's selector can find them
+    // Buffer root: mark old elements as obsolete and re-insert for timer to clean up.
+    // Inside ancestor buffer: elements stay detached (already hidden by ancestor).
+    if (!isInsideAncestorBuffer) {
       // Remove id to prevent getElementById from finding obsolete elements instead of new ones
       for (const el of oldElements) {
         el.removeAttribute('id');
         el.classList.add(this.viewClass, 'ui-obsolete-view');
       }
+      parent.insertBefore(detachedFragment, insertBefore);
     }
 
     // Clone template content (returns DocumentFragment)

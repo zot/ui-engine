@@ -319,25 +319,21 @@ func (lb *LuaBackend) DestroyVariable(varID int64) []int64 {
 	lb.mu.Lock()
 	defer lb.mu.Unlock()
 
-	allVars := lb.tracker.Variables()
+	// Walk down via ChildIDs to collect descendants (children-first order).
+	var destroyed []int64
+	var collect func(id int64)
 
-	// Collect descendants
-	var descendants []int64
-	for _, v := range allVars {
-		if v.ID == varID {
-			continue
+	collect = func(id int64) {
+		v := lb.tracker.GetVariable(id)
+		if v == nil {
+			return
 		}
-		if lb.isDescendantOf(v.ID, varID, allVars) {
-			descendants = append(descendants, v.ID)
+		for _, childID := range v.ChildIDs {
+			collect(childID)
 		}
+		destroyed = append(destroyed, id)
 	}
-
-	// Build full list: descendants (reversed for children-first) then root
-	destroyed := make([]int64, 0, len(descendants)+1)
-	for i := len(descendants) - 1; i >= 0; i-- {
-		destroyed = append(destroyed, descendants[i])
-	}
-	destroyed = append(destroyed, varID)
+	collect(varID)
 
 	// Remove all from tracker and maps
 	for _, id := range destroyed {
@@ -348,7 +344,7 @@ func (lb *LuaBackend) DestroyVariable(varID int64) []int64 {
 		delete(lb.inactiveVariables, id)
 	}
 
-	lb.Log(3, "Destroyed variable %d and %d descendants", varID, len(descendants))
+	lb.Log(3, "Destroyed variable %d and %d descendants", varID, len(destroyed)-1)
 	return destroyed
 }
 

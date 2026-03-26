@@ -162,3 +162,10 @@
 - **R109:** On session Shutdown, all active timers must be cancelled
 - **R110:** (inferred) LuaSession must accept an `onDefer` callback set by the Server to decouple session from server
 - **R111:** (inferred) LuaSession must maintain a timer registry with sequential integer handles
+
+## Feature: Destroy Response Batching
+**Source:** specs/destroy-response-batching.md
+
+- **R112:** Backend destroy notifications must be queued through the session's OutgoingBatcher, not sent directly to the WebSocket
+- **R113:** (inferred) The Handler must have access to a message queuing interface so it can route destroy notifications through the batcher
+- **R114:** (inferred) The OutgoingBatcher's throttle behavior (start timer on first queue, accumulate on subsequent queues) must batch all destroy responses from a single incoming batch into one outgoing frame

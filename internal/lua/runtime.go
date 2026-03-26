@@ -960,7 +960,11 @@ func (r *LuaSession) prototypeImpl(name string, init *lua.LTable, base *lua.LTab
 					} else {
 						instance = L.NewTable()
 					}
-					r.createInstance(prototype, instance)
+					p, ok := L.Get(1).(*lua.LTable)
+					if !ok {
+						p = prototype
+					}
+					r.createInstance(p, instance)
 					L.Push(instance)
 					return 1
 				}))

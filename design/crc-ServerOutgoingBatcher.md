@@ -1,7 +1,7 @@
 # ServerOutgoingBatcher
 
 **Source Spec:** protocol.md
-**Requirements:** R39, R42
+**Requirements:** R39, R42, R114
 
 ## Responsibilities
 
