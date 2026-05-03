@@ -4,6 +4,7 @@ package viewdef
 
 import (
 	"io/fs"
+	"log"
 	"os"
 	"path/filepath"
 	"strings"
@@ -58,7 +59,10 @@ func (m *ViewdefManager) LoadFromDirectory(dir string) error {
 
 	return filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
-			return err
+			// Skip unreadable entries (e.g. broken symlinks) — one bad
+			// file shouldn't abort the whole walk.
+			log.Printf("viewdef load: skipping %s: %v", path, err)
+			return nil
 		}
 		if info.IsDir() {
 			return nil
@@ -74,7 +78,8 @@ func (m *ViewdefManager) LoadFromDirectory(dir string) error {
 
 		content, err := os.ReadFile(path)
 		if err != nil {
-			return err
+			log.Printf("viewdef load: skipping %s: %v", path, err)
+			return nil
 		}
 
 		m.viewdefs[key] = &viewdefEntry{
@@ -146,7 +151,8 @@ func (m *ViewdefManager) LoadFromFS(fsys fs.FS, dir string) error {
 
 	return fs.WalkDir(fsys, dir, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
-			return err
+			log.Printf("viewdef load: skipping %s: %v", path, err)
+			return nil
 		}
 		if d.IsDir() {
 			return nil
@@ -157,7 +163,8 @@ func (m *ViewdefManager) LoadFromFS(fsys fs.FS, dir string) error {
 
 		content, err := fs.ReadFile(fsys, path)
 		if err != nil {
-			return err
+			log.Printf("viewdef load: skipping %s: %v", path, err)
+			return nil
 		}
 
 		filename := filepath.Base(path)
