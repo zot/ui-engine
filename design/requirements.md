@@ -81,7 +81,7 @@
 - **R49:** Connection class must maintain nextVarId counter for frontend ID vending
 
 ## Feature: Null View Clearing
-**Source:** specs/viewdefs.md (Null view clearing)
+**Source:** specs/viewdefs.md
 
 - **R53:** When a rendered view's `type` property becomes empty, the view must clear its rendered content from the DOM
 - **R54:** After clearing, a placeholder element must be inserted preserving the view's element ID so it can re-render later
@@ -162,6 +162,10 @@
 - **R109:** On session Shutdown, all active timers must be cancelled
 - **R110:** (inferred) LuaSession must accept an `onDefer` callback set by the Server to decouple session from server
 - **R111:** (inferred) LuaSession must maintain a timer registry with sequential integer handles
+- **R115:** On Shutdown, the executor goroutine must finish any in-flight work item and stop before the Lua VM is closed (`State.Close()`); the wait is bounded by a timeout, after which Shutdown logs and proceeds
+- **R116:** After shutdown is signaled (`done` closed), the executor must not begin executing a work item already queued on the executor channel; it returns a shutdown error to the caller instead
+- **R117:** A deferred-task wrapper must check the shutdown signal before touching the Lua VM and skip execution if shutdown has begun
+- **R118:** `Server.Shutdown` must not hold the sessions lock while invoking a session's Shutdown (snapshot under the lock, release, then shut down) so an in-flight deferred task that re-enters the Server cannot deadlock the executor join
 
 ## Feature: Destroy Response Batching
 **Source:** specs/destroy-response-batching.md

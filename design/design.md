@@ -189,3 +189,5 @@ None identified.
 - [ ] O3: ChanSvc utility undocumented
   - `internal/server/svc.go` provides channel-based service pattern
   - Used for concurrency but has no CRC card (minor - utility code)
+
+- [ ] O4: R118 (Server.Shutdown lock-release before per-session Shutdown) has no automated regression test; a deterministic deadlock test needs a full Server harness (config, wsEndpoint, SessionManager, a re-entrant deferred task). Enforced by code review plus TestShutdownJoinsInFlightExecutor proving the join blocks; verified manually via ark stop.

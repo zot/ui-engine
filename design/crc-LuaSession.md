@@ -1,7 +1,7 @@
 # LuaSession
 
 **Source Spec:** libraries.md, interfaces.md, protocol.md, deployment.md, remove-prototype.md, module-tracking.md, session-defer.md
-**Requirements:** R1, R2, R3, R4, R5, R6, R7, R9, R10, R11, R12, R13, R14, R15, R16, R17, R18, R19, R20, R21, R92, R93, R94, R95, R96, R97, R98, R99, R100, R101, R102, R103, R104, R105, R106, R109, R110, R111, R107, R108
+**Requirements:** R1, R2, R3, R4, R5, R6, R7, R9, R10, R11, R12, R13, R14, R15, R16, R17, R18, R19, R20, R21, R92, R93, R94, R95, R96, R97, R98, R99, R100, R101, R102, R103, R104, R105, R106, R109, R110, R111, R107, R108, R115, R116, R117, R118
 
 ## Responsibilities
 
@@ -14,6 +14,8 @@
 - variableStore: Interface for session variable operations
 - wrapperRegistry: Registry for wrapper factories
 - executorChan: Channel for thread-safe Lua execution
+- done: Channel closed by Shutdown to signal the executor and deferred-task wrappers to stop
+- executorStopped: Channel the executor goroutine closes when it returns; Shutdown joins on it (bounded by a timeout) before closing the VM
 - presenterTypes: Map of registered presenter types
 - prototypeRegistry: Map of prototype name to stored init copy (for change detection)
 - instanceRegistry: Map of prototype to weak set of instances (for mutation)
@@ -46,7 +48,7 @@
 - setInterval(fn, ms): Schedule fn to repeat at interval, return handle
 - clearImmediate/clearTimeout/clearInterval(handle): Cancel a timer by handle
 - AfterBatch: Trigger change detection and return updates after message batch
-- Shutdown: Close executor channel, clean up Lua state
+- Shutdown: Signal stop (close `done`), join the executor on `executorStopped` (bounded by a timeout), cancel timers and clear the registry, then close the Lua VM
 - prototype(name, init, base): Declare/update prototype with instance field tracking (see below)
 - create(prototype, instance): Create tracked instance with weak reference (see below)
 - processMutationQueue: Process queued prototypes after file load (see seq-prototype-mutation.md)
@@ -153,3 +155,8 @@
   - setInterval: goroutine with time.Ticker, each tick calls onDefer
   - Timer registry tracks handles with cancelled flag and stop function
   - Shutdown cancels all active timers
+- **Shutdown Safety** (R115-R118): a session's Lua VM runs on one executor goroutine; no work may touch it after `State.Close()`, or the process crashes with a nil deref in the VM:
+  - Order: close `done` → join the executor on `executorStopped` (bounded by a timeout; on timeout log and proceed) → cancel timers and clear the registry → `State.Close()`
+  - After dequeuing a work item the executor re-checks `done`; if shutdown has begun it returns `errSessionShutdown` to the caller instead of running the item, so work queued during teardown never runs
+  - Each deferred-task wrapper re-checks `done` before touching the VM and skips execution when shutdown has begun
+  - `Server.Shutdown` snapshots its sessions under `luaSessionsMu`, releases the lock, then calls each session's Shutdown — so an in-flight deferred task that re-enters the Server (e.g. the app-loader) cannot deadlock the executor join

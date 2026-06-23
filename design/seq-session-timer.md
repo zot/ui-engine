@@ -1,7 +1,7 @@
 # Sequence: Session Timer Execution
 
 **Source Spec:** session-defer.md
-**Requirements:** R92, R93, R94, R95, R96, R97, R98, R99, R100, R101, R102, R103, R104, R105, R106, R107, R108, R109, R110, R111
+**Requirements:** R92, R93, R94, R95, R96, R97, R98, R99, R100, R101, R102, R103, R104, R105, R106, R107, R108, R109, R110, R111, R115, R116, R117, R118
 **Use Case:** Deferred/timed Lua execution via setImmediate, setTimeout, setInterval
 
 ## Participants
@@ -78,15 +78,32 @@ The ticker runs until `clearInterval(handle)` is called or the session shuts dow
 
 ## Sequence: Session Shutdown
 
+The Lua VM runs on a single executor goroutine. Shutdown must close the VM with
+no work touching it concurrently, so it joins the executor before `State.Close()`.
+
 ```
-  Server           LuaSession
-     |                  |
-     |--Shutdown()----->|
-     |                  |--for each timer in registry:
-     |                  |    set cancelled = true
-     |                  |    call stop() if present
-     |                  |--close executor, clean up Lua state
+  Server                       LuaSession                  Executor
+     |                              |                          |
+     |--snapshot luaSessions------->|                          |
+     |  under luaSessionsMu,        |                          |
+     |  release lock, then:         |                          |
+     |--Shutdown()----------------->|                          |
+     |                              |--close(done)------------>|  (signal stop)
+     |                              |                          |
+     |                              |                          |--finish in-flight work item,
+     |                              |                          |  then return; defer
+     |                              |<--close(executorStopped)-|  close(executorStopped)
+     |                              |  [join, bounded timeout]  |
+     |                              |                          |
+     |                              |--for each timer: cancel + stop()
+     |                              |--timerRegistry = nil
+     |                              |--State.Close()  (VM freed; executor stopped)
 ```
+
+Server holds `luaSessionsMu` only to snapshot the session set, then releases it
+before calling each `Shutdown()`. The join can block while an in-flight deferred
+task runs, so holding the lock across it would deadlock any task that re-enters
+the Server (e.g. the app-loader calling `ExecuteInSession`).
 
 ## Notes
 
@@ -94,3 +111,5 @@ The ticker runs until `clearInterval(handle)` is called or the session shuts dow
 - This handles the race where a timer fires just as clearXxx is called
 - setImmediate queuing order is preserved because Svc spawns goroutines that send on ChanSvc in order
 - ComputingVar may be nil at schedule-time (e.g., timer set during init); diagnostic context is skipped in that case
+- On shutdown the executor re-checks `done` after dequeuing a work item and skips it (returning `errSessionShutdown`) when shutdown has begun, so work queued during teardown never runs
+- Each deferred-task wrapper re-checks `done` before touching the VM, so a deferred task scheduled just before shutdown does not run against a closing VM

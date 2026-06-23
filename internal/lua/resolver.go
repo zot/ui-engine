@@ -282,6 +282,15 @@ func (r *LuaResolver) tableToSlice(tbl *lua.LTable) ([]any, error) {
 	return result, nil
 }
 
+func (r *LuaResolver) FindClass(typ string) lua.LValue {
+	if valueClass := r.Session.State.GetGlobal(typ); valueClass != lua.LNil {
+		return valueClass
+	} else if valueProto := r.Session.prototypeRegistry[typ]; valueProto != nil {
+		return valueProto.prototype
+	}
+	return lua.LNil
+}
+
 // CreateValue creates a value for the given variable.
 // CRC: crc-LuaResolver.md
 // Spec: protocol.md (Variable Wrappers section)
@@ -290,7 +299,7 @@ func (r *LuaResolver) CreateValue(variable *changetracker.Variable, typ string, 
 		return nil
 	} else if factory, ok := GetGlobalCreateFactory(typ); ok {
 		return factory(r.Session, value)
-	} else if valueClass := r.Session.State.GetGlobal(typ); valueClass == lua.LNil {
+	} else if valueClass := r.FindClass(typ); valueClass == lua.LNil {
 		return nil // No Lua global by that name
 	} else if valueTable, ok := valueClass.(*lua.LTable); !ok {
 		return nil // Not a table

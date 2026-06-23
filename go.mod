@@ -13,4 +13,4 @@ require (
 	github.com/zot/change-tracker v1.4.0
 )
 
-require golang.org/x/sys v0.40.0 // indirect
+require golang.org/x/sys v0.42.0 // indirect

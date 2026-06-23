@@ -234,14 +234,20 @@ func (s *Server) Shutdown(ctx context.Context) error {
 		s.hotLoader = nil
 	}
 
-	// Shutdown all Lua sessions
+	// Shut down all Lua sessions. Snapshot the session set under the lock and
+	// release it before calling Shutdown(): Shutdown joins its executor, which
+	// may run an in-flight deferred task that re-enters the Server (e.g. the
+	// app-loader resolving a session). Holding luaSessionsMu across the join
+	// would deadlock such a task.
+	// CRC: crc-LuaSession.md | Seq: seq-session-timer.md | R118
 	s.luaSessionsMu.Lock()
-	for vendedID, luaSession := range s.luaSessions {
+	sessions := s.luaSessions
+	s.luaSessions = nil
+	s.luaSessionsMu.Unlock()
+	for vendedID, luaSession := range sessions {
 		s.config.Log(0, "Shutting down Lua session %s", vendedID)
 		luaSession.Shutdown()
 	}
-	s.luaSessions = nil
-	s.luaSessionsMu.Unlock()
 
 	// Close backend socket
 	if s.backendSocket != nil {

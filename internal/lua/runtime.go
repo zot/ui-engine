@@ -9,6 +9,7 @@ package lua
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -38,20 +39,29 @@ type WorkResult struct {
 	Err   error
 }
 
+// errSessionShutdown is returned to a caller whose queued work is skipped
+// because the session is shutting down.
+var errSessionShutdown = errors.New("lua session shutting down")
+
+// shutdownJoinTimeout bounds how long Shutdown waits for the executor to stop
+// before closing the VM anyway (a wedged in-flight task must not hang shutdown).
+const shutdownJoinTimeout = 2 * time.Second
+
 // LuaSession represents a Lua runtime environment for a frontend session.
 // Each session has its own Lua state for complete isolation.
 // ID is the vended session ID (compact integer string like "1", "2") for backend communication.
 type LuaSession struct {
 	// Lua VM state and execution
-	State          *lua.LState
-	loadedModules  *lua.LTable // Unified load tracker, keyed by baseDir-relative paths
-	presenterTypes map[string]*PresenterType
-	luaDir         string
-	executorChan   chan WorkItem
-	done           chan struct{}
-	config         *config.Config
-	mu             sync.RWMutex
-	batchTriggered bool
+	State           *lua.LState
+	loadedModules   *lua.LTable // Unified load tracker, keyed by baseDir-relative paths
+	presenterTypes  map[string]*PresenterType
+	luaDir          string
+	executorChan    chan WorkItem
+	done            chan struct{}
+	executorStopped chan struct{} // closed by the executor goroutine when it returns; Shutdown joins on it
+	config          *config.Config
+	mu              sync.RWMutex
+	batchTriggered  bool
 
 	// Variable management
 	variableStore   VariableStore
@@ -149,6 +159,7 @@ func NewRuntime(cfg *config.Config, luaDir string, vdm *viewdef.ViewdefManager) 
 		luaDir:            luaDir,
 		executorChan:      make(chan WorkItem, 100),
 		done:              make(chan struct{}),
+		executorStopped:   make(chan struct{}),
 		viewdefManager:    vdm,
 		prototypeRegistry: make(map[string]*prototypeInfo),
 		instanceRegistry:  make(map[*lua.LTable][]weakInstance),
@@ -1380,11 +1391,23 @@ func (r *LuaSession) callWatchers(watchers *lua.LTable, args ...lua.LValue) {
 // startExecutor creates the goroutine that processes work items.
 func (r *LuaSession) startExecutor() {
 	go func() {
+		// Signal Shutdown's join that the executor has stopped.
+		// CRC: crc-LuaSession.md | Seq: seq-session-timer.md | R115
+		defer close(r.executorStopped)
 		for {
 			select {
 			case <-r.done:
 				return
 			case work := <-r.executorChan:
+				// done wins: skip work queued during shutdown so nothing
+				// touches the VM after State.Close().
+				// CRC: crc-LuaSession.md | Seq: seq-session-timer.md | R116
+				select {
+				case <-r.done:
+					work.result <- WorkResult{Err: errSessionShutdown}
+					return
+				default:
+				}
 				result, err := work.fn()
 				work.result <- WorkResult{Value: result, Err: err}
 			}
@@ -2374,11 +2397,25 @@ func (r *LuaSession) SetValue(tbl *lua.LTable, key string, value interface{}) {
 	})
 }
 
-// Shutdown cleans up the Lua VM and stops executor.
+// Shutdown cleans up the Lua VM and stops the executor.
+//
+// The Lua VM runs on a single executor goroutine, so Shutdown must not close
+// the VM while the executor is mid-work, or the process crashes with a nil
+// dereference inside the VM. It signals stop, joins the executor (bounded by a
+// timeout), then cancels timers and closes the VM.
+// CRC: crc-LuaSession.md | Seq: seq-session-timer.md | R115, R116
 func (r *LuaSession) Shutdown() {
 	close(r.done)
 
-	// Cancel all active timers
+	// Join the executor so no work runs against the VM after State.Close().
+	// Bounded: a wedged in-flight task must not hang shutdown forever.
+	select {
+	case <-r.executorStopped:
+	case <-time.After(shutdownJoinTimeout):
+		r.config.Log(0, "Lua session %s: executor did not stop within %s; proceeding with shutdown", r.ID, shutdownJoinTimeout)
+	}
+
+	// Cancel all active timers (executor is stopped, so no concurrent access)
 	for handle := range r.timerRegistry {
 		r.cancelTimer(handle)
 	}
@@ -2432,6 +2469,14 @@ func (r *LuaSession) scheduleDeferred(handle int64, fn *lua.LFunction) {
 	}
 
 	r.onDefer(func() (interface{}, error) {
+		// Don't touch the VM if the session is shutting down.
+		// CRC: crc-LuaSession.md | Seq: seq-session-timer.md | R117
+		select {
+		case <-r.done:
+			return nil, nil
+		default:
+		}
+
 		// Check cancelled flag before touching Lua VM
 		if entry, ok := r.timerRegistry[handle]; ok && entry.cancelled {
 			return nil, nil

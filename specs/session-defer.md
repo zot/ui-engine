@@ -96,6 +96,38 @@ LuaSession maintains a `timerRegistry map[int64]*timerEntry`:
 - Clear functions set `cancelled = true` and call `stop()` if present
 - On session Shutdown, all active timers are cancelled
 
+## Shutdown Safety
+
+A session's Lua VM runs on a single executor goroutine. `Shutdown` must free
+that VM (`State.Close()`) with no work touching it concurrently, or the process
+crashes with a nil-pointer dereference inside the Lua VM. Deferred tasks
+(timers, and the app-loader a timer may invoke) are the work most likely to be
+in flight when a session shuts down.
+
+Shutdown proceeds in order:
+
+1. Signal shutdown by closing the session's `done` channel.
+2. Wait for the executor goroutine to finish any in-flight work item and
+   return, bounded by a timeout. On timeout, log and proceed: a wedged task
+   must not hang `ark stop` forever.
+3. Cancel all active timers and clear the timer registry.
+4. Close the Lua VM.
+
+The executor cooperates with the signal in two places:
+
+- When it dequeues a work item, it re-checks `done` before running it. If
+  shutdown has begun it returns a shutdown error to the caller instead of
+  executing, so work queued during teardown never runs.
+- Each deferred-task wrapper re-checks `done` before touching the VM, skipping
+  execution when shutdown has begun.
+
+Because the executor join in step 2 can block while an in-flight task runs, the
+Server must not hold its sessions lock while shutting a session down.
+`Server.Shutdown` snapshots the session set under the lock, releases it, then
+shuts each session down. Otherwise an in-flight deferred task that calls back
+into the Server (for example, the app-loader resolving a session) would block
+on the held lock and deadlock the join.
+
 ## Constraints
 
 - Timer functions can be called from any Lua code running inside the session
