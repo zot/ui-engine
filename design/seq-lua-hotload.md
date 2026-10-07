@@ -69,40 +69,13 @@
         |                   |                   |                   |                   |
 ```
 
-## Symlink Resolution Sequence
+## Links
 
-```
-     FileSystem        LuaHotLoader            Server
-        |                   |                   |
-        |---create--------->|                   |
-        |   lua/foo.lua     |                   |
-        |   (symlink)       |                   |
-        |                   |                   |
-        |                   |--readlink()------>|
-        |                   |   /real/path/foo.lua
-        |                   |                   |
-        |                   |--resolveDir()---->|
-        |                   |   /real/path/     |
-        |                   |                   |
-        |                   |--[if not watched] |
-        |                   |   watcher.Add(/real/path/)
-        |                   |                   |
-        |                   |--symlinkTargets[lua/foo.lua] = /real/path/
-        |                   |                   |
-
-(Later, target file changes)
-
-     FileSystem        LuaHotLoader            Server            LuaSession(s)
-        |                   |                   |                   |
-        |---modify--------->|                   |                   |
-        |  /real/path/foo.lua                   |                   |
-        |                   |                   |                   |
-        |                   |--[lookup symlink]-|                   |
-        |                   |   lua/foo.lua     |                   |
-        |                   |                   |                   |
-        |                   |--[reload as lua/foo.lua]------------->|
-        |                   |                   |                   |
-```
+Each active app is watched through its entry `lua/<app>` (see
+seq-app-discovery.md), so a change to `lua/<app>/mod.lua` is reported under that
+path, and computeTrackingKey resolves it to the same key the file was loaded
+under. Reloads are debounced per tracking key: a file also reached through the
+`apps/` watch reloads once.
 
 ## Prototype Declaration Pattern
 
@@ -135,7 +108,7 @@ MyApp = MyApp or {type = "MyApp"}
 - **BaseDir-relative tracking**: Files tracked by resolved path relative to baseDir (e.g., `apps/myapp/app.lua`)
 - **Only loaded files**: Checks `IsFileLoaded(trackingKey)` - skips files not yet loaded by session (new files ignored)
 - **reloading flag**: `session.reloading` set `true` before reload, `false` after - Lua code can detect hot-reload
-- **Symlink Transparency**: Symlinks resolved to target path; target path relative to baseDir is the tracking key
+- **Link Transparency**: Links resolved to target path; target path relative to baseDir is the tracking key
 - **Panic Recovery**: All Lua execution wrapped in recover() - panics logged as errors, server continues
 - **Session Refresh**: After reload, ExecuteInSession(empty func) triggers AfterBatch which pushes viewdef/variable changes to browser
 - **Prototype Management**: `session:prototype()` automatically:

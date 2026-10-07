@@ -47,7 +47,7 @@ func createTempLuaDir(t *testing.T) string {
 // Helper to create a mock config with luaDir's parent as Server.Dir
 func testConfig(luaDir string) *config.Config {
 	cfg := config.DefaultConfig()
-	cfg.Logging.Verbosity = 0 // Quiet for tests
+	cfg.Logging.Verbosity = 0             // Quiet for tests
 	cfg.Server.Dir = filepath.Dir(luaDir) // baseDir is parent of lua/
 	return cfg
 }
@@ -121,9 +121,6 @@ func TestDetectLuaFileModification(t *testing.T) {
 		reloadCount.Add(1)
 		return []*LuaSession{{ID: mock.ID}}
 	}, nil)
-	// Patch LoadCode to use mock
-	origReloadFile := h.reloadFile
-	_ = origReloadFile // suppress unused warning
 	h.Start()
 	defer h.Stop()
 
@@ -174,86 +171,6 @@ func TestIgnoreNonLuaFiles(t *testing.T) {
 }
 
 // === Symlink Handling Tests ===
-
-func TestScanExistingSymlinks(t *testing.T) {
-	luaDir := createTempLuaDir(t)
-	defer os.RemoveAll(luaDir)
-
-	// Create target directory and file
-	targetDir := createTempLuaDir(t)
-	defer os.RemoveAll(targetDir)
-	targetFile := filepath.Join(targetDir, "app.lua")
-	os.WriteFile(targetFile, []byte("-- target"), 0644)
-
-	// Create symlink in lua dir
-	symlinkPath := filepath.Join(luaDir, "app.lua")
-	if err := os.Symlink(targetFile, symlinkPath); err != nil {
-		t.Skipf("Cannot create symlinks: %v", err)
-	}
-
-	cfg := testConfig(luaDir)
-	h, _ := NewHotLoader(cfg, luaDir, func() []*LuaSession { return nil }, nil)
-	h.Start()
-	defer h.Stop()
-
-	// Check symlink was detected
-	h.mu.Lock()
-	targetTracked := h.symlinkTargets[symlinkPath]
-	watchCount := h.watchedDirs[targetDir]
-	h.mu.Unlock()
-
-	if targetTracked != targetDir {
-		t.Errorf("symlinkTargets[%s] = %q, want %q", symlinkPath, targetTracked, targetDir)
-	}
-	if watchCount < 1 {
-		t.Errorf("targetDir watch count = %d, want >= 1", watchCount)
-	}
-}
-
-func TestReferenceCountingForSharedTargets(t *testing.T) {
-	luaDir := createTempLuaDir(t)
-	defer os.RemoveAll(luaDir)
-
-	// Create shared target directory
-	targetDir := createTempLuaDir(t)
-	defer os.RemoveAll(targetDir)
-	os.WriteFile(filepath.Join(targetDir, "a.lua"), []byte("-- a"), 0644)
-	os.WriteFile(filepath.Join(targetDir, "b.lua"), []byte("-- b"), 0644)
-
-	// Create two symlinks to same directory
-	symlinkA := filepath.Join(luaDir, "a.lua")
-	symlinkB := filepath.Join(luaDir, "b.lua")
-	if err := os.Symlink(filepath.Join(targetDir, "a.lua"), symlinkA); err != nil {
-		t.Skipf("Cannot create symlinks: %v", err)
-	}
-	os.Symlink(filepath.Join(targetDir, "b.lua"), symlinkB)
-
-	cfg := testConfig(luaDir)
-	h, _ := NewHotLoader(cfg, luaDir, func() []*LuaSession { return nil }, nil)
-	h.Start()
-	defer h.Stop()
-
-	// Both should point to same target dir
-	h.mu.Lock()
-	watchCount := h.watchedDirs[targetDir]
-	h.mu.Unlock()
-
-	if watchCount != 2 {
-		t.Errorf("Watch count for shared target = %d, want 2", watchCount)
-	}
-
-	// Remove one symlink
-	os.Remove(symlinkA)
-	time.Sleep(100 * time.Millisecond)
-
-	h.mu.Lock()
-	watchCountAfter := h.watchedDirs[targetDir]
-	h.mu.Unlock()
-
-	if watchCountAfter != 1 {
-		t.Errorf("Watch count after remove = %d, want 1", watchCountAfter)
-	}
-}
 
 // === Debouncing Tests ===
 

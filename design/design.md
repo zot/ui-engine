@@ -8,25 +8,30 @@ Reactive UI framework with variable-based state synchronization between frontend
 
 ## Cross-cutting Concerns
 
-### Hot-Loading Symlink Tracking
+### Hot-Loading Through Activation Entries
 
-**Spec:** main.md "Hot-Loading System"
+**Spec:** main.md "Hot-Loading System", app-discovery.md
 
-All hot-loading features (Lua files, viewdefs, etc.) must track symlinks. See spec for full requirements.
+Hot loaders watch app directories *through* their `lua/<app>` entry (a
+symlink or a Windows junction), never through the resolved target. File-system
+events then arrive under the same path the file was loaded from, so no
+target-to-link reverse mapping is kept.
 
 **Implementation pattern:**
-- `symlinkTargets` map: file path → resolved target directory
-- `watchedDirs` map: directory path → reference count
-- `scanSymlinks()`: Initial scan for existing symlinks
-- `updateSymlinkWatch()`: Add/update watch when symlink changes
-- `removeSymlinkWatch()`: Remove watch when symlink deleted
-- `resolveReloadPath()`: Map target file changes back to source file
+- AppDiscovery (`internal/site/discovery.go`) lists the active apps; each
+  `App.Dir` is the entry path `<site>/lua/<app>`
+- Both hot loaders watch `lua/` itself and re-run discovery when an entry is
+  created or removed, adding and dropping per-app watches
+- The Lua hot loader watches every directory under each App.Dir (dot-dirs
+  skipped); the viewdef hot loader watches each source's `viewdefs/`
+- Lua reloads are debounced per tracking key, so one file seen through two
+  watched paths (the entry and `apps/`) reloads once
 
 **Components that implement this:**
 - LuaHotLoader: `internal/lua/hotloader.go`
 - ViewdefHotLoader: `internal/viewdef/hotloader.go`
 
-**Referenced by:** crc-LuaHotLoader.md, crc-ViewdefStore.md, seq-lua-hotload.md, seq-viewdef-hotload.md
+**Referenced by:** crc-LuaHotLoader.md, crc-ViewdefStore.md, seq-lua-hotload.md, seq-viewdef-hotload.md, seq-app-discovery.md
 
 ## Artifacts
 
@@ -50,6 +55,10 @@ All hot-loading features (Lua files, viewdefs, etc.) must track symlinks. See sp
 
 ### Viewdef System
 - [x] crc-Viewdef.md → `internal/viewdef/viewdef.go`, `web/src/viewdef.ts`
+- [x] crc-AppDiscovery.md → `internal/site/discovery.go`
+- [x] crc-ViewdefManager.md → `internal/viewdef/viewdefs.go`
+- [x] crc-Server.md → `internal/server/server.go`
+- [x] seq-app-discovery.md → `internal/site/discovery.go`, `internal/viewdef/viewdefs.go`, `internal/viewdef/hotloader.go`, `internal/lua/hotloader.go`, `internal/server/server.go`
 - [x] crc-ViewdefStore.md → `internal/viewdef/store.go`, `internal/viewdef/hotloader.go`, `web/src/viewdef_store.ts` *(hot-reload)*
 - [x] crc-View.md → `web/src/view.ts`, `web/src/namespace.ts`
 - [x] crc-ViewList.md → `web/src/viewlist.ts`, `internal/lua/viewlist.go`
@@ -158,10 +167,14 @@ All hot-loading features (Lua files, viewdefs, etc.) must track symlinks. See sp
 - [x] crc-HTTPEndpoint.md → `internal/server/http.go`
 
 ### Test Designs
+- [x] test-AppDiscovery.md → `internal/site/discovery_test.go`, `internal/viewdef/viewdefs_test.go`, `internal/server/site_test.go`, `internal/lua/appwatch_test.go`, `internal/viewdef/hotloader_test.go`
 - [x] test-HotLoader.md
 - [x] test-Lua.md
 
 ## Gaps
+
+- T1: R13 retired by R135 (2026-10-07 per-app hot-loading: symlinkTargets retired; app dirs are watched through their lua/<app> entry)
+- T2: R20 retired by R136 (2026-10-07 per-app hot-loading: symlinkTargets retired; app dirs are watched through their lua/<app> entry)
 
 ### Incomplete Implementation
 
@@ -190,4 +203,6 @@ None identified.
   - `internal/server/svc.go` provides channel-based service pattern
   - Used for concurrency but has no CRC card (minor - utility code)
 
-- [ ] O4: R118 (Server.Shutdown lock-release before per-session Shutdown) has no automated regression test; a deterministic deadlock test needs a full Server harness (config, wsEndpoint, SessionManager, a re-entrant deferred task). Enforced by code review plus TestShutdownJoinsInFlightExecutor proving the join blocks; verified manually via ark stop.
+- [ ] O4: R118 (Server.Shutdown lock-release before per-session Shutdown) has no automated regression test; a deterministic deadlock test needs a full Server harness (config, wsEndpoint, SessionManager, a re-entrant deferred task). Enforced by code review plus TestShutdownJoinsInFlightExecutor proving the join blocks; verified manually via ark stop.- [ ] O5: Legacy design debt predating minispec 4 (found 2026-10-07 at init): 38 CRC cards lack a **Requirements:** field, 10 design files are unlisted in Artifacts, crc-Bundle/crc-LuaResolver name missing sequences, and several seqs reuse step IDs. phase design/validate stay red until it is paid; app-discovery work fixed only the cards it touched.
+- [ ] O6: Windows junction hot-loading unverified (test-AppDiscovery.md, manual case): fsnotify reporting events under a `lua/<app>` junction path was measured only on Linux (symlinks, 2026-10-07). Needs a run on the Windows test VM from a scheduled task, since ssh's RedirectionTrust refuses non-admin junctions.
+- [ ] O7: inotify gives two paths naming one directory a single watch, so when an app living under `apps/` is deactivated, removing its `lua/<app>` watches also drops the `apps/<app>` watch the Lua hot loader set at start; that app's `init.lua` then stops hot-reloading until restart. Low impact (the app is inactive); fix by reference-counting watches by resolved directory if it matters.

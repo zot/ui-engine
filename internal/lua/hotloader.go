@@ -1,7 +1,6 @@
 // Package lua provides the Lua runtime and hot-loading support.
-// CRC: crc-LuaHotLoader.md
-// Spec: deployment.md, module-tracking.md
-// Sequence: seq-lua-hotload.md, seq-unload-module.md
+// CRC: crc-LuaHotLoader.md | Seq: seq-lua-hotload.md, seq-unload-module.md, seq-app-discovery.md
+// Spec: deployment.md, module-tracking.md, app-discovery.md
 package lua
 
 import (
@@ -13,6 +12,7 @@ import (
 
 	"github.com/fsnotify/fsnotify"
 	"github.com/zot/ui-engine/internal/config"
+	"github.com/zot/ui-engine/internal/site"
 )
 
 // HotLoader watches the lua directory for file changes and reloads modified files.
@@ -24,13 +24,15 @@ type HotLoader struct {
 	getSessions    func() []*LuaSession   // Callback to get active sessions
 	triggerRefresh func(sessionID string) // Callback to trigger session refresh (runs AfterBatch)
 
-	// Symlink tracking
-	symlinkTargets map[string]string // lua file path -> resolved target dir
-	watchedDirs    map[string]int    // dir path -> reference count
-	mu             sync.Mutex
+	// Watches. App directories are watched through their lua/<app> entry
+	// (cross-cutting concern "Hot-Loading Through Activation Entries").
+	appWatches  map[string][]string // app name -> directories watched under its entry
+	watchedDirs map[string]int      // dir path -> reference count
+	mu          sync.Mutex
 
-	// Debouncing
-	pendingReloads map[string]time.Time
+	// Debouncing, keyed by tracking key so one file reached through two
+	// watched paths (lua/<app>/ and apps/<app>/) reloads once (R134).
+	pendingReloads map[string]pendingReload
 	debounceMu     sync.Mutex
 	debounceDelay  time.Duration
 
@@ -51,9 +53,9 @@ func NewHotLoader(cfg *config.Config, luaDir string, getSessions func() []*LuaSe
 		watcher:        watcher,
 		getSessions:    getSessions,
 		triggerRefresh: triggerRefresh,
-		symlinkTargets: make(map[string]string),
+		appWatches:     make(map[string][]string),
 		watchedDirs:    make(map[string]int),
-		pendingReloads: make(map[string]time.Time),
+		pendingReloads: make(map[string]pendingReload),
 		debounceDelay:  100 * time.Millisecond,
 		done:           make(chan struct{}),
 	}
@@ -61,9 +63,15 @@ func NewHotLoader(cfg *config.Config, luaDir string, getSessions func() []*LuaSe
 	return h, nil
 }
 
-// Start begins watching for file changes.
-// Watches lua/ directory and apps/ directory for changes.
-// CRC: crc-LuaHotLoader.md
+// pendingReload is a debounced reload: the path last seen and when.
+type pendingReload struct {
+	path     string
+	queuedAt time.Time
+}
+
+// Start begins watching for file changes: lua/ itself, apps/, and the tree
+// under each active app's entry.
+// CRC: crc-LuaHotLoader.md | R132, R134
 func (h *HotLoader) Start() error {
 	// Watch the main lua directory
 	if err := h.addWatch(h.luaDir); err != nil {
@@ -78,10 +86,7 @@ func (h *HotLoader) Start() error {
 		}
 	}
 
-	// Scan for existing symlinks and watch their target directories
-	if err := h.scanSymlinks(); err != nil {
-		h.config.Log(1, "HotLoader: error scanning symlinks: %v", err)
-	}
+	h.rediscover()
 
 	// Start the event loop
 	go h.eventLoop()
@@ -115,14 +120,12 @@ func (h *HotLoader) Stop() error {
 }
 
 // CleanupModule removes tracking state for a module file.
+// CRC: crc-LuaHotLoader.md | R136
 // Called when a module is unloaded via session:unloadModule().
 // Seq: seq-unload-module.md
 func (h *HotLoader) CleanupModule(trackingKey string) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-
-	// Remove symlink target if tracked
-	delete(h.symlinkTargets, trackingKey)
 
 	// Remove pending reload if queued
 	h.debounceMu.Lock()
@@ -131,23 +134,17 @@ func (h *HotLoader) CleanupModule(trackingKey string) {
 }
 
 // CleanupDirectory removes tracking state for all files in a directory.
+// CRC: crc-LuaHotLoader.md | R135
 // Called when a directory is unloaded via session:unloadDirectory().
 // Seq: seq-unload-module.md
 func (h *HotLoader) CleanupDirectory(dirPath string) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 
-	// Remove symlink targets for files in this directory
-	for key := range h.symlinkTargets {
-		if strings.HasPrefix(key, dirPath+"/") || key == dirPath {
-			delete(h.symlinkTargets, key)
-		}
-	}
-
 	// Remove pending reloads for files in this directory
 	h.debounceMu.Lock()
-	for key := range h.pendingReloads {
-		if strings.HasPrefix(key, dirPath+"/") || key == dirPath {
+	for key, pending := range h.pendingReloads {
+		if inDir(key, dirPath) || inDir(pending.path, dirPath) {
 			delete(h.pendingReloads, key)
 		}
 	}
@@ -159,65 +156,56 @@ func (h *HotLoader) CleanupDirectory(dirPath string) {
 	}
 }
 
-// scanSymlinks scans the lua directory for symlinks and watches their target directories.
-func (h *HotLoader) scanSymlinks() error {
-	entries, err := os.ReadDir(h.luaDir)
-	if err != nil {
-		return err
-	}
+// inDir reports whether path is dir or lies under it.
+func inDir(path, dir string) bool {
+	return path == dir || strings.HasPrefix(path, dir+string(filepath.Separator))
+}
 
+// rediscover re-runs app discovery and makes the per-app watches match:
+// new apps get their tree watched through the entry, removed apps lose
+// theirs. Lua already loaded from a removed app stays loaded (R130).
+// CRC: crc-LuaHotLoader.md | Seq: seq-app-discovery.md#2.2 | R129, R130, R132
+func (h *HotLoader) rediscover() {
+	apps := site.Discover(h.config.Server.Dir, h.config.Server.BuiltinApps)
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	active := make(map[string]bool, len(apps))
+	for _, app := range apps {
+		active[app.Name] = true
+		if _, watched := h.appWatches[app.Name]; !watched {
+			h.appWatches[app.Name] = h.watchTreeLocked(app.Dir)
+		}
+	}
+	for name, dirs := range h.appWatches {
+		if !active[name] {
+			for _, dir := range dirs {
+				h.removeWatchLocked(dir)
+			}
+			delete(h.appWatches, name)
+		}
+	}
+}
+
+// watchTreeLocked watches dir and its subdirectories, reading through dir
+// itself (an entry symlink or junction) and skipping dot-directories.
+// Returns the directories watched.
+// Seq: seq-app-discovery.md#2.2.1
+func (h *HotLoader) watchTreeLocked(dir string) []string {
+	if err := h.addWatchLocked(dir); err != nil {
+		h.config.Log(2, "HotLoader: could not watch %s: %v", dir, err)
+		return nil
+	}
+	watched := []string{dir}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return watched
+	}
 	for _, entry := range entries {
-		if !strings.HasSuffix(entry.Name(), ".lua") {
-			continue
+		if entry.IsDir() && !strings.HasPrefix(entry.Name(), ".") {
+			watched = append(watched, h.watchTreeLocked(filepath.Join(dir, entry.Name()))...)
 		}
-		filePath := filepath.Join(h.luaDir, entry.Name())
-		h.updateSymlinkWatch(filePath)
 	}
-
-	return nil
-}
-
-// updateSymlinkWatch checks if a file is a symlink and updates watches accordingly.
-func (h *HotLoader) updateSymlinkWatch(filePath string) {
-	h.mu.Lock()
-	defer h.mu.Unlock()
-
-	// Check if file is a symlink
-	info, err := os.Lstat(filePath)
-	if err != nil {
-		return
-	}
-
-	// Remove old watch if this file was previously a symlink
-	if oldTarget, ok := h.symlinkTargets[filePath]; ok {
-		h.removeWatchLocked(oldTarget)
-		delete(h.symlinkTargets, filePath)
-	}
-
-	// If it's a symlink, resolve and watch the target directory
-	if info.Mode()&os.ModeSymlink != 0 {
-		target, err := filepath.EvalSymlinks(filePath)
-		if err != nil {
-			h.config.Log(2, "HotLoader: cannot resolve symlink %s: %v", filePath, err)
-			return
-		}
-
-		targetDir := filepath.Dir(target)
-		h.symlinkTargets[filePath] = targetDir
-		h.addWatchLocked(targetDir)
-		h.config.Log(2, "HotLoader: watching symlink target dir %s for %s", targetDir, filePath)
-	}
-}
-
-// removeSymlinkWatch removes the watch for a symlink's target directory.
-func (h *HotLoader) removeSymlinkWatch(filePath string) {
-	h.mu.Lock()
-	defer h.mu.Unlock()
-
-	if targetDir, ok := h.symlinkTargets[filePath]; ok {
-		h.removeWatchLocked(targetDir)
-		delete(h.symlinkTargets, filePath)
-	}
+	return watched
 }
 
 // addWatch adds a directory to the watch list.
@@ -268,26 +256,19 @@ func (h *HotLoader) eventLoop() {
 	}
 }
 
-// handleEvent processes a single file system event.
+// handleEvent processes a single file system event: an app entry created or
+// removed in lua/ re-runs discovery; a changed .lua file queues a reload.
+// CRC: crc-LuaHotLoader.md | Seq: seq-app-discovery.md#2.2 | R129
 func (h *HotLoader) handleEvent(event fsnotify.Event) {
-	// Only care about .lua files
-	if !strings.HasSuffix(event.Name, ".lua") {
-		return
-	}
-
 	h.config.Log(3, "HotLoader: event %s on %s", event.Op, event.Name)
 
-	// Handle symlink changes in the lua directory
-	if filepath.Dir(event.Name) == h.luaDir {
-		switch {
-		case event.Op&fsnotify.Create != 0:
-			h.updateSymlinkWatch(event.Name)
-		case event.Op&fsnotify.Remove != 0:
-			h.removeSymlinkWatch(event.Name)
-		case event.Op&fsnotify.Rename != 0:
-			// Rename is like remove + create elsewhere
-			h.removeSymlinkWatch(event.Name)
-		}
+	isLua := strings.HasSuffix(event.Name, ".lua")
+	if !isLua && filepath.Dir(event.Name) == h.luaDir && event.Op&(fsnotify.Create|fsnotify.Remove|fsnotify.Rename) != 0 {
+		h.rediscover()
+		return
+	}
+	if !isLua {
+		return
 	}
 
 	// Queue reload for write events
@@ -296,10 +277,16 @@ func (h *HotLoader) handleEvent(event fsnotify.Event) {
 	}
 }
 
-// queueReload queues a file for reload with debouncing.
+// queueReload queues a file for reload, debounced per tracking key so the
+// same file seen through two watched paths reloads once.
+// CRC: crc-LuaHotLoader.md | R134
 func (h *HotLoader) queueReload(filePath string) {
+	key, err := ComputeTrackingKey(h.config.Server.Dir, filePath)
+	if err != nil {
+		key = filePath
+	}
 	h.debounceMu.Lock()
-	h.pendingReloads[filePath] = time.Now()
+	h.pendingReloads[key] = pendingReload{path: filePath, queuedAt: time.Now()}
 	h.debounceMu.Unlock()
 }
 
@@ -323,10 +310,10 @@ func (h *HotLoader) processPendingReloads() {
 	h.debounceMu.Lock()
 	now := time.Now()
 	var toReload []string
-	for path, queuedAt := range h.pendingReloads {
-		if now.Sub(queuedAt) >= h.debounceDelay {
-			toReload = append(toReload, path)
-			delete(h.pendingReloads, path)
+	for key, pending := range h.pendingReloads {
+		if now.Sub(pending.queuedAt) >= h.debounceDelay {
+			toReload = append(toReload, pending.path)
+			delete(h.pendingReloads, key)
 		}
 	}
 	h.debounceMu.Unlock()
@@ -410,41 +397,15 @@ func (h *HotLoader) reloadInSession(sess *LuaSession, trackingKey, content strin
 	}
 }
 
-// resolveReloadPath determines which file to reload based on the changed path.
-// Returns the absolute path to the file to reload, or empty string if not applicable.
+// resolveReloadPath returns changedPath if it is an existing .lua file, else
+// "". Watches run through the lua/<app> entry, so the path is already the one
+// the file was loaded from; no reverse mapping is needed.
 func (h *HotLoader) resolveReloadPath(changedPath string) string {
-	// Only process .lua files
 	if !strings.HasSuffix(changedPath, ".lua") {
 		return ""
 	}
-
-	// Check if file exists (might have been deleted)
 	if _, err := os.Stat(changedPath); err != nil {
 		return ""
 	}
-
-	// If the change is under baseDir, it's a candidate for reload
-	if strings.HasPrefix(changedPath, h.config.Server.Dir) {
-		return changedPath
-	}
-
-	// Otherwise, this is a change in a symlink target directory
-	// Find which lua file symlinks to this location
-	h.mu.Lock()
-	defer h.mu.Unlock()
-
-	changedDir := filepath.Dir(changedPath)
-	changedBase := filepath.Base(changedPath)
-
-	for luaPath, targetDir := range h.symlinkTargets {
-		if targetDir == changedDir {
-			// Check if the symlink points to this specific file
-			target, err := filepath.EvalSymlinks(luaPath)
-			if err == nil && filepath.Base(target) == changedBase {
-				return luaPath
-			}
-		}
-	}
-
-	return ""
+	return changedPath
 }

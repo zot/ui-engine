@@ -147,7 +147,7 @@
   - Removes module's presenter types from presenterTypes map
   - Removes module's wrappers from wrapperRegistry
   - Removes module's entry from loadedModules
-  - Cleans up HotLoader state via callback (watchers, symlinkTargets, pendingReloads)
+  - Cleans up HotLoader state via callback (watches, pendingReloads)
 - **Session Timers**: setImmediate/setTimeout/setInterval for deferred async execution:
   - All share the same path: capture ComputingVar → schedule via onDefer → ExecuteInSessionAsync
   - setImmediate: onDefer directly (next ChanSvc turn)

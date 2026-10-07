@@ -38,7 +38,6 @@ Unloads all modules in a directory. Exposed to Lua via `session:unloadDirectory(
 - Removes the directory entry from `moduleDirectories`
 - Cleans up hotloader state for the directory:
   - Removes watches for the directory
-  - Clears `symlinkTargets` entries for files in the directory
   - Clears `pendingReloads` entries for files in the directory
 
 ### LuaSession.unloadModule(moduleName) Method
@@ -54,7 +53,6 @@ Removes all tracking related to a module. Exposed to Lua via `session:unloadModu
 
 **Removes from HotLoader (via callback/interface):**
 - Watches for the module file
-- `symlinkTargets` entry for the module file
 - `pendingReloads` entry for the module file
 
 ## Integration Points

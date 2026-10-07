@@ -19,14 +19,14 @@
 - **R10:** LuaSession must have an unloadDirectory(name) method exposed to Lua as session:unloadDirectory(name)
 - **R11:** unloadDirectory must call unloadModule for each module in the directory
 - **R12:** unloadDirectory must remove the directory entry from moduleDirectories after unloading modules
-- **R13:** unloadDirectory must clean up HotLoader state: watchers, symlinkTargets, pendingReloads for the directory
+- **~~R13:~~** (Retired T1 — see R135) unloadDirectory must clean up HotLoader state: watchers, symlinkTargets, pendingReloads for the directory
 - **R14:** LuaSession must have an unloadModule(moduleName) method exposed to Lua as session:unloadModule(name)
 - **R15:** unloadModule must remove the module's entry from loadedModules
 - **R16:** unloadModule must remove prototypes registered by the module from prototypeRegistry (using RemovePrototype)
 - **R17:** unloadModule must remove presenter types registered by the module from presenterTypes
 - **R18:** unloadModule must remove wrappers registered by the module from wrapperRegistry
 - **R19:** unloadModule must remove viewdefs registered by the module from viewdefManager
-- **R20:** unloadModule must clean up HotLoader state for the module file: watches, symlinkTargets, pendingReloads
+- **~~R20:~~** (Retired T2 — see R136) unloadModule must clean up HotLoader state for the module file: watches, symlinkTargets, pendingReloads
 - **R21:** (inferred) Module registration must happen during require() or RequireLuaFile() calls to track resources
 - **R22:** (inferred) A directory can contain multiple modules
 
@@ -173,3 +173,33 @@
 - **R112:** Backend destroy notifications must be queued through the session's OutgoingBatcher, not sent directly to the WebSocket
 - **R113:** (inferred) The Handler must have access to a message queuing interface so it can route destroy notifications through the batcher
 - **R114:** (inferred) The OutgoingBatcher's throttle behavior (start timer on first queue, accumulate on subsequent queues) must batch all destroy responses from a single incoming batch into one outgoing frame
+
+## Feature: App Discovery
+**Source:** specs/app-discovery.md
+
+- **R119:** When a site directory is configured and does not exist, the server refuses to start and returns an error naming the path; it does not panic
+- **R120:** The site's `viewdefs/` directory is optional; its absence is not logged
+- **R121:** An app is active when `lua/<app>` exists and resolves to a directory; plain files directly in `lua/` are not apps
+- **R122:** Everything the server reads for an app is read through its `lua/<app>` entry, and the server never tests whether that entry is a link (so a Windows junction, which Go reports as a directory, counts as an app)
+- **R123:** Viewdef sources rank in three tiers: built-in apps, then user apps (every other active app), then the site's own `viewdefs/`; apps rank alphabetically by name within a tier
+- **R124:** The built-in app names come from a list the host supplies in the server configuration, programmatically only (not read from the config file); with no list there are no built-in apps, and a listed name that is not active is ignored
+- **R125:** The server registers viewdefs from each active app's `viewdefs/` directory and from the site's `viewdefs/`, in rank order; a viewdef's name is its file name without `.html`; an app with no `viewdefs/` contributes none, silently
+- **R126:** When two sources ship a viewdef of the same name, the earlier-ranked one wins and the later one is not registered, independent of load, link, or file-system walk order
+- **R127:** Each viewdef-name collision is logged, naming the viewdef, the winning source, and the losing source
+- **R128:** On-demand viewdef loading (a `TYPE.*.html` for a type first seen after startup) searches the same sources in the same order under the same collision rule
+- **R129:** With hot-loading enabled, the server watches `lua/`; when an app is activated or deactivated there it re-runs discovery, updating the per-app watches, re-registering viewdefs, and re-resolving collisions
+- **R130:** Deactivating an app stops new loads and hot reloads from it but does not unload Lua code already loaded from it
+- **R131:** A site `viewdefs/` directory created or removed while the server runs need not be noticed until the next start
+
+## Feature: Per-App Hot-Loading
+**Source:** specs/main.md
+
+- **R132:** With hot-loading enabled, the server watches each active app's directory through its `lua/<app>` entry: every `.lua` file in it and its `viewdefs/`
+- **R133:** The site's `viewdefs/` directory is watched if it existed at startup
+- **R134:** An app's directory is watched where it really lives, and a change to any `.lua` file under it is mapped back to the loaded file it belongs to, so an app whose files sit outside the site directory hot-reloads every file, not only its entry file
+
+## Feature: Module Tracking and Unloading (per-app hot-loading revision)
+**Source:** specs/module-tracking.md
+
+- **R135:** unloadDirectory must clean up HotLoader state for the directory: watches and pendingReloads
+- **R136:** unloadModule must clean up HotLoader state for the module file: watches and pendingReloads

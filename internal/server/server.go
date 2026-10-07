@@ -14,6 +14,7 @@ import (
 	"io/fs"
 	"net"
 	"net/http"
+	"os"
 	"path/filepath"
 	"strconv"
 	"sync"
@@ -26,6 +27,7 @@ import (
 	"github.com/zot/ui-engine/internal/config"
 	"github.com/zot/ui-engine/internal/lua"
 	"github.com/zot/ui-engine/internal/protocol"
+	"github.com/zot/ui-engine/internal/site"
 	"github.com/zot/ui-engine/internal/viewdef"
 )
 
@@ -189,8 +191,15 @@ func (s *Server) Start() error {
 }
 
 // configureHTTP sets up the backend socket and HTTP server listener.
-// Returns the server, listener, and base URL.
+// Returns the server, listener, and base URL. A configured site directory
+// that does not exist is an error, returned before anything listens.
+// CRC: crc-Server.md | Seq: seq-app-discovery.md#1.1 | R119
 func (s *Server) configureHTTP(port int) (*http.Server, net.Listener, string, error) {
+	if dir := s.config.Server.Dir; dir != "" {
+		if info, err := os.Stat(dir); err != nil || !info.IsDir() {
+			return nil, nil, "", fmt.Errorf("site directory %s does not exist", dir)
+		}
+	}
 	// Start backend socket
 	if err := s.backendSocket.Listen(); err != nil {
 		return nil, nil, "", fmt.Errorf("failed to start backend socket: %w", err)
@@ -314,23 +323,24 @@ func (s *Server) setupSite(cfg *config.Config) {
 	s.config.Log(0, "Warning: no site available (not bundled and no --dir specified)")
 }
 
-// setupViewdefs initializes the viewdef manager and loads viewdefs.
+// setupViewdefs initializes the viewdef manager and loads viewdefs: from
+// the active apps and the site's own viewdefs/ when a site directory is
+// configured, else from the bundle. A missing viewdefs/ is not logged.
+// CRC: crc-Server.md | Seq: seq-app-discovery.md#1.2, seq-app-discovery.md#1.3, seq-app-discovery.md#1.4 | R120, R125
 func (s *Server) setupViewdefs(cfg *config.Config) {
 	s.viewdefManager = viewdef.NewViewdefManager()
+	s.viewdefManager.SetLogger(cfg.Log)
 
-	// If --dir is specified, load from that directory's viewdefs/ subdirectory
-	if cfg.Server.Dir != "" {
-		viewdefsDir := cfg.Server.Dir + "/viewdefs"
-		if err := s.viewdefManager.LoadFromDirectory(viewdefsDir); err != nil {
-			s.config.Log(0, "Warning: failed to load viewdefs from %s: %v", viewdefsDir, err)
-		} else {
-			s.config.Log(0, "Loaded %d viewdefs from directory: %s", s.viewdefManager.Count(), viewdefsDir)
-		}
+	if siteDir := cfg.Server.Dir; siteDir != "" {
+		s.viewdefManager.SetViewdefDir(filepath.Join(siteDir, "viewdefs"))
+		apps := site.Discover(siteDir, cfg.Server.BuiltinApps)
+		s.viewdefManager.LoadFromSources(site.ViewdefSources(siteDir, apps))
+		s.config.Log(0, "Loaded %d viewdefs from %d apps in %s", s.viewdefManager.Count(), len(apps), siteDir)
 
 		// Initialize viewdef hot-loader if Lua hot-loading is enabled
 		// (reuse the same config flag for viewdefs)
 		if cfg.Lua.Hotload {
-			s.setupViewdefHotLoader(cfg, viewdefsDir)
+			s.setupViewdefHotLoader(cfg)
 		}
 		return
 	}
@@ -346,10 +356,9 @@ func (s *Server) setupViewdefs(cfg *config.Config) {
 // setupViewdefHotLoader initializes the viewdef hot-loader.
 // CRC: crc-ViewdefStore.md
 // Sequence: seq-viewdef-hotload.md
-func (s *Server) setupViewdefHotLoader(cfg *config.Config, viewdefsDir string) {
+func (s *Server) setupViewdefHotLoader(cfg *config.Config) {
 	hotLoader, err := viewdef.NewHotLoader(
 		cfg,
-		viewdefsDir,
 		s.viewdefManager,
 		s, // Server implements viewdef.SessionPusher
 	)
@@ -365,7 +374,7 @@ func (s *Server) setupViewdefHotLoader(cfg *config.Config, viewdefsDir string) {
 		return
 	}
 
-	s.config.Log(0, "ViewdefHotLoader: watching %s for changes", viewdefsDir)
+	s.config.Log(0, "ViewdefHotLoader: watching viewdefs of %s for changes", cfg.Server.Dir)
 }
 
 // GetSessionIDs returns all active vended session IDs.

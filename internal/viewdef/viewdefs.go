@@ -1,5 +1,6 @@
 // ViewdefManager loads and serves viewdefs to frontend sessions.
-// Spec: viewdefs.md
+// CRC: crc-ViewdefManager.md | Seq: seq-app-discovery.md
+// Spec: viewdefs.md, app-discovery.md
 package viewdef
 
 import (
@@ -12,6 +13,7 @@ import (
 	"time"
 
 	"github.com/zot/ui-engine/internal/bundle"
+	"github.com/zot/ui-engine/internal/site"
 )
 
 // viewdefEntry tracks a viewdef's content and source file info.
@@ -19,6 +21,7 @@ type viewdefEntry struct {
 	content  string
 	filePath string    // Source file path (empty if from bundle or dynamic)
 	modTime  time.Time // Last modification time when loaded
+	rank     int       // Index of the owning source; lower outranks higher
 }
 
 // ViewdefManager manages viewdef loading and tracking.
@@ -28,8 +31,13 @@ type ViewdefManager struct {
 	// sentViewdefs tracks which viewdefs have been sent per session with their modTime
 	// sessionID -> viewdef key -> modTime when sent
 	sentViewdefs map[string]map[string]time.Time
-	// viewdefDir is the directory to check for viewdefs on-demand
+	// viewdefDir is where AddViewdef writes dynamic viewdefs
 	viewdefDir string
+	// sources are the ranked viewdef directories (see site.ViewdefSources)
+	sources []site.Source
+	// collisions records key|loserDir pairs already logged
+	collisions map[string]bool
+	logf       func(level int, format string, args ...interface{})
 	mu         sync.RWMutex
 }
 
@@ -38,7 +46,18 @@ func NewViewdefManager() *ViewdefManager {
 	return &ViewdefManager{
 		viewdefs:     make(map[string]*viewdefEntry),
 		sentViewdefs: make(map[string]map[string]time.Time),
+		collisions:   make(map[string]bool),
+		logf: func(level int, format string, args ...interface{}) {
+			log.Printf(format, args...)
+		},
 	}
+}
+
+// SetLogger routes collision and load messages through the host's logger.
+func (m *ViewdefManager) SetLogger(logf func(level int, format string, args ...interface{})) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.logf = logf
 }
 
 // SetViewdefDir sets the directory for on-demand viewdef loading.
@@ -48,47 +67,123 @@ func (m *ViewdefManager) SetViewdefDir(dir string) {
 	m.viewdefDir = dir
 }
 
-// LoadFromDirectory loads viewdefs from a directory.
-// Files should be named TYPE.NAMESPACE.html (e.g., Adder.DEFAULT.html)
-func (m *ViewdefManager) LoadFromDirectory(dir string) error {
+// noRank marks entries that no source owns (bundle or dynamic).
+const noRank = -1
+
+// LoadFromSources registers viewdefs from ranked sources, discarding any
+// previously file-sourced entries. The first source to offer a key owns it;
+// a later offer is a collision, logged and skipped.
+// CRC: crc-ViewdefManager.md | Seq: seq-app-discovery.md#1.4 | R125, R126, R127
+func (m *ViewdefManager) LoadFromSources(sources []site.Source) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	m.loadFromSourcesLocked(sources)
+}
 
-	// Store directory for on-demand loading
-	m.viewdefDir = dir
+// SetSources replaces the source list and reloads, returning the keys whose
+// content changed (new, replaced or newly owned) so callers can re-push them.
+// CRC: crc-ViewdefManager.md | Seq: seq-app-discovery.md#2.1.1 | R129
+func (m *ViewdefManager) SetSources(sources []site.Source) map[string]string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	old := make(map[string]string, len(m.viewdefs))
+	for key, entry := range m.viewdefs {
+		old[key] = entry.content
+	}
+	m.loadFromSourcesLocked(sources)
+	changed := make(map[string]string)
+	for key, entry := range m.viewdefs {
+		if prev, ok := old[key]; !ok || prev != entry.content {
+			changed[key] = entry.content
+		}
+	}
+	return changed
+}
 
-	return filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
-		if err != nil {
-			// Skip unreadable entries (e.g. broken symlinks) — one bad
-			// file shouldn't abort the whole walk.
-			log.Printf("viewdef load: skipping %s: %v", path, err)
+func (m *ViewdefManager) loadFromSourcesLocked(sources []site.Source) {
+	m.sources = sources
+	for key, entry := range m.viewdefs {
+		if entry.filePath != "" {
+			delete(m.viewdefs, key)
+		}
+	}
+	for rank, src := range sources {
+		filepath.Walk(src.Dir, func(path string, info os.FileInfo, err error) error {
+			if err != nil {
+				// One bad entry (e.g. a broken symlink) must not abort the walk.
+				m.logf(1, "viewdef load: skipping %s: %v", path, err)
+				return nil
+			}
+			if info.IsDir() || !strings.HasSuffix(path, ".html") {
+				return nil
+			}
+			m.offerLocked(rank, path, info.ModTime())
 			return nil
-		}
-		if info.IsDir() {
-			return nil
-		}
-		if !strings.HasSuffix(path, ".html") {
-			return nil
-		}
+		})
+	}
+}
 
-		// Get filename without directory
-		filename := filepath.Base(path)
-		// Remove .html extension to get TYPE.NAMESPACE
-		key := strings.TrimSuffix(filename, ".html")
-
-		content, err := os.ReadFile(path)
-		if err != nil {
-			log.Printf("viewdef load: skipping %s: %v", path, err)
-			return nil
+// offerLocked registers path for its key unless a higher-ranked source owns
+// it; returns false for a collision. Must be called with the write lock held.
+// CRC: crc-ViewdefManager.md | R126, R127
+func (m *ViewdefManager) offerLocked(rank int, path string, modTime time.Time) bool {
+	key := strings.TrimSuffix(filepath.Base(path), ".html")
+	if existing, ok := m.viewdefs[key]; ok && existing.rank != noRank && existing.rank < rank {
+		if existing.filePath != path {
+			m.logCollisionLocked(key, existing.rank, rank)
 		}
+		return false
+	}
+	content, err := os.ReadFile(path)
+	if err != nil {
+		m.logf(1, "viewdef load: skipping %s: %v", path, err)
+		return false
+	}
+	m.viewdefs[key] = &viewdefEntry{content: string(content), filePath: path, modTime: modTime, rank: rank}
+	return true
+}
 
-		m.viewdefs[key] = &viewdefEntry{
-			content:  string(content),
-			filePath: path,
-			modTime:  info.ModTime(),
+// logCollisionLocked logs a collision once per key and losing source.
+// CRC: crc-ViewdefManager.md | R127
+func (m *ViewdefManager) logCollisionLocked(key string, winner, loser int) {
+	id := key + "|" + m.sources[loser].Dir
+	if m.collisions[id] {
+		return
+	}
+	m.collisions[id] = true
+	m.logf(0, "viewdef collision: %s from %s wins over %s", key, m.sources[winner].Label, m.sources[loser].Label)
+}
+
+// ApplyFileChange reloads one changed viewdef file, returning its key and
+// content. ok is false when the file belongs to no source, cannot be read, or
+// its key is owned by a higher-ranked source.
+// CRC: crc-ViewdefManager.md | Seq: seq-viewdef-hotload.md | R126
+func (m *ViewdefManager) ApplyFileChange(path string) (key, content string, ok bool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	rank := m.rankOfLocked(path)
+	if rank == noRank {
+		return "", "", false
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		return "", "", false
+	}
+	if !m.offerLocked(rank, path, info.ModTime()) {
+		return "", "", false
+	}
+	key = strings.TrimSuffix(filepath.Base(path), ".html")
+	return key, m.viewdefs[key].content, true
+}
+
+// rankOfLocked returns the index of the source containing path, or noRank.
+func (m *ViewdefManager) rankOfLocked(path string) int {
+	for rank, src := range m.sources {
+		if strings.HasPrefix(path, src.Dir+string(filepath.Separator)) {
+			return rank
 		}
-		return nil
-	})
+	}
+	return noRank
 }
 
 // AddViewdef adds or updates a viewdef dynamically.
@@ -97,7 +192,7 @@ func (m *ViewdefManager) AddViewdef(key, content string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	entry := &viewdefEntry{content: content}
+	entry := &viewdefEntry{content: content, rank: noRank}
 
 	// If we have a viewdef directory, write to file and track it
 	if m.viewdefDir != "" {
@@ -138,7 +233,7 @@ func (m *ViewdefManager) LoadFromBundle() error {
 		key := strings.TrimSuffix(filename, ".html")
 
 		// Bundle viewdefs have no file path (embedded)
-		m.viewdefs[key] = &viewdefEntry{content: string(content)}
+		m.viewdefs[key] = &viewdefEntry{content: string(content), rank: noRank}
 	}
 
 	return nil
@@ -171,7 +266,7 @@ func (m *ViewdefManager) LoadFromFS(fsys fs.FS, dir string) error {
 		key := strings.TrimSuffix(filename, ".html")
 
 		// FS viewdefs have no trackable file path
-		m.viewdefs[key] = &viewdefEntry{content: string(content)}
+		m.viewdefs[key] = &viewdefEntry{content: string(content), rank: noRank}
 		return nil
 	})
 }
@@ -224,45 +319,27 @@ func (m *ViewdefManager) LoadViewdefsForType(typeName string) {
 	m.tryLoadFromFilesystem(typeName)
 }
 
-// tryLoadFromFilesystem attempts to load viewdefs for a type from the filesystem.
+// tryLoadFromFilesystem loads a type's viewdefs on demand, searching the
+// sources in rank order under the same first-wins rule as LoadFromSources.
 // Must be called with lock held.
+// CRC: crc-ViewdefManager.md | R128
 func (m *ViewdefManager) tryLoadFromFilesystem(typeName string) {
-	if m.viewdefDir == "" {
-		return
-	}
-
-	// Look for TYPE.*.html files
-	pattern := filepath.Join(m.viewdefDir, typeName+".*.html")
-	matches, err := filepath.Glob(pattern)
-	if err != nil {
-		return
-	}
-
-	for _, path := range matches {
-		filename := filepath.Base(path)
-		key := strings.TrimSuffix(filename, ".html")
-
-		info, err := os.Stat(path)
+	for rank, src := range m.sources {
+		matches, err := filepath.Glob(filepath.Join(src.Dir, typeName+".*.html"))
 		if err != nil {
 			continue
 		}
-
-		// Skip if already loaded with same or newer mod time
-		if existing, exists := m.viewdefs[key]; exists {
-			if existing.filePath != "" && !info.ModTime().After(existing.modTime) {
+		for _, path := range matches {
+			info, err := os.Stat(path)
+			if err != nil {
 				continue
 			}
-		}
-
-		content, err := os.ReadFile(path)
-		if err != nil {
-			continue
-		}
-
-		m.viewdefs[key] = &viewdefEntry{
-			content:  string(content),
-			filePath: path,
-			modTime:  info.ModTime(),
+			key := strings.TrimSuffix(filepath.Base(path), ".html")
+			// Skip a file already loaded with the same or newer mod time.
+			if existing, ok := m.viewdefs[key]; ok && existing.filePath == path && !info.ModTime().After(existing.modTime) {
+				continue
+			}
+			m.offerLocked(rank, path, info.ModTime())
 		}
 	}
 }
@@ -356,19 +433,6 @@ func (m *ViewdefManager) Count() int {
 	return len(m.viewdefs)
 }
 
-// updateViewdef updates a viewdef entry (used by HotLoader).
-// This bypasses the normal loading mechanism to update in-place.
-func (m *ViewdefManager) updateViewdef(key, content, filePath string, modTime time.Time) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	m.viewdefs[key] = &viewdefEntry{
-		content:  content,
-		filePath: filePath,
-		modTime:  modTime,
-	}
-}
-
 // hasSessionReceivedViewdef checks if a session has received a specific viewdef.
 func (m *ViewdefManager) hasSessionReceivedViewdef(sessionID, key string) bool {
 	m.mu.RLock()
@@ -410,4 +474,11 @@ func (m *ViewdefManager) MarkViewdefSent(sessionID, key string) {
 	if ok {
 		m.sentViewdefs[sessionID][key] = entry.modTime
 	}
+}
+
+// Sources returns the current ranked viewdef sources.
+func (m *ViewdefManager) Sources() []site.Source {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return append([]site.Source(nil), m.sources...)
 }

@@ -95,6 +95,10 @@ To ensure consistent output and granular control over debug information:
 - Event bindings (`ui-event-*`)
 - Backend paths
 
+### [App Discovery](app-discovery.md)
+- Site directory layout, app activation via `lua/<app>`
+- Built-in / user / site ordering and viewdef collisions
+
 ### [Deployment](deployment.md)
 - Deployment modes (standalone, FastCGI, CLI, embedded Lua)
 - Frontend webapp hosting
@@ -155,10 +159,11 @@ Views are HTML snippets associated with presenter types and bound to data within
 When `--hotload` is enabled, the server watches directories for file changes and automatically reloads modified files. This is a unified system that handles both Lua scripts and viewdefs.
 
 **Watched directories:**
-- Lua scripts: `lua/` (or configured lua path)
-- Viewdefs: `html/viewdefs/`
+- `lua/`, for `main.lua` and for apps being activated or deactivated (see [App Discovery](app-discovery.md))
+- Each active app's directory, through its `lua/<app>` entry: every `.lua` file in it, and its `viewdefs/`
+- The site's `viewdefs/`, if it existed at startup
 
-**Symlink tracking:** When a watched file is a symlink, the server also watches the target directory. Changes to either the symlink or the target file trigger a reload. When symlinks are added, modified, or removed, watched directories update accordingly. This supports development workflows where files are symlinked from another location.
+**Links:** an app's directory is watched where it really lives, so an app whose files sit outside the site directory (its `lua/<app>` entry is a symlink or junction pointing elsewhere) hot-reloads every file, not only its entry file. A change to any `.lua` file under an app's directory is mapped back to the loaded file it belongs to.
 
 **Backend reload behavior:**
 - Only reloads files that have already been loaded (ignores new files until explicitly required)
@@ -171,9 +176,9 @@ Lua files are tracked by their resolved target path relative to `baseDir`. The `
 
 - Files are tracked by their actual location (symlinks are resolved)
 - Example: `apps/myapp/app.lua` (resolved target, relative to baseDir)
-- Example: `lua/mcp.lua` (regular file, relative to baseDir)
+- Example: `lua/main.lua` (regular file, relative to baseDir)
 
-When a symlink like `lua/app.lua → ../apps/myapp/app.lua` is loaded:
+When a file is loaded through a link, as `lua/myapp/app.lua` is when `lua/myapp → ../apps/myapp`:
 - Resolve the symlink to get the actual target path
 - Compute the target path relative to baseDir: `apps/myapp/app.lua`
 - Track the file using this resolved path

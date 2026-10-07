@@ -36,6 +36,8 @@ back.
 This means the variable tree grows dynamically as the UI renders,
 driven by the frontend, with the backend supplying values.
 
+@pattern: inversion-frontend-drives-tree — the frontend creates and drives the variable tree, the part that normally lives server-side, while the backend stays put and only supplies computed values; normally the server builds the view tree for its clients, here the client builds it and asks the server for values
+
 ## Value JSON and Object References
 
 Values are serialized in a specific format:

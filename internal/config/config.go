@@ -30,6 +30,10 @@ type ServerConfig struct {
 	Port   int    `toml:"port"`
 	Socket string `toml:"socket"`
 	Dir    string `toml:"-"` // Custom site directory (CLI only, not in config file)
+	// BuiltinApps names the host's built-in apps, which outrank user apps
+	// when viewdef names collide. Set programmatically only.
+	// CRC: crc-Config.md | R124
+	BuiltinApps []string `toml:"-"`
 }
 
 // LuaConfig holds Lua runtime settings.

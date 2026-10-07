@@ -1,6 +1,7 @@
 # ViewdefStore
+**Requirements:** R129, R131-133
 
-**Source Spec:** viewdefs.md, main.md "Hot-Loading System"
+**Source Spec:** viewdefs.md, main.md "Hot-Loading System", app-discovery.md
 
 ## Responsibilities
 
@@ -8,10 +9,9 @@
 - viewdefs: Map of TYPE.NAMESPACE to template element
 - pendingUpdates: Batched viewdef updates awaiting delivery
 - pendingViews: List of Views waiting for viewdefs to render
-- fileWatcher: (backend) File watcher for viewdef directory (like LuaHotLoader)
+- fileWatcher: (backend) File watcher for `lua/` and each viewdef source directory
 - sentViewdefs: (backend) Map of session ID to set of sent viewdef keys
-- symlinkTargets: (backend) Map of symlink paths to their resolved target directories
-- watchedDirs: (backend) Set of directories currently being watched
+- watchedSources: (backend) Viewdef source directories currently watched, as entry paths
 
 ### Does
 - store: Add or replace viewdef by TYPE.NAMESPACE key
@@ -25,11 +25,10 @@
 - addPendingView: Add view to pending list (missing type or viewdef)
 - processPendingViews: Re-render pending views when viewdefs arrive
 - removePendingView: Remove view from pending list after successful render
-- startWatching: (backend) Start file watcher for viewdef directory
+- startWatching: (backend) Watch `lua/` and every viewdef source (each app's `lua/<app>/viewdefs`, plus the site's `viewdefs/` if it existed at startup)
 - stopWatching: (backend) Stop file watcher
 - handleFileChange: (backend) Reload viewdef, queue re-push for sessions that received it
-- resolveSymlinks: (backend) Scan viewdef directory for symlinks, resolve and watch target directories
-- updateSymlinkWatches: (backend) When symlinks change, update watched directories accordingly
+- rediscover: (backend) On a create/remove of a `lua/<app>` entry, re-run AppDiscovery, hand the new sources to ViewdefManager.SetSources, and add/drop source watches
 - rerenderViewsForKey: (frontend) Query `[ui-viewdef="KEY"]`, call rerender() on each
 
 ## Collaborators
@@ -40,14 +39,16 @@
 - View: Views waiting for viewdefs, views to re-render on hot-reload
 - MessageBatcher: Queues viewdef updates with :high priority
 - LuaHotLoader: (backend) Similar file watching pattern
+- AppDiscovery: (backend) Ranked viewdef sources
+- ViewdefManager: (backend) Registry that applies the collision rule
 
 ## Notes
 
 ### Backend Hot-Reload
 
 When hot-loading is enabled:
-1. File watcher monitors viewdef directory (like LuaHotLoader)
-2. **Symlink tracking**: See cross-cutting concern "Hot-Loading Symlink Tracking"
+1. File watcher monitors `lua/` and each viewdef source, through the `lua/<app>` entry
+2. See cross-cutting concern "Hot-Loading Through Activation Entries"
 3. On file change, reload content and update viewdefs map
 4. For each session that has received the changed viewdef (tracked in sentViewdefs):
    - Queue a re-push via variable 1's `viewdefs` property with :high priority
@@ -66,3 +67,4 @@ When updated viewdefs arrive via variable 1:
 - seq-load-viewdefs.md: Initial viewdef loading and validation
 - seq-viewdef-delivery.md: Priority-based viewdef delivery
 - seq-viewdef-hotload.md: Hot-reload flow (file change → push → re-render)
+- seq-app-discovery.md: Re-discovery when an app is activated or deactivated

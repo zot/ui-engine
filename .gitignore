@@ -12,3 +12,7 @@ node_modules
 /.claude/scratch/
 /notes.md
 /.claude/techniques
+/.minispec/backup
+/PENDING.md
+/CURRENT.md
+/DONE.md

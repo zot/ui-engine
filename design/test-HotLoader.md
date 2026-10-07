@@ -10,6 +10,9 @@ Tests for the Lua hot-loading component that watches lua directory for file chan
 
 ## Test Cases
 
+> Symlink-tracking tests retired 2026-10-07 (T1, T2): apps are watched through their `lua/<app>` entry. Per-app watching, re-discovery and collision tests live in [test-AppDiscovery.md](test-AppDiscovery.md).
+
+
 ### Test: Initialize hot loader
 
 **Purpose**: Verify hot loader creation with watcher
@@ -97,115 +100,6 @@ Tests for the Lua hot-loading component that watches lua directory for file chan
 - Events ignored
 - No reload triggered
 - No errors logged
-
----
-
-### Test: Scan for existing symlinks on start
-
-**Purpose**: Verify symlinks are detected during initialization
-
-**Input**:
-- lua/app.lua -> ../apps/myapp/app.lua (symlink)
-- hotLoader.Start()
-
-**References**:
-- CRC: crc-LuaHotLoader.md - "Does: resolveSymlinks"
-- CRC: crc-LuaHotLoader.md - "Knows: symlinkTargets"
-
-**Expected Results**:
-- Symlink resolved to target
-- Target directory (../apps/myapp/) added to watch list
-- symlinkTargets map updated
-
----
-
-### Test: Watch symlink target directory
-
-**Purpose**: Verify changes to symlink targets are detected
-
-**Input**:
-- lua/app.lua -> /real/path/app.lua
-- Modify /real/path/app.lua
-
-**References**:
-- CRC: crc-LuaHotLoader.md - "Does: handleFileChange"
-- Sequence: seq-lua-hotload.md (Symlink Resolution Sequence)
-
-**Expected Results**:
-- Change detected in target directory
-- Resolved back to lua/app.lua
-- Reloaded as lua/app.lua (not /real/path/app.lua)
-
----
-
-### Test: Add symlink watch on create
-
-**Purpose**: Verify new symlinks get their targets watched
-
-**Input**:
-- Create symlink lua/new.lua -> /other/path/new.lua
-
-**References**:
-- CRC: crc-LuaHotLoader.md - "Does: updateSymlinkWatches"
-
-**Expected Results**:
-- New symlink detected
-- Target directory resolved
-- Watch added for /other/path/
-
----
-
-### Test: Remove symlink watch on delete
-
-**Purpose**: Verify symlink removal cleans up watches
-
-**Input**:
-- Remove symlink lua/app.lua
-
-**References**:
-- CRC: crc-LuaHotLoader.md - "Does: updateSymlinkWatches"
-- CRC: crc-LuaHotLoader.md - "Knows: watchedDirs"
-
-**Expected Results**:
-- Remove event detected
-- symlinkTargets entry removed
-- Target directory watch removed (if refcount reaches 0)
-
----
-
-### Test: Update symlink watch on rename
-
-**Purpose**: Verify renamed symlinks update watches
-
-**Input**:
-- Rename lua/old.lua to lua/new.lua (both symlinks)
-
-**References**:
-- CRC: crc-LuaHotLoader.md - "Does: updateSymlinkWatches"
-
-**Expected Results**:
-- Old symlink watch removed
-- New symlink watch added
-- No orphaned watches
-
----
-
-### Test: Reference counting for shared target directories
-
-**Purpose**: Verify multiple symlinks to same directory share watch
-
-**Input**:
-- lua/a.lua -> /shared/a.lua
-- lua/b.lua -> /shared/b.lua
-- Remove lua/a.lua
-
-**References**:
-- CRC: crc-LuaHotLoader.md - "Knows: watchedDirs"
-
-**Expected Results**:
-- /shared/ watched once (refcount=2)
-- After removing lua/a.lua, refcount=1
-- /shared/ still watched (b.lua needs it)
 
 ---
 
@@ -431,26 +325,6 @@ Tests for the Lua hot-loading component that watches lua directory for file chan
 
 ---
 
-### Test: Resolve reload path for symlink target
-
-**Purpose**: Verify symlink target changes resolve to symlink path
-
-**Input**:
-- lua/app.lua -> /real/path/app.lua
-- Modify /real/path/app.lua
-
-**References**:
-- CRC: crc-LuaHotLoader.md - "Does: reloadFile"
-- Sequence: seq-lua-hotload.md (Symlink Resolution)
-
-**Expected Results**:
-- Changed path is /real/path/app.lua
-- Resolved to lua/app.lua
-- Content read from lua/app.lua (via symlink)
-- Code name is "app.lua"
-
----
-
 ## Prototype Mutation Integration Tests
 
 ### Test: Process mutation queue after file reload
@@ -564,7 +438,7 @@ local b = Bad:new()
 ## Coverage Summary
 
 **Responsibilities Covered:**
-- LuaHotLoader Knows: luaDir, watcher, symlinkTargets, watchedDirs
+- LuaHotLoader Knows: luaDir, watcher, appWatches, pendingReloads
 - LuaHotLoader Does: Start, Stop, handleFileChange, resolveSymlinks, updateSymlinkWatches, reloadFile
 - LuaSession: processMutationQueue integration
 
@@ -660,63 +534,6 @@ local b = Bad:new()
 - Events ignored
 - No reload triggered
 - No errors logged
-
----
-
-### Test: Scan for existing viewdef symlinks on start
-
-**Purpose**: Verify symlinks are detected during initialization
-
-**Input**:
-- viewdefs/Contact.html -> ../shared/Contact.html (symlink)
-- hotLoader.Start()
-
-**References**:
-- CRC: crc-ViewdefStore.md - "Does: resolveSymlinks"
-- CRC: crc-ViewdefStore.md - "Knows: symlinkTargets"
-
-**Expected Results**:
-- Symlink resolved to target
-- Target directory added to watch list
-- symlinkTargets map updated
-
----
-
-### Test: Watch viewdef symlink target directory
-
-**Purpose**: Verify changes to symlink targets are detected
-
-**Input**:
-- viewdefs/Contact.html -> /real/path/Contact.html
-- Modify /real/path/Contact.html
-
-**References**:
-- CRC: crc-ViewdefStore.md - "Does: handleFileChange"
-- Sequence: seq-viewdef-hotload.md
-
-**Expected Results**:
-- Change detected in target directory
-- Resolved back to viewdefs/Contact.html
-- Reloaded as Contact (not /real/path/Contact)
-
----
-
-### Test: Viewdef reference counting for shared targets
-
-**Purpose**: Verify multiple symlinks to same directory share watch
-
-**Input**:
-- viewdefs/A.html -> /shared/A.html
-- viewdefs/B.html -> /shared/B.html
-- Remove viewdefs/A.html
-
-**References**:
-- CRC: crc-ViewdefStore.md - "Knows: watchedDirs"
-
-**Expected Results**:
-- /shared/ watched once (refcount=2)
-- After removing A.html, refcount=1
-- /shared/ still watched (B.html needs it)
 
 ---
 
@@ -833,28 +650,10 @@ local b = Bad:new()
 
 ---
 
-### Test: Resolve viewdef reload path for symlink target
-
-**Purpose**: Verify symlink target changes resolve to symlink path
-
-**Input**:
-- viewdefs/Contact.html -> /real/path/Contact.html
-- Modify /real/path/Contact.html
-
-**References**:
-- CRC: crc-ViewdefStore.md - "Does: handleFileChange"
-
-**Expected Results**:
-- Changed path is /real/path/Contact.html
-- Resolved to viewdefs/Contact.html
-- Viewdef key is "Contact"
-
----
-
 ## Viewdef Coverage Summary
 
 **Responsibilities Covered:**
-- ViewdefStore Knows: fileWatcher, sentViewdefs, symlinkTargets, watchedDirs
+- ViewdefStore Knows: fileWatcher, sentViewdefs, watchedSources
 - ViewdefStore Does: startWatching, stopWatching, handleFileChange, resolveSymlinks, updateSymlinkWatches
 
 **Scenarios Covered:**

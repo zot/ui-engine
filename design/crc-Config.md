@@ -1,4 +1,5 @@
 # CRC: Config
+**Requirements:** R124
 
 **Spec:** deployment.md, config.md
 
@@ -21,6 +22,7 @@
 | EmbeddedSite      | Reads config.toml from embedded archive       |
 | LuaSession        | Provides Lua enabled flag and path            |
 | LuaHotLoader      | Provides lua.hotload flag for file watching   |
+| AppDiscovery      | Provides site dir and built-in app names (`Server.BuiltinApps`, set by the host, never read from TOML) |
 | SessionManager    | Provides session timeout setting              |
 | WebSocketEndpoint | Logging delegate (connection events)          |
 | HTTPEndpoint      | Provides host and port settings               |
@@ -37,6 +39,7 @@
 | Session timeout | `--session-timeout` | `UI_SESSION_TIMEOUT` | `session.timeout`   | `"24h"` |
 | Socket path     | `--socket`          | `UI_SOCKET`          | `backend.socket`    | platform-specific |
 | Verbosity       | `-v`, `-vv`, `-vvv` | `UI_VERBOSITY`       | `logging.verbosity` | `0`     |
+| Built-in apps   | (programmatic)      | —                    | —                   | none    |
 
 ## Sequences
 

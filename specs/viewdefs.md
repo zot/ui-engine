@@ -41,7 +41,7 @@ The frontend parses viewdefs by placing them in a scratch div's innerHTML, then 
 Viewdefs support hot-reloading for iterative development. See [Hot-Loading System](main.md#hot-loading-system) for the unified backend behavior (file watching, symlink tracking, session refresh).
 
 **Additional viewdef behavior:**
-- On-demand loading: when a new `type` is encountered, the server automatically loads matching `TYPE.*.html` files from the viewdef directory
+- On-demand loading: when a new `type` is encountered, the server automatically loads matching `TYPE.*.html` files from the viewdef sources, in the order and under the collision rule of [App Discovery](app-discovery.md)
 - This enables editing viewdefs without restarting the server
 
 **Frontend behavior:**

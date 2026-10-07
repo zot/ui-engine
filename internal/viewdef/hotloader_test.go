@@ -1,4 +1,5 @@
-// Test Design: test-HotLoader.md (Viewdef HotLoader Tests section)
+// CRC: crc-ViewdefStore.md | Test: test-HotLoader.md
+// Viewdef HotLoader Tests section; app-discovery cases are under test-AppDiscovery.md
 package viewdef
 
 import (
@@ -9,14 +10,15 @@ import (
 	"time"
 
 	"github.com/zot/ui-engine/internal/config"
+	"github.com/zot/ui-engine/internal/site"
 )
 
 // mockSessionPusher implements SessionPusher for testing
 type mockSessionPusher struct {
-	sessionIDs  []string
-	pushedTo    []string
-	pushedDefs  map[string]map[string]string // sessionID -> key -> content
-	mu          sync.Mutex
+	sessionIDs []string
+	pushedTo   []string
+	pushedDefs map[string]map[string]string // sessionID -> key -> content
+	mu         sync.Mutex
 }
 
 func newMockSessionPusher(sessionIDs []string) *mockSessionPusher {
@@ -52,13 +54,22 @@ func (m *mockSessionPusher) getPushedTo() []string {
 	return result
 }
 
-// Helper to create temp viewdef directory
+// Helper to create a temp site and return its viewdefs/ directory
 func createTempViewdefDir(t *testing.T) string {
-	dir, err := os.MkdirTemp("", "viewdef-hotloader-test-*")
-	if err != nil {
-		t.Fatalf("Failed to create temp dir: %v", err)
+	dir := filepath.Join(t.TempDir(), "viewdefs")
+	if err := os.Mkdir(dir, 0o755); err != nil {
+		t.Fatalf("Failed to create viewdefs dir: %v", err)
 	}
 	return dir
+}
+
+// newTestHotLoader points cfg at viewdefDir's site, loads the manager from
+// the site's sources (so MarkViewdefSent finds the viewdefs), and creates
+// the hot loader.
+func newTestHotLoader(cfg *config.Config, viewdefDir string, manager *ViewdefManager, sessions SessionPusher) (*HotLoader, error) {
+	cfg.Server.Dir = filepath.Dir(viewdefDir)
+	manager.LoadFromSources(site.ViewdefSources(cfg.Server.Dir, site.Discover(cfg.Server.Dir, nil)))
+	return NewHotLoader(cfg, manager, sessions)
 }
 
 // Helper to create a test config
@@ -78,14 +89,14 @@ func TestNewViewdefHotLoader(t *testing.T) {
 	manager := NewViewdefManager()
 	sessions := newMockSessionPusher(nil)
 
-	h, err := NewHotLoader(cfg, viewdefDir, manager, sessions)
+	h, err := newTestHotLoader(cfg, viewdefDir, manager, sessions)
 	if err != nil {
 		t.Fatalf("NewHotLoader failed: %v", err)
 	}
 	defer h.Stop()
 
-	if h.viewdefDir != viewdefDir {
-		t.Errorf("viewdefDir = %q, want %q", h.viewdefDir, viewdefDir)
+	if h.luaDir != filepath.Join(filepath.Dir(viewdefDir), "lua") {
+		t.Errorf("luaDir = %q, want the site's lua/", h.luaDir)
 	}
 	if h.watcher == nil {
 		t.Error("watcher is nil")
@@ -106,7 +117,7 @@ func TestViewdefHotLoaderStart(t *testing.T) {
 	manager := NewViewdefManager()
 	sessions := newMockSessionPusher(nil)
 
-	h, err := NewHotLoader(cfg, viewdefDir, manager, sessions)
+	h, err := newTestHotLoader(cfg, viewdefDir, manager, sessions)
 	if err != nil {
 		t.Fatalf("NewHotLoader failed: %v", err)
 	}
@@ -118,8 +129,8 @@ func TestViewdefHotLoaderStart(t *testing.T) {
 	defer h.Stop()
 
 	// Verify viewdef directory is being watched
-	if h.watchedDirs[viewdefDir] != 1 {
-		t.Errorf("viewdefDir not in watchedDirs, got %v", h.watchedDirs)
+	if !h.watchedSources[viewdefDir] {
+		t.Errorf("viewdefDir not in watchedSources, got %v", h.watchedSources)
 	}
 }
 
@@ -138,11 +149,11 @@ func TestDetectHtmlFileModification(t *testing.T) {
 	cfg := testViewdefConfig()
 	manager := NewViewdefManager()
 	sessions := newMockSessionPusher([]string{"session1"})
-	
+
 	// Mark the viewdef as sent to the session so it receives updates
+	h, _ := newTestHotLoader(cfg, viewdefDir, manager, sessions)
 	manager.MarkViewdefSent("session1", "Contact")
 
-	h, _ := NewHotLoader(cfg, viewdefDir, manager, sessions)
 	h.Start()
 	defer h.Stop()
 
@@ -171,7 +182,7 @@ func TestIgnoreNonHtmlFiles(t *testing.T) {
 	manager := NewViewdefManager()
 	sessions := newMockSessionPusher([]string{"session1"})
 
-	h, _ := NewHotLoader(cfg, viewdefDir, manager, sessions)
+	h, _ := newTestHotLoader(cfg, viewdefDir, manager, sessions)
 	h.Start()
 	defer h.Stop()
 
@@ -194,92 +205,6 @@ func TestIgnoreNonHtmlFiles(t *testing.T) {
 
 // === Symlink Handling Tests ===
 
-func TestViewdefScanExistingSymlinks(t *testing.T) {
-	viewdefDir := createTempViewdefDir(t)
-	defer os.RemoveAll(viewdefDir)
-
-	// Create target directory and file
-	targetDir := createTempViewdefDir(t)
-	defer os.RemoveAll(targetDir)
-	targetFile := filepath.Join(targetDir, "Contact.html")
-	os.WriteFile(targetFile, []byte("<div>target</div>"), 0644)
-
-	// Create symlink in viewdef dir
-	symlinkPath := filepath.Join(viewdefDir, "Contact.html")
-	if err := os.Symlink(targetFile, symlinkPath); err != nil {
-		t.Skipf("Cannot create symlinks: %v", err)
-	}
-
-	cfg := testViewdefConfig()
-	manager := NewViewdefManager()
-	sessions := newMockSessionPusher(nil)
-
-	h, _ := NewHotLoader(cfg, viewdefDir, manager, sessions)
-	h.Start()
-	defer h.Stop()
-
-	// Check symlink was detected
-	h.mu.Lock()
-	targetTracked := h.symlinkTargets[symlinkPath]
-	watchCount := h.watchedDirs[targetDir]
-	h.mu.Unlock()
-
-	if targetTracked != targetDir {
-		t.Errorf("symlinkTargets[%s] = %q, want %q", symlinkPath, targetTracked, targetDir)
-	}
-	if watchCount < 1 {
-		t.Errorf("targetDir watch count = %d, want >= 1", watchCount)
-	}
-}
-
-func TestViewdefReferenceCountingForSharedTargets(t *testing.T) {
-	viewdefDir := createTempViewdefDir(t)
-	defer os.RemoveAll(viewdefDir)
-
-	// Create shared target directory
-	targetDir := createTempViewdefDir(t)
-	defer os.RemoveAll(targetDir)
-	os.WriteFile(filepath.Join(targetDir, "A.html"), []byte("<div>A</div>"), 0644)
-	os.WriteFile(filepath.Join(targetDir, "B.html"), []byte("<div>B</div>"), 0644)
-
-	// Create two symlinks to same directory
-	symlinkA := filepath.Join(viewdefDir, "A.html")
-	symlinkB := filepath.Join(viewdefDir, "B.html")
-	if err := os.Symlink(filepath.Join(targetDir, "A.html"), symlinkA); err != nil {
-		t.Skipf("Cannot create symlinks: %v", err)
-	}
-	os.Symlink(filepath.Join(targetDir, "B.html"), symlinkB)
-
-	cfg := testViewdefConfig()
-	manager := NewViewdefManager()
-	sessions := newMockSessionPusher(nil)
-
-	h, _ := NewHotLoader(cfg, viewdefDir, manager, sessions)
-	h.Start()
-	defer h.Stop()
-
-	// Both should point to same target dir
-	h.mu.Lock()
-	watchCount := h.watchedDirs[targetDir]
-	h.mu.Unlock()
-
-	if watchCount != 2 {
-		t.Errorf("Watch count for shared target = %d, want 2", watchCount)
-	}
-
-	// Remove one symlink
-	os.Remove(symlinkA)
-	time.Sleep(100 * time.Millisecond)
-
-	h.mu.Lock()
-	watchCountAfter := h.watchedDirs[targetDir]
-	h.mu.Unlock()
-
-	if watchCountAfter != 1 {
-		t.Errorf("Watch count after remove = %d, want 1", watchCountAfter)
-	}
-}
-
 // === Debouncing Tests ===
 
 func TestViewdefDebounceRapidChanges(t *testing.T) {
@@ -292,9 +217,9 @@ func TestViewdefDebounceRapidChanges(t *testing.T) {
 	cfg := testViewdefConfig()
 	manager := NewViewdefManager()
 	sessions := newMockSessionPusher([]string{"session1"})
+	h, _ := newTestHotLoader(cfg, viewdefDir, manager, sessions)
 	manager.MarkViewdefSent("session1", "Contact")
 
-	h, _ := NewHotLoader(cfg, viewdefDir, manager, sessions)
 	h.Start()
 	defer h.Stop()
 
@@ -329,11 +254,11 @@ func TestPushOnlyToAffectedSessions(t *testing.T) {
 	manager := NewViewdefManager()
 	// 3 sessions, but only 2 have received the viewdef
 	sessions := newMockSessionPusher([]string{"session1", "session2", "session3"})
+	h, _ := newTestHotLoader(cfg, viewdefDir, manager, sessions)
 	manager.MarkViewdefSent("session1", "Contact")
 	manager.MarkViewdefSent("session2", "Contact")
 	// session3 has NOT received Contact viewdef
 
-	h, _ := NewHotLoader(cfg, viewdefDir, manager, sessions)
 	h.Start()
 	defer h.Stop()
 
@@ -344,7 +269,7 @@ func TestPushOnlyToAffectedSessions(t *testing.T) {
 	time.Sleep(300 * time.Millisecond)
 
 	pushedTo := sessions.getPushedTo()
-	
+
 	// Should push to session1 and session2, but not session3
 	hasSession1 := false
 	hasSession2 := false
@@ -381,7 +306,7 @@ func TestViewdefGracefulShutdown(t *testing.T) {
 	manager := NewViewdefManager()
 	sessions := newMockSessionPusher(nil)
 
-	h, _ := NewHotLoader(cfg, viewdefDir, manager, sessions)
+	h, _ := newTestHotLoader(cfg, viewdefDir, manager, sessions)
 	h.Start()
 
 	// Stop should not block or panic
@@ -410,7 +335,7 @@ func TestViewdefShutdownWithPendingReloads(t *testing.T) {
 	manager := NewViewdefManager()
 	sessions := newMockSessionPusher(nil)
 
-	h, _ := NewHotLoader(cfg, viewdefDir, manager, sessions)
+	h, _ := newTestHotLoader(cfg, viewdefDir, manager, sessions)
 	h.Start()
 
 	time.Sleep(50 * time.Millisecond)
@@ -439,7 +364,7 @@ func TestViewdefHandleDeletedFile(t *testing.T) {
 	manager := NewViewdefManager()
 	sessions := newMockSessionPusher(nil)
 
-	h, _ := NewHotLoader(cfg, viewdefDir, manager, sessions)
+	h, _ := newTestHotLoader(cfg, viewdefDir, manager, sessions)
 	h.Start()
 	defer h.Stop()
 
@@ -454,53 +379,68 @@ func TestViewdefHandleDeletedFile(t *testing.T) {
 	time.Sleep(200 * time.Millisecond)
 }
 
-func TestViewdefResolveReloadPathDirect(t *testing.T) {
-	viewdefDir := createTempViewdefDir(t)
-	defer os.RemoveAll(viewdefDir)
+// Test: test-AppDiscovery.md
 
-	htmlFile := filepath.Join(viewdefDir, "Contact.html")
-	os.WriteFile(htmlFile, []byte("<div>test</div>"), 0644)
+// Test: activating and deactivating an app re-runs discovery (R129)
+func TestActivationRegistersAppViewdefs(t *testing.T) {
+	siteDir := t.TempDir()
+	os.MkdirAll(filepath.Join(siteDir, "lua"), 0o755)
+	appVD := filepath.Join(siteDir, "apps", "b", "viewdefs")
+	os.MkdirAll(appVD, 0o755)
+	os.WriteFile(filepath.Join(appVD, "B.DEFAULT.html"), []byte("<template>v1</template>"), 0o644)
 
 	cfg := testViewdefConfig()
+	cfg.Server.Dir = siteDir
 	manager := NewViewdefManager()
-	sessions := newMockSessionPusher(nil)
-
-	h, _ := NewHotLoader(cfg, viewdefDir, manager, sessions)
+	manager.LoadFromSources(site.ViewdefSources(siteDir, site.Discover(siteDir, nil)))
+	sessions := newMockSessionPusher([]string{"s1"})
+	h, _ := NewHotLoader(cfg, manager, sessions)
 	h.Start()
 	defer h.Stop()
+	time.Sleep(50 * time.Millisecond)
 
-	path := h.resolveReloadPath(htmlFile)
-	if path != htmlFile {
-		t.Errorf("resolveReloadPath(%q) = %q, want %q", htmlFile, path, htmlFile)
+	entry := filepath.Join(siteDir, "lua", "b")
+	if err := os.Symlink(filepath.Join("..", "apps", "b"), entry); err != nil {
+		t.Skipf("cannot create symlinks: %v", err)
+	}
+	time.Sleep(200 * time.Millisecond)
+	if _, ok := manager.GetViewdefsForType("B")["B.DEFAULT"]; !ok {
+		t.Fatal("B.DEFAULT not registered after activation")
+	}
+
+	manager.MarkViewdefSent("s1", "B.DEFAULT")
+	os.WriteFile(filepath.Join(appVD, "B.DEFAULT.html"), []byte("<template>v2</template>"), 0o644)
+	time.Sleep(300 * time.Millisecond)
+	if len(sessions.getPushedTo()) == 0 {
+		t.Error("change in an activated app's viewdef was not pushed")
+	}
+
+	os.Remove(entry)
+	time.Sleep(200 * time.Millisecond)
+	if _, ok := manager.GetViewdefsForType("B")["B.DEFAULT"]; ok {
+		t.Error("B.DEFAULT still registered after deactivation")
 	}
 }
 
-func TestViewdefResolveReloadPathSymlinkTarget(t *testing.T) {
-	viewdefDir := createTempViewdefDir(t)
-	defer os.RemoveAll(viewdefDir)
-
-	targetDir := createTempViewdefDir(t)
-	defer os.RemoveAll(targetDir)
-
-	targetFile := filepath.Join(targetDir, "Contact.html")
-	os.WriteFile(targetFile, []byte("<div>target</div>"), 0644)
-
-	symlinkPath := filepath.Join(viewdefDir, "Contact.html")
-	if err := os.Symlink(targetFile, symlinkPath); err != nil {
-		t.Skipf("Cannot create symlinks: %v", err)
-	}
-
+// Test: site viewdefs watched only if present at startup (R131, R133)
+func TestSiteViewdefsCreatedLaterWaitsForRestart(t *testing.T) {
+	siteDir := t.TempDir()
+	os.MkdirAll(filepath.Join(siteDir, "lua"), 0o755)
 	cfg := testViewdefConfig()
+	cfg.Server.Dir = siteDir
 	manager := NewViewdefManager()
-	sessions := newMockSessionPusher(nil)
-
-	h, _ := NewHotLoader(cfg, viewdefDir, manager, sessions)
+	manager.LoadFromSources(site.ViewdefSources(siteDir, nil))
+	h, _ := NewHotLoader(cfg, manager, newMockSessionPusher(nil))
 	h.Start()
 	defer h.Stop()
+	time.Sleep(50 * time.Millisecond)
 
-	// Change in target dir should resolve to symlink path
-	path := h.resolveReloadPath(targetFile)
-	if path != symlinkPath {
-		t.Errorf("resolveReloadPath(%q) = %q, want %q", targetFile, path, symlinkPath)
+	vd := filepath.Join(siteDir, "viewdefs")
+	os.Mkdir(vd, 0o755)
+	time.Sleep(50 * time.Millisecond)
+	os.WriteFile(filepath.Join(vd, "S.DEFAULT.html"), []byte("<template/>"), 0o644)
+	time.Sleep(300 * time.Millisecond)
+	if manager.Count() != 0 {
+		t.Errorf("site viewdefs created after start were registered (%d)", manager.Count())
 	}
 }
