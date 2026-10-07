@@ -302,6 +302,8 @@ func (s *Server) setupSite(cfg *config.Config) {
 	if cfg.Server.Dir != "" {
 		htmlDir := cfg.Server.Dir + "/html"
 		s.HttpEndpoint.SetStaticDir(htmlDir)
+		// CRC: crc-Server.md | R138, R140
+		s.HttpEndpoint.SetAppsDir(filepath.Join(cfg.Server.Dir, "lua"))
 		s.config.Log(0, "Serving site from directory: %s", htmlDir)
 		return
 	}

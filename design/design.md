@@ -167,7 +167,7 @@ target-to-link reverse mapping is kept.
 - [x] crc-HTTPEndpoint.md → `internal/server/http.go`
 
 ### Test Designs
-- [x] test-AppDiscovery.md → `internal/site/discovery_test.go`, `internal/viewdef/viewdefs_test.go`, `internal/server/site_test.go`, `internal/lua/appwatch_test.go`, `internal/viewdef/hotloader_test.go`
+- [x] test-AppDiscovery.md → `internal/site/discovery_test.go`, `internal/viewdef/viewdefs_test.go`, `internal/server/site_test.go`, `internal/server/appstatic_test.go`, `internal/lua/appwatch_test.go`, `internal/viewdef/hotloader_test.go`
 - [x] test-HotLoader.md
 - [x] test-Lua.md
 

@@ -98,6 +98,7 @@ To ensure consistent output and granular control over debug information:
 ### [App Discovery](app-discovery.md)
 - Site directory layout, app activation via `lua/<app>`
 - Built-in / user / site ordering and viewdef collisions
+- Per-app static files at `/<app>/…`
 
 ### [Deployment](deployment.md)
 - Deployment modes (standalone, FastCGI, CLI, embedded Lua)

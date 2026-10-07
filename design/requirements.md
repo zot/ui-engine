@@ -192,6 +192,10 @@
 - **R137:** Two viewdef paths that resolve to the same file are not a collision and are not logged; the higher-ranked path registers as usual
 - **R131:** A site `viewdefs/` directory created or removed while the server runs need not be noticed until the next start
 
+- **R138:** Each active app's whole directory is served over HTTP at `/<app>/…`, read through its `lua/<app>` entry; nothing in the directory is withheld
+- **R139:** A static request resolves in order: a session path; then `html/<path>` if that file exists (so a site file overrides an app file); then the active app named by the first path segment, serving the rest of the path from its directory; otherwise not found
+- **R140:** Without a site directory there is no per-app serving
+
 ## Feature: Per-App Hot-Loading
 **Source:** specs/main.md
 

@@ -131,9 +131,39 @@ server and no watcher.
 **Refs:** crc-ViewdefStore.md
 **Code:** internal/viewdef/hotloader_test.go
 
+## Test: an active app's whole directory is served at /<app>/
+**Purpose:** `/<app>/<path>` serves `<path>` from the app's directory through its entry, including files like `app.lua`; an unknown app is not found (R138)
+**Input:** app `a` with `css/x.css` and `app.lua`, linked by `lua/a`; GET `/a/css/x.css`, `/a/app.lua`, `/nosuch/x.css`
+**Expected:** 200 with each file's content; 404 for `nosuch`
+**Refs:** crc-HTTPEndpoint.md
+**Code:** internal/server/appstatic_test.go
+**Alarm:** 11
+**Fire alarm:** skip the app branch in resolveStatic. Red: `/a/app.lua` is 404.
+**Inject:** internal/server/http.go:resolveStatic
+**Pulled:** 2026-10-07 — rang: `GET /a/app.lua = 404`
+
+## Test: a site html/ file overrides the app's file
+**Purpose:** html/ is consulted before the app, a limited user override (R139)
+**Input:** the same site plus `html/a/css/x.css` with different content
+**Expected:** GET `/a/css/x.css` serves the html/ copy
+**Refs:** crc-HTTPEndpoint.md
+**Code:** internal/server/appstatic_test.go
+**Alarm:** 12
+**Fire alarm:** consult the app before html/. Red: the app's copy is served.
+**Inject:** internal/server/http.go:resolveStatic
+**Pulled:** 2026-10-07 — rang: `GET /a/css/x.css = 200 "app", want 200 "site"`
+
+## Test: no app serving without a site directory
+**Purpose:** with no apps dir (no site directory) app paths are not found (R140)
+**Input:** the same site with the endpoint's appsDir cleared
+**Expected:** GET `/a/css/x.css` is 404
+**Refs:** crc-HTTPEndpoint.md
+**Code:** internal/server/appstatic_test.go
+**Note:** no fire alarm: removing the `appsDir == ""` guard still yields 404, because the app path then resolves relative to the working directory, where no `a/` exists. The guard makes the property explicit rather than accidental; the test pins the outcome.
+
 ## Test: watching through a Windows junction
 **Purpose:** confirm discovery, viewdef loading and hot reload work when `lua/<app>` is a junction made by a standard user
 **Input:** every test above, with app entries made by sitetest.LinkDir (a junction on Windows); test binaries cross-compiled and run on the Windows test VM as the standard user `arktest` from a scheduled task (not ssh: RedirectionTrust refuses non-admin junctions)
 **Expected:** same results as on Linux
-**Ran:** 2026-10-07, windows-gpu (build 26200), arktest via `.scratch/winrun.sh -u arktest`: all pass after the queueReload identity merge; the two tests needing a *file* symlink skip (no symlink privilege). The first run caught the junction tracking-key split above.
+**Ran:** 2026-10-07, windows-gpu (build 26200), arktest via `.scratch/winrun.sh -u arktest`: all pass (static-serving tests included, same day) after the queueReload identity merge; the two tests needing a *file* symlink skip (no symlink privilege). The first run caught the junction tracking-key split above.
 **Refs:** crc-AppDiscovery.md

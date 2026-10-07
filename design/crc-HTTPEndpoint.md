@@ -1,7 +1,7 @@
 # HTTPEndpoint
 
 **Source Spec:** interfaces.md, deployment.md
-**Requirements:** R23, R24, R25, R57, R58, R59, R60, R61, R62, R80, R81
+**Requirements:** R23-25, R57-62, R80, R81, R138-140
 
 ## Responsibilities
 
@@ -9,12 +9,13 @@
 - server: HTTP server instance
 - routes: Map of HTTP routes to handlers
 - staticDir: Directory for static file serving
+- appsDir: the site's `lua/` directory, whose entries are the active apps (empty without a site directory)
 - embeddedSite: Bundled frontend webapp
 - pendingQueues: Map of session to PendingResponseQueue
 
 ### Does
 - handleRequest: Route HTTP request to handler
-- serveStatic: Serve static files from directory or embedded site
+- serveStatic: Serve static files from directory or embedded site: `html/<path>` if it exists, else the active app named by the first path segment, serving the rest from `lua/<app>/` (R138, R139, R140)
 - handleSessionRedirect: Redirect / to /NEW-SESSION-ID
 - handleRESTApi: Process REST API requests
 - handleFastCGI: Process FastCGI requests

@@ -8,6 +8,7 @@ import (
 	"io/fs"
 	"mime"
 	"net/http"
+	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -58,6 +59,7 @@ type HTTPEndpoint struct {
 	handler             *protocol.Handler
 	wsEndpoint          *WebSocketEndpoint
 	staticDir           string
+	appsDir             string // site lua/ dir; its entries are the active apps (R138)
 	embeddedSite        fs.FS
 	mux                 *http.ServeMux
 	debugDataProvider   DebugDataProvider
@@ -79,6 +81,13 @@ func NewHTTPEndpoint(sessions *SessionManager, handler *protocol.Handler, wsEndp
 // SetStaticDir sets a custom directory for static files.
 func (h *HTTPEndpoint) SetStaticDir(dir string) {
 	h.staticDir = dir
+}
+
+// SetAppsDir sets the site's lua/ directory, whose entries are the active
+// apps served at /<app>/.
+// CRC: crc-HTTPEndpoint.md | R138, R140
+func (h *HTTPEndpoint) SetAppsDir(dir string) {
+	h.appsDir = dir
 }
 
 // SetEmbeddedSite sets the embedded site filesystem.
@@ -193,7 +202,7 @@ func (h *HTTPEndpoint) serveStatic(w http.ResponseWriter, r *http.Request, path 
 
 	// Try custom directory first
 	if h.staticDir != "" {
-		http.ServeFile(w, r, h.staticDir+"/"+path)
+		http.ServeFile(w, r, h.resolveStatic(path))
 		return
 	}
 
@@ -210,6 +219,28 @@ func (h *HTTPEndpoint) serveStatic(w http.ResponseWriter, r *http.Request, path 
 	}
 
 	http.NotFound(w, r)
+}
+
+// resolveStatic maps a static path to a file: html/<path> if it exists (a
+// site file overrides an app file), else the active app named by the first
+// segment, serving the rest of the path from its directory through its
+// lua/<app> entry. Falls back to html/<path>, which ServeFile reports as
+// not found.
+// CRC: crc-HTTPEndpoint.md | R138, R139
+func (h *HTTPEndpoint) resolveStatic(path string) string {
+	sitePath := filepath.Join(h.staticDir, filepath.FromSlash(path))
+	if _, err := os.Stat(sitePath); err == nil || h.appsDir == "" {
+		return sitePath
+	}
+	app, rest, ok := strings.Cut(path, "/")
+	if !ok || app == "" || strings.HasPrefix(app, ".") {
+		return sitePath
+	}
+	appDir := filepath.Join(h.appsDir, app)
+	if info, err := os.Stat(appDir); err != nil || !info.IsDir() {
+		return sitePath
+	}
+	return filepath.Join(appDir, filepath.FromSlash(rest))
 }
 
 // handleWebSocket handles WebSocket upgrade requests.

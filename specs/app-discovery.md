@@ -60,6 +60,25 @@ into an app, say) are one viewdef, not a collision: nothing is logged.
 On-demand loading (a viewdef for a new `type` requested after startup)
 searches the same sources in the same order and applies the same rule.
 
+## Static files
+
+Each active app's whole directory is served over HTTP at `/<app>/…`:
+`/<app>/css/panel.css` is the file `css/panel.css` in that app's directory,
+read through its `lua/<app>` entry. Everything in the directory is
+reachable; an app marks what is internal by convention (a leading `_`), not
+by hiding it. This replaces linking an app into `html/` to publish its files.
+
+A request is resolved in this order:
+
+1. A session path, as before.
+2. The site's `html/`: if `html/<path>` exists, it is served. This lets a
+   user override any app file by placing one in `html/`.
+3. An active app named by the first path segment: the rest of the path is
+   served from that app's directory.
+
+Anything else is not found. There is no app serving without a site
+directory.
+
 ## Re-discovery
 
 With hot-loading enabled, the server watches `lua/`. When an app is
