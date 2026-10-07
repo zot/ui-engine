@@ -189,6 +189,7 @@
 - **R128:** On-demand viewdef loading (a `TYPE.*.html` for a type first seen after startup) searches the same sources in the same order under the same collision rule
 - **R129:** With hot-loading enabled, the server watches `lua/`; when an app is activated or deactivated there it re-runs discovery, updating the per-app watches, re-registering viewdefs, and re-resolving collisions
 - **R130:** Deactivating an app stops new loads and hot reloads from it but does not unload Lua code already loaded from it
+- **R137:** Two viewdef paths that resolve to the same file are not a collision and are not logged; the higher-ranked path registers as usual
 - **R131:** A site `viewdefs/` directory created or removed while the server runs need not be noticed until the next start
 
 ## Feature: Per-App Hot-Loading

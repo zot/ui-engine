@@ -18,7 +18,7 @@
 - Stop: Clean up watcher resources
 - handleFileChange(path): Re-execute modified Lua file in sessions that have loaded it
 - rediscover: On a create/remove of a `lua/<app>` entry, re-run AppDiscovery and add/drop app watches; Lua already loaded from a removed app stays loaded
-- queueReload(path): debounce keyed by tracking key, so one file reached through two watched paths reloads once
+- queueReload(path): debounce keyed by tracking key, merged by file identity (os.SameFile), so one file reached through two watched paths reloads once; identity rather than key because on Windows EvalSymlinks does not resolve junctions, so one file can carry two keys
 - computeTrackingKey(absPath): Compute baseDir-relative path for file tracking (resolves symlinks)
 - reloadFile(path, session): Check IsFileLoaded(trackingKey), set reloading flag, reload via LoadCode()
 - triggerSessionRefresh(session): Execute empty function via ws.ExecuteInSession to run AfterBatch (pushes viewdef/variable changes)

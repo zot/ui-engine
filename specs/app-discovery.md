@@ -54,6 +54,8 @@ name is its file name without `.html` (`TYPE.NAMESPACE`). An app with no
 ranked earlier wins and the later one is not registered. The outcome never
 depends on load order, link order, or file-system walk order. Each
 collision is logged, naming the viewdef, the winner and the loser.
+Two paths that lead to the same file (an old per-viewdef link pointing
+into an app, say) are one viewdef, not a collision: nothing is logged.
 
 On-demand loading (a viewdef for a new `type` requested after startup)
 searches the same sources in the same order and applies the same rule.

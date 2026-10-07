@@ -3,6 +3,7 @@
 package viewdef
 
 import (
+	"github.com/zot/ui-engine/internal/site/sitetest"
 	"os"
 	"path/filepath"
 	"sync"
@@ -400,9 +401,7 @@ func TestActivationRegistersAppViewdefs(t *testing.T) {
 	time.Sleep(50 * time.Millisecond)
 
 	entry := filepath.Join(siteDir, "lua", "b")
-	if err := os.Symlink(filepath.Join("..", "apps", "b"), entry); err != nil {
-		t.Skipf("cannot create symlinks: %v", err)
-	}
+	sitetest.LinkDir(t, filepath.Join("..", "apps", "b"), entry)
 	time.Sleep(200 * time.Millisecond)
 	if _, ok := manager.GetViewdefsForType("B")["B.DEFAULT"]; !ok {
 		t.Fatal("B.DEFAULT not registered after activation")

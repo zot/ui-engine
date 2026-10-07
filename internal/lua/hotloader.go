@@ -277,8 +277,10 @@ func (h *HotLoader) handleEvent(event fsnotify.Event) {
 	}
 }
 
-// queueReload queues a file for reload, debounced per tracking key so the
-// same file seen through two watched paths reloads once.
+// queueReload queues a file for reload, debounced so the same file seen
+// through two watched paths reloads once. Entries are merged by file
+// identity, not only by tracking key: on Windows EvalSymlinks does not
+// resolve junctions, so one file can carry two tracking keys there.
 // CRC: crc-LuaHotLoader.md | R134
 func (h *HotLoader) queueReload(filePath string) {
 	key, err := ComputeTrackingKey(h.config.Server.Dir, filePath)
@@ -286,8 +288,19 @@ func (h *HotLoader) queueReload(filePath string) {
 		key = filePath
 	}
 	h.debounceMu.Lock()
+	defer h.debounceMu.Unlock()
+	if info, err := os.Stat(filePath); err == nil {
+		for pendingKey, pending := range h.pendingReloads {
+			if pendingKey == key {
+				break
+			}
+			if other, err := os.Stat(pending.path); err == nil && os.SameFile(info, other) {
+				key = pendingKey
+				break
+			}
+		}
+	}
 	h.pendingReloads[key] = pendingReload{path: filePath, queuedAt: time.Now()}
-	h.debounceMu.Unlock()
 }
 
 // debounceLoop processes pending reloads after the debounce delay.

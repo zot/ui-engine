@@ -129,7 +129,7 @@ func (m *ViewdefManager) loadFromSourcesLocked(sources []site.Source) {
 func (m *ViewdefManager) offerLocked(rank int, path string, modTime time.Time) bool {
 	key := strings.TrimSuffix(filepath.Base(path), ".html")
 	if existing, ok := m.viewdefs[key]; ok && existing.rank != noRank && existing.rank < rank {
-		if existing.filePath != path {
+		if !sameFile(existing.filePath, path) {
 			m.logCollisionLocked(key, existing.rank, rank)
 		}
 		return false
@@ -481,4 +481,16 @@ func (m *ViewdefManager) Sources() []site.Source {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	return append([]site.Source(nil), m.sources...)
+}
+
+// sameFile reports whether two paths lead to the same file, as an old
+// per-viewdef link into an app does. One file seen twice is not a collision.
+// CRC: crc-ViewdefManager.md | R137
+func sameFile(a, b string) bool {
+	if a == b {
+		return true
+	}
+	ia, errA := os.Stat(a)
+	ib, errB := os.Stat(b)
+	return errA == nil && errB == nil && os.SameFile(ia, ib)
 }

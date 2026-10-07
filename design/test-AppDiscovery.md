@@ -67,6 +67,17 @@ server and no watcher.
 **Inject:** internal/viewdef/viewdefs.go:ApplyFileChange
 **Pulled:** 2026-10-07 — rang: `ApplyFileChange accepted the losing source's file`
 
+## Test: one file reached through two paths is not a collision
+**Purpose:** an old per-viewdef link pointing into an app is the same viewdef, not a conflict; nothing is logged (R137)
+**Input:** two-app collision site plus a site `viewdefs/T.DEFAULT.html` symlink into `aa`'s viewdef
+**Expected:** only the real aa/zz collision is logged
+**Refs:** crc-ViewdefManager.md
+**Code:** internal/viewdef/viewdefs_test.go
+**Alarm:** 10
+**Fire alarm:** compare paths instead of files when deciding to log (the first version). Found live 2026-10-07: ark's restart logged 53 such "collisions", every one an app against its own old link in `~/.ark/viewdefs`. Red: a `wins over (site)` line.
+**Inject:** internal/viewdef/viewdefs.go:offerLocked
+**Pulled:** 2026-10-07 — rang: `logged a collision with a link to the winner's own file`
+
 ## Test: missing site directory is a start error
 **Purpose:** Start returns an error naming the path; no panic (R119)
 **Input:** config with `Server.Dir` set to a nonexistent path
@@ -97,9 +108,10 @@ server and no watcher.
 **Refs:** crc-LuaHotLoader.md
 **Code:** internal/lua/appwatch_test.go
 **Alarm:** 8
-**Fire alarm:** key pendingReloads by changed path. Red: two reloads.
+**Fire alarm:** disable the file-identity merge in queueReload. On Linux this does not ring (EvalSymlinks resolves the symlink, so both paths already share a tracking key); it rings on Windows, where EvalSymlinks leaves junctions unresolved and the two paths carry two keys, which is the case the merge exists for. Pull it on the Windows VM.
 **Inject:** internal/lua/hotloader.go:queueReload
-**Pulled:** 2026-10-07 — rang: `pending reloads = 2, want 1` (after the rewrite; the watcher version stayed green)
+**Pulled:** 2026-10-07 — rang on Windows (windows-gpu, arktest, scheduled task): `pending reloads = 2, want 1`
+**History:** the first pull (key by changed path, Linux) rang after the watcher version was rewritten as a direct queue test; the Windows run then showed key-only dedupe fails there, and the merge by file identity replaced it.
 
 ## Test: activating and deactivating an app re-runs discovery
 **Purpose:** a new `lua/<app>` entry gets watched and its viewdefs registered; removing it drops both, but loaded Lua stays (R129, R130)
@@ -119,8 +131,9 @@ server and no watcher.
 **Refs:** crc-ViewdefStore.md
 **Code:** internal/viewdef/hotloader_test.go
 
-## Test: watching through a Windows junction (manual)
-**Purpose:** confirm fsnotify reports events under the junction path on Windows, as measured on Linux 2026-10-07 for symlinks
-**Input:** on the Windows test VM, from a scheduled task (not ssh: RedirectionTrust refuses non-admin junctions), run the hot-loader tests with `lua/<app>` as a junction
+## Test: watching through a Windows junction
+**Purpose:** confirm discovery, viewdef loading and hot reload work when `lua/<app>` is a junction made by a standard user
+**Input:** every test above, with app entries made by sitetest.LinkDir (a junction on Windows); test binaries cross-compiled and run on the Windows test VM as the standard user `arktest` from a scheduled task (not ssh: RedirectionTrust refuses non-admin junctions)
 **Expected:** same results as on Linux
+**Ran:** 2026-10-07, windows-gpu (build 26200), arktest via `.scratch/winrun.sh -u arktest`: all pass after the queueReload identity merge; the two tests needing a *file* symlink skip (no symlink privilege). The first run caught the junction tracking-key split above.
 **Refs:** crc-AppDiscovery.md

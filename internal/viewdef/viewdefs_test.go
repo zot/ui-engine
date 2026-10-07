@@ -3,6 +3,7 @@ package viewdef
 
 import (
 	"fmt"
+	"github.com/zot/ui-engine/internal/site/sitetest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -20,9 +21,7 @@ func twoAppSite(t *testing.T) string {
 		vd := filepath.Join(siteDir, "apps", name, "viewdefs")
 		os.MkdirAll(vd, 0o755)
 		os.WriteFile(filepath.Join(vd, "T.DEFAULT.html"), []byte("<template>"+name+"</template>"), 0o644)
-		if err := os.Symlink(filepath.Join("..", "apps", name), filepath.Join(siteDir, "lua", name)); err != nil {
-			t.Skipf("cannot create symlinks: %v", err)
-		}
+		sitetest.LinkDir(t, filepath.Join("..", "apps", name), filepath.Join(siteDir, "lua", name))
 	}
 	return siteDir
 }
@@ -82,5 +81,25 @@ func TestLoserChangeDoesNotDisplaceWinner(t *testing.T) {
 	}
 	if got := m.GetViewdefsForType("T")["T.DEFAULT"]; !strings.Contains(got, "aa") {
 		t.Errorf("T.DEFAULT = %q after the loser changed, want aa's", got)
+	}
+}
+
+// Test: one file reached through two paths is not a collision (R137)
+func TestSameFileIsNotACollision(t *testing.T) {
+	siteDir := twoAppSite(t)
+	siteVD := filepath.Join(siteDir, "viewdefs")
+	os.Mkdir(siteVD, 0o755)
+	// An old-scheme per-viewdef link pointing into the app aa.
+	if err := os.Symlink(filepath.Join("..", "apps", "aa", "viewdefs", "T.DEFAULT.html"), filepath.Join(siteVD, "T.DEFAULT.html")); err != nil {
+		t.Skipf("cannot create symlinks: %v", err)
+	}
+	_, logs := loadSite(siteDir, nil)
+	for _, line := range *logs {
+		if strings.Contains(line, string(site.SiteSource)) {
+			t.Errorf("logged a collision with a link to the winner's own file: %q", line)
+		}
+	}
+	if len(*logs) != 1 {
+		t.Errorf("logs = %q, want only the real aa/zz collision", *logs)
 	}
 }

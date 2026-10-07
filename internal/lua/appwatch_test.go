@@ -2,6 +2,7 @@
 package lua
 
 import (
+	"github.com/zot/ui-engine/internal/site/sitetest"
 	"os"
 	"path/filepath"
 	"sync/atomic"
@@ -16,9 +17,7 @@ func appSite(t *testing.T, appDir string) *config.Config {
 	t.Helper()
 	siteDir := t.TempDir()
 	os.MkdirAll(filepath.Join(siteDir, "lua"), 0o755)
-	if err := os.Symlink(appDir, filepath.Join(siteDir, "lua", "a")); err != nil {
-		t.Skipf("cannot create symlinks: %v", err)
-	}
+	sitetest.LinkDir(t, appDir, filepath.Join(siteDir, "lua", "a"))
 	cfg := config.DefaultConfig()
 	cfg.Logging.Verbosity = 0
 	cfg.Server.Dir = siteDir
@@ -69,9 +68,7 @@ func TestFileSeenTwiceReloadsOnce(t *testing.T) {
 	os.MkdirAll(appDir, 0o755)
 	os.WriteFile(filepath.Join(appDir, "app.lua"), []byte("-- v1"), 0o644)
 	os.MkdirAll(filepath.Join(siteDir, "lua"), 0o755)
-	if err := os.Symlink(filepath.Join("..", "apps", "a"), filepath.Join(siteDir, "lua", "a")); err != nil {
-		t.Skipf("cannot create symlinks: %v", err)
-	}
+	sitetest.LinkDir(t, filepath.Join("..", "apps", "a"), filepath.Join(siteDir, "lua", "a"))
 	cfg := config.DefaultConfig()
 	cfg.Logging.Verbosity = 0
 	cfg.Server.Dir = siteDir
@@ -101,9 +98,7 @@ func TestActivationRediscoversWatches(t *testing.T) {
 	_, reloads := startCounting(t, cfg)
 
 	entry := filepath.Join(siteDir, "lua", "b")
-	if err := os.Symlink(appDir, entry); err != nil {
-		t.Skipf("cannot create symlinks: %v", err)
-	}
+	sitetest.LinkDir(t, appDir, entry)
 	time.Sleep(100 * time.Millisecond)
 	os.WriteFile(mod, []byte("-- v2"), 0o644)
 	time.Sleep(300 * time.Millisecond)

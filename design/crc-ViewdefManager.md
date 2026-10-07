@@ -1,5 +1,5 @@
 # ViewdefManager
-**Requirements:** R120, R125, R126, R127, R128
+**Requirements:** R120, R125-128, R137
 
 Backend registry of viewdef files: which file supplies each `TYPE.NAMESPACE`
 key, and which sessions have received which keys.
@@ -14,7 +14,8 @@ key, and which sessions have received which keys.
 - LoadFromSources(sources): walk each source in rank order; register a key the
   first time it is seen. A later source offering an already-registered key is
   a collision: it is not registered, and the collision is logged once, naming
-  the key, the winning source and the losing source.
+  the key, the winning source and the losing source. A later path resolving to
+  the same file as the winner (os.SameFile) is skipped silently (R137).
 - SetSources(sources): replace the source list (on re-discovery) and re-run
   LoadFromSources from scratch, so the winner set always matches the current
   ranking; keys whose content changed are marked for re-push.

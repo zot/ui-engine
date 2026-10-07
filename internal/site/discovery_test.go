@@ -2,6 +2,7 @@
 package site
 
 import (
+	"github.com/zot/ui-engine/internal/site/sitetest"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -20,9 +21,7 @@ func mkSite(t *testing.T, apps ...string) string {
 		if err := os.MkdirAll(appDir, 0o755); err != nil {
 			t.Fatal(err)
 		}
-		if err := os.Symlink(filepath.Join("..", "apps", name), filepath.Join(siteDir, "lua", name)); err != nil {
-			t.Skipf("cannot create symlinks: %v", err)
-		}
+		sitetest.LinkDir(t, filepath.Join("..", "apps", name), filepath.Join(siteDir, "lua", name))
 	}
 	return siteDir
 }
@@ -40,7 +39,7 @@ func TestDiscoverKeepsDirectoryEntriesOnly(t *testing.T) {
 	siteDir := mkSite(t, "a")
 	lua := filepath.Join(siteDir, "lua")
 	os.WriteFile(filepath.Join(lua, "main.lua"), []byte("-- main"), 0o644)
-	os.Symlink(filepath.Join("..", "apps", "gone"), filepath.Join(lua, "gone"))
+	sitetest.LinkDir(t, filepath.Join("..", "apps", "gone"), filepath.Join(lua, "gone"))
 	// A plain directory entry is the shape a Windows junction presents.
 	os.Mkdir(filepath.Join(lua, "plain"), 0o755)
 
