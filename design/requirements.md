@@ -191,6 +191,11 @@
 - **R130:** Deactivating an app stops new loads and hot reloads from it but does not unload Lua code already loaded from it
 - **R137:** Two viewdef paths that resolve to the same file are not a collision and are not logged; the higher-ranked path registers as usual
 - **R131:** A site `viewdefs/` directory created or removed while the server runs need not be noticed until the next start
+- **R141:** The live viewdef collisions can be listed; each entry names the viewdef, the winning source and its file, and the losing source and its file, ordered by viewdef name then by the losing source's rank
+- **R142:** The collision list is the current set: re-discovery recomputes it, so a fixed collision drops out, and a collision first met at run time (a hot-reloaded file whose name a higher-ranked source owns) joins it; the log still reports each collision once per server run
+- **R143:** `(*cli.Server).ViewdefCollisions() []cli.ViewdefCollision` returns a running server's collision list; `cli.ViewdefCollision` has the fields `Key`, `Winner`, `WinnerPath`, `Loser`, `LoserPath`, a source named by its app name or `(site)`
+- **R144:** `cli.ResolveViewdefCollisions(siteDir, builtins)` computes the collision list from disk without a server by discovering the site's apps and registering their viewdefs through the same code a starting server runs, so the two agree for the same files
+- **R145:** `ui.viewdefCollisions()` returns the server's live collision list to Lua as an array of tables with `key`, `winner`, `winnerPath`, `loser`, `loserPath`, in the list's order
 
 - **R138:** Each active app's whole directory is served over HTTP at `/<app>/…`, read through its `lua/<app>` entry; nothing in the directory is withheld
 - **R139:** A static request resolves in order: a session path; then `html/<path>` if that file exists (so a site file overrides an app file); then the active app named by the first path segment, serving the rest of the path from its directory; otherwise not found

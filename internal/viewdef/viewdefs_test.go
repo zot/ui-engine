@@ -103,3 +103,100 @@ func TestSameFileIsNotACollision(t *testing.T) {
 		t.Errorf("logs = %q, want only the real aa/zz collision", *logs)
 	}
 }
+
+// appFile is the path of an app's viewdef as the manager registers it.
+func appFile(siteDir, app, key string) string {
+	return filepath.Join(siteDir, "lua", app, "viewdefs", key+".html")
+}
+
+// Test: collisions are listed with both sources and files (R141, R137)
+func TestCollisionsAreListed(t *testing.T) {
+	siteDir := twoAppSite(t)
+	want := Collision{
+		Key: "T.DEFAULT", Winner: "aa", WinnerPath: appFile(siteDir, "aa", "T.DEFAULT"),
+		Loser: "zz", LoserPath: appFile(siteDir, "zz", "T.DEFAULT"),
+	}
+	check := func(label string, m *ViewdefManager) {
+		t.Helper()
+		got := m.Collisions()
+		if len(got) != 1 {
+			t.Fatalf("%s: Collisions() = %+v, want one entry", label, got)
+		}
+		got[0].loserRank = 0
+		if got[0] != want {
+			t.Errorf("%s: collision = %+v, want %+v", label, got[0], want)
+		}
+	}
+	m, _ := loadSite(siteDir, nil)
+	check("two apps", m)
+
+	siteVD := filepath.Join(siteDir, "viewdefs")
+	os.Mkdir(siteVD, 0o755)
+	if err := os.Symlink(filepath.Join("..", "apps", "aa", "viewdefs", "T.DEFAULT.html"), filepath.Join(siteVD, "T.DEFAULT.html")); err != nil {
+		t.Skipf("cannot create symlinks: %v", err)
+	}
+	m, _ = loadSite(siteDir, nil)
+	check("plus a site link to the winner", m)
+}
+
+// Test: a fixed collision drops out on re-discovery, and the log does not repeat (R142)
+func TestFixedCollisionDropsOut(t *testing.T) {
+	siteDir := twoAppSite(t)
+	m, logs := loadSite(siteDir, nil)
+	m.SetSources(m.Sources())
+	if n := len(m.Collisions()); n != 1 {
+		t.Errorf("after re-discovery, %d collisions listed, want 1", n)
+	}
+	if len(*logs) != 1 {
+		t.Errorf("logs = %q, want the collision logged once", *logs)
+	}
+	os.Remove(filepath.Join(siteDir, "apps", "zz", "viewdefs", "T.DEFAULT.html"))
+	m.SetSources(m.Sources())
+	if got := m.Collisions(); len(got) != 0 {
+		t.Errorf("after fixing, Collisions() = %+v, want none", got)
+	}
+}
+
+// Test: a collision first met at run time joins the list (R142)
+func TestRuntimeCollisionJoinsList(t *testing.T) {
+	siteDir := twoAppSite(t)
+	m, _ := loadSite(siteDir, nil)
+	for _, app := range []string{"aa", "zz"} {
+		path := appFile(siteDir, app, "V.DEFAULT")
+		os.WriteFile(path, []byte("<template>"+app+"</template>"), 0o644)
+		m.ApplyFileChange(path)
+	}
+	got := m.Collisions()
+	if len(got) != 2 || got[1].Key != "V.DEFAULT" || got[1].Winner != "aa" || got[1].Loser != "zz" {
+		t.Errorf("Collisions() = %+v, want T.DEFAULT then V.DEFAULT (aa over zz)", got)
+	}
+}
+
+// Test: the offline resolver agrees with a loaded manager (R144)
+func TestResolveCollisionsAgrees(t *testing.T) {
+	siteDir := twoAppSite(t)
+	m, _ := loadSite(siteDir, []string{"zz"})
+	got, want := ResolveCollisions(siteDir, []string{"zz"}), m.Collisions()
+	if len(got) != 1 || got[0] != want[0] {
+		t.Fatalf("ResolveCollisions = %+v, loaded manager = %+v", got, want)
+	}
+	if got[0].Winner != "zz" || got[0].Loser != "aa" {
+		t.Errorf("winner %s over %s, want zz (built-in) over aa", got[0].Winner, got[0].Loser)
+	}
+}
+
+// Test: losers of one key are listed in rank order (R141)
+func TestCollisionLosersInRankOrder(t *testing.T) {
+	siteDir := twoAppSite(t)
+	vd := filepath.Join(siteDir, "apps", "mm", "viewdefs")
+	os.MkdirAll(vd, 0o755)
+	os.WriteFile(filepath.Join(vd, "T.DEFAULT.html"), []byte("<template>mm</template>"), 0o644)
+	sitetest.LinkDir(t, filepath.Join("..", "apps", "mm"), filepath.Join(siteDir, "lua", "mm"))
+	for i := 0; i < 20; i++ { // map order varies; a wrong comparator shows within a few runs
+		m, _ := loadSite(siteDir, nil)
+		got := m.Collisions()
+		if len(got) != 2 || got[0].Loser != "mm" || got[1].Loser != "zz" {
+			t.Fatalf("Collisions() losers = %+v, want mm then zz", got)
+		}
+	}
+}

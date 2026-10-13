@@ -1,7 +1,7 @@
 # LuaSession
 
 **Source Spec:** libraries.md, interfaces.md, protocol.md, deployment.md, remove-prototype.md, module-tracking.md, session-defer.md
-**Requirements:** R1, R2, R3, R4, R5, R6, R7, R9, R10, R11, R12, R13, R14, R15, R16, R17, R18, R19, R20, R21, R92, R93, R94, R95, R96, R97, R98, R99, R100, R101, R102, R103, R104, R105, R106, R109, R110, R111, R107, R108, R115, R116, R117, R118
+**Requirements:** R1-7, R9-21, R92-111, R115-118, R145
 
 ## Responsibilities
 
@@ -38,6 +38,7 @@
 - getApp: Return the actual Lua app object (the live table, not a wrapper)
 - createVariable: Create child variable with parent object reference
 - destroyVariable: Destroy variable by ID (supports object reference lookup)
+- ui.viewdefCollisions(): convert viewdefManager.Collisions() to an array of Lua tables (key, winner, winnerPath, loser, loserPath) (R145)
 - GetLuaSession(vendedID): Return self if vendedID matches (per-session isolation)
 - NotifyPropertyChange: Notify Lua watchers of property changes
 - HandleFrontendCreate: Handle path-based variable creation from frontend

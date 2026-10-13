@@ -8,6 +8,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -24,6 +25,19 @@ type viewdefEntry struct {
 	rank     int       // Index of the owning source; lower outranks higher
 }
 
+// Collision is one live viewdef-name collision: the source that owns Key
+// and a lower-ranked source whose copy was not registered. Sources are named
+// by app, or site.SiteSource for the site's own viewdefs.
+// CRC: crc-ViewdefManager.md | R141, R143
+type Collision struct {
+	Key        string
+	Winner     string
+	WinnerPath string
+	Loser      string
+	LoserPath  string
+	loserRank  int
+}
+
 // ViewdefManager manages viewdef loading and tracking.
 type ViewdefManager struct {
 	// viewdefs maps TYPE.NAMESPACE to viewdef entry
@@ -35,10 +49,12 @@ type ViewdefManager struct {
 	viewdefDir string
 	// sources are the ranked viewdef directories (see site.ViewdefSources)
 	sources []site.Source
-	// collisions records key|loserDir pairs already logged
-	collisions map[string]bool
-	logf       func(level int, format string, args ...interface{})
-	mu         sync.RWMutex
+	// live holds the current collisions by key|loserDir; cleared on every load
+	live map[string]Collision
+	// logged records key|loserDir pairs already logged; kept for the whole run
+	logged map[string]bool
+	logf   func(level int, format string, args ...interface{})
+	mu     sync.RWMutex
 }
 
 // NewViewdefManager creates a new viewdef manager.
@@ -46,7 +62,8 @@ func NewViewdefManager() *ViewdefManager {
 	return &ViewdefManager{
 		viewdefs:     make(map[string]*viewdefEntry),
 		sentViewdefs: make(map[string]map[string]time.Time),
-		collisions:   make(map[string]bool),
+		live:         make(map[string]Collision),
+		logged:       make(map[string]bool),
 		logf: func(level int, format string, args ...interface{}) {
 			log.Printf(format, args...)
 		},
@@ -102,6 +119,7 @@ func (m *ViewdefManager) SetSources(sources []site.Source) map[string]string {
 
 func (m *ViewdefManager) loadFromSourcesLocked(sources []site.Source) {
 	m.sources = sources
+	clear(m.live)
 	for key, entry := range m.viewdefs {
 		if entry.filePath != "" {
 			delete(m.viewdefs, key)
@@ -130,7 +148,7 @@ func (m *ViewdefManager) offerLocked(rank int, path string, modTime time.Time) b
 	key := strings.TrimSuffix(filepath.Base(path), ".html")
 	if existing, ok := m.viewdefs[key]; ok && existing.rank != noRank && existing.rank < rank {
 		if !sameFile(existing.filePath, path) {
-			m.logCollisionLocked(key, existing.rank, rank)
+			m.recordCollisionLocked(key, existing, rank, path)
 		}
 		return false
 	}
@@ -143,15 +161,54 @@ func (m *ViewdefManager) offerLocked(rank int, path string, modTime time.Time) b
 	return true
 }
 
-// logCollisionLocked logs a collision once per key and losing source.
-// CRC: crc-ViewdefManager.md | R127
-func (m *ViewdefManager) logCollisionLocked(key string, winner, loser int) {
+// recordCollisionLocked adds a collision to the live set, and logs it the
+// first time this run sees it.
+// CRC: crc-ViewdefManager.md | R127, R141, R142
+func (m *ViewdefManager) recordCollisionLocked(key string, winner *viewdefEntry, loser int, loserPath string) {
 	id := key + "|" + m.sources[loser].Dir
-	if m.collisions[id] {
+	c := Collision{
+		Key:        key,
+		Winner:     m.sources[winner.rank].Label,
+		WinnerPath: winner.filePath,
+		Loser:      m.sources[loser].Label,
+		LoserPath:  loserPath,
+		loserRank:  loser,
+	}
+	m.live[id] = c
+	if m.logged[id] {
 		return
 	}
-	m.collisions[id] = true
-	m.logf(0, "viewdef collision: %s from %s wins over %s", key, m.sources[winner].Label, m.sources[loser].Label)
+	m.logged[id] = true
+	m.logf(0, "viewdef collision: %s from %s wins over %s", key, c.Winner, c.Loser)
+}
+
+// Collisions returns the live collisions, ordered by key, then by the losing
+// source's rank.
+// CRC: crc-ViewdefManager.md | Seq: seq-app-discovery.md#3.1.1 | R141
+func (m *ViewdefManager) Collisions() []Collision {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	list := make([]Collision, 0, len(m.live))
+	for _, c := range m.live {
+		list = append(list, c)
+	}
+	sort.Slice(list, func(i, j int) bool {
+		if list[i].Key != list[j].Key {
+			return list[i].Key < list[j].Key
+		}
+		return list[i].loserRank < list[j].loserRank
+	})
+	return list
+}
+
+// ResolveCollisions computes a site's collisions without a server, by
+// registering its viewdefs exactly as a starting server does.
+// CRC: crc-ViewdefManager.md | Seq: seq-app-discovery.md#3.2 | R144
+func ResolveCollisions(siteDir string, builtins []string) []Collision {
+	m := NewViewdefManager()
+	m.SetLogger(func(int, string, ...interface{}) {})
+	m.LoadFromSources(site.ViewdefSources(siteDir, site.Discover(siteDir, builtins)))
+	return m.Collisions()
 }
 
 // ApplyFileChange reloads one changed viewdef file, returning its key and

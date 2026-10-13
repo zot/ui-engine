@@ -60,6 +60,33 @@ into an app, say) are one viewdef, not a collision: nothing is logged.
 On-demand loading (a viewdef for a new `type` requested after startup)
 searches the same sources in the same order and applies the same rule.
 
+**Listing collisions.** A host can ask for the collisions as a list, so it
+can show them to a user and not only log them. Each entry names the
+viewdef, the winning source and its file, and the losing source and its
+file. Entries are ordered by viewdef name, then by the losing source's rank.
+
+The list is the *current* set. Re-discovery recomputes it, so a collision
+the user has fixed drops out, and a collision that first appears at run time
+(a hot-reloaded file whose name a higher-ranked source already owns) joins
+it. The log is different: it reports each collision once per server run, and
+does not repeat itself when re-discovery finds the same collision again.
+
+There are two ways to get the list, and both run the same registration code,
+so they agree for the same files:
+
+- `(*cli.Server).ViewdefCollisions() []cli.ViewdefCollision`: the
+  collisions of a running server. Lua code reads the same list with
+  `ui.viewdefCollisions()`.
+- `cli.ResolveViewdefCollisions(siteDir string, builtins []string)
+  []cli.ViewdefCollision`: computed from disk without a server, by
+  discovering the site's apps with the given built-in list and registering
+  their viewdefs exactly as a starting server would. A host uses this when
+  no server is running.
+
+`cli.ViewdefCollision` has the fields `Key`, `Winner`, `WinnerPath`,
+`Loser`, and `LoserPath`. A source's name is its app name, or `(site)` for
+the site's own `viewdefs/`.
+
 ## Static files
 
 Each active app's whole directory is served over HTTP at `/<app>/…`:

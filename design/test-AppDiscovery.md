@@ -78,6 +78,72 @@ server and no watcher.
 **Inject:** internal/viewdef/viewdefs.go:offerLocked
 **Pulled:** 2026-10-07 — rang: `logged a collision with a link to the winner's own file`
 
+## Test: collisions are listed with both sources and files
+**Purpose:** the live list names key, winner and loser sources and their files; a same-file pair is not listed (R141, R137)
+**Input:** `twoAppSite`; then the same site plus a site `viewdefs/T.DEFAULT.html` linking to `aa`'s file
+**Expected:** one entry `{T.DEFAULT, aa, <aa file>, zz, <zz file>}` both times
+**Refs:** crc-ViewdefManager.md, seq-app-discovery.md
+**Code:** internal/viewdef/viewdefs_test.go
+**Alarm:** 13
+**Fire alarm:** stop recording the loser into the live set in offerLocked (keep the log). Red: `Collisions()` is empty while the log still names the collision.
+**Inject:** internal/viewdef/viewdefs.go:offerLocked
+**Pulled:** 2026-10-13 — rang: `two apps: Collisions() = [], want one entry`
+
+## Test: losers of one key are listed in rank order
+**Purpose:** the secondary order, by the losing source's rank (R141)
+**Input:** `twoAppSite` plus app `mm` shipping `T.DEFAULT.html`; load twenty times
+**Expected:** losers `mm`, then `zz`, every time
+**Refs:** crc-ViewdefManager.md
+**Code:** internal/viewdef/viewdefs_test.go
+**Alarm:** 18
+**Fire alarm:** drop the loserRank tie-break in Collisions. Red: losers `zz` then `mm` on some load.
+**Inject:** internal/viewdef/viewdefs.go:Collisions
+**Pulled:** 2026-10-13 — rang: `losers = [… Loser:zz … Loser:mm …], want mm then zz`
+
+## Test: a fixed collision drops out on re-discovery, and the log does not repeat
+**Purpose:** the list is the current set; the log is once per run (R142)
+**Input:** `twoAppSite`; SetSources with the same sources; then remove `zz`'s file and SetSources again
+**Expected:** after the first SetSources, still one entry and still one log line; after the removal, no entries
+**Refs:** crc-ViewdefManager.md, seq-app-discovery.md
+**Code:** internal/viewdef/viewdefs_test.go
+**Alarm:** 14
+**Fire alarm:** do not clear the live set in loadFromSourcesLocked. Red: the removed collision is still listed.
+**Inject:** internal/viewdef/viewdefs.go:loadFromSourcesLocked
+**Pulled:** 2026-10-13 — rang: `after fixing, Collisions() = [{Key:T.DEFAULT …}], want none`
+
+## Test: a collision first met at run time joins the list
+**Purpose:** a hot-reloaded losing file is listed without a re-discovery (R142)
+**Input:** `twoAppSite` loaded; then write `V.DEFAULT.html` into `aa` and `zz` and ApplyFileChange both, `aa` first
+**Expected:** `Collisions()` lists `V.DEFAULT` with winner `aa`, loser `zz`
+**Refs:** crc-ViewdefManager.md
+**Code:** internal/viewdef/viewdefs_test.go
+**Alarm:** 15
+**Fire alarm:** record into the live set only during loadFromSourcesLocked, not in ApplyFileChange's offer. Red: `V.DEFAULT` missing from the list.
+**Inject:** internal/viewdef/viewdefs.go:ApplyFileChange
+**Pulled:** 2026-10-13 — rang: `Collisions() = [{Key:T.DEFAULT …}], want T.DEFAULT then V.DEFAULT`
+
+## Test: the offline resolver agrees with a loaded manager
+**Purpose:** ResolveCollisions builds the same sources with the given built-ins and returns what a loaded manager lists (R144, R143)
+**Input:** `twoAppSite` with builtins `{zz}`
+**Expected:** `ResolveCollisions(site, {zz})` equals `loadSite(site, {zz}).Collisions()`, winner `zz`, loser `aa`; and a running server's `ViewdefCollisions()` on the same site agrees
+**Refs:** crc-ViewdefManager.md, crc-Server.md, seq-app-discovery.md
+**Code:** internal/viewdef/viewdefs_test.go, internal/server/site_test.go
+**Alarm:** 16
+**Fire alarm:** ResolveCollisions discovers with no built-ins. Red: winner `aa`, not `zz`.
+**Inject:** internal/viewdef/viewdefs.go:ResolveCollisions
+**Pulled:** 2026-10-13 — rang: `ResolveCollisions = [{… Winner:aa …}], loaded manager = [{… Winner:zz …}]`
+
+## Test: ui.viewdefCollisions returns the live list to Lua
+**Purpose:** Lua sees the same entries the manager lists, with the spec's field names (R145)
+**Input:** a manager loaded from `aa`/`zz` colliding on `T.DEFAULT`; a runtime built on it
+**Expected:** a one-entry array whose `key`, `winner`, `winnerPath`, `loser`, `loserPath` equal the manager's entry
+**Refs:** crc-LuaSession.md
+**Code:** internal/lua/collisions_test.go
+**Alarm:** 17
+**Fire alarm:** swap `winner` and `loser` when building the row. Red: `winner = "zz", want "aa"`.
+**Inject:** internal/lua/runtime.go:registerUIModule
+**Pulled:** 2026-10-13 — rang: `winner = "zz", want "aa"`
+
 ## Test: missing site directory is a start error
 **Purpose:** Start returns an error naming the path; no panic (R119)
 **Input:** config with `Server.Dir` set to a nonexistent path

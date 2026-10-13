@@ -942,6 +942,12 @@ func (s *Server) GetViewdefManager() *viewdef.ViewdefManager {
 	return s.viewdefManager
 }
 
+// ViewdefCollisions returns the running server's live viewdef collisions.
+// CRC: crc-Server.md | Seq: seq-app-discovery.md#3.1 | R143
+func (s *Server) ViewdefCollisions() []viewdef.Collision {
+	return s.viewdefManager.Collisions()
+}
+
 // StartAsync starts the HTTP server in a goroutine and returns the URL.
 // Use this for MCP mode where the server runs alongside stdio MCP.
 func (s *Server) StartAsync(port int) (string, error) {

@@ -15,6 +15,8 @@ type (
 	Server         = server.Server
 	LuaRuntime     = lua.LuaSession
 	ViewdefManager = viewdef.ViewdefManager
+	// CRC: crc-ViewdefManager.md | R143
+	ViewdefCollision = viewdef.Collision
 	// Change-tracker types for variable inspection
 	Variable = changetracker.Variable
 	Tracker  = changetracker.Tracker
@@ -25,6 +27,8 @@ type (
 // Re-export server constructor
 var (
 	NewServer = server.New
+	// CRC: crc-ViewdefManager.md | Seq: seq-app-discovery.md#3.2 | R144
+	ResolveViewdefCollisions = viewdef.ResolveCollisions
 )
 
 // Re-export bundle functions for MCP integration

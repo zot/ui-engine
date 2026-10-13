@@ -1,4 +1,5 @@
 # Sequence: App Discovery
+**Requirements:** R141-144
 
 **Source Spec:** app-discovery.md
 **Use Case:** Startup ranks apps and registers viewdefs; activation changes re-run it
@@ -41,7 +42,25 @@ FileSystem        ViewdefStore(hot)      LuaHotLoader         AppDiscovery      
    |                    |                     |       loaded Lua stays loaded          |
 ```
 
+## Listing collisions
+
+```
+Host (e.g. ark)           cli / Server              ViewdefManager               AppDiscovery
+   |                           |                          |                            |
+3.1 |--Server.ViewdefCollisions()->|--Collisions()-------->|                            |
+   |                           |   3.1.1 copy `live`, sort by key then loser rank      |
+   |<--[]ViewdefCollision------|<-------------------------|                            |
+3.2 |--ResolveViewdefCollisions(site, builtins)----------->|                            |
+   |                           |   3.2.1 Discover + ViewdefSources-------------------->|
+   |                           |   3.2.2 fresh manager, silent log, LoadFromSources    |
+   |                           |   3.2.3 return its Collisions() (same code as 1.4)    |
+   |<--[]ViewdefCollision-------------------------------|                            |
+```
+
 ## Notes
+
+- Step 1.4.3 and every runtime losing offer record into the live collision set; the
+  log dedupe is separate and lasts the whole run (R142).
 
 - Paths stay under `lua/<app>`: watches, loads and events all use the entry
   path, so no target-to-link reverse mapping exists.

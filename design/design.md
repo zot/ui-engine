@@ -56,7 +56,7 @@ target-to-link reverse mapping is kept.
 ### Viewdef System
 - [x] crc-Viewdef.md → `internal/viewdef/viewdef.go`, `web/src/viewdef.ts`
 - [x] crc-AppDiscovery.md → `internal/site/discovery.go`
-- [x] crc-ViewdefManager.md → `internal/viewdef/viewdefs.go`
+- [x] crc-ViewdefManager.md → `internal/viewdef/viewdefs.go`, `cli/exports.go`
 - [x] crc-Server.md → `internal/server/server.go`
 - [x] seq-app-discovery.md → `internal/site/discovery.go`, `internal/viewdef/viewdefs.go`, `internal/viewdef/hotloader.go`, `internal/lua/hotloader.go`, `internal/server/server.go`
 - [x] crc-ViewdefStore.md → `internal/viewdef/store.go`, `internal/viewdef/hotloader.go`, `web/src/viewdef_store.ts` *(hot-reload)*
@@ -167,7 +167,7 @@ target-to-link reverse mapping is kept.
 - [x] crc-HTTPEndpoint.md → `internal/server/http.go`
 
 ### Test Designs
-- [x] test-AppDiscovery.md → `internal/site/discovery_test.go`, `internal/viewdef/viewdefs_test.go`, `internal/server/site_test.go`, `internal/server/appstatic_test.go`, `internal/lua/appwatch_test.go`, `internal/viewdef/hotloader_test.go`
+- [x] test-AppDiscovery.md → `internal/lua/collisions_test.go`, `internal/site/discovery_test.go`, `internal/viewdef/viewdefs_test.go`, `internal/server/site_test.go`, `internal/server/appstatic_test.go`, `internal/lua/appwatch_test.go`, `internal/viewdef/hotloader_test.go`
 - [x] test-HotLoader.md
 - [x] test-Lua.md
 

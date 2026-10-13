@@ -1818,6 +1818,23 @@ func (r *LuaSession) registerUIModule() {
 		return 1
 	}))
 
+	// ui.viewdefCollisions() -> {{key, winner, winnerPath, loser, loserPath}, ...}
+	// CRC: crc-LuaSession.md | R145
+	L.SetField(uiMod, "viewdefCollisions", L.NewFunction(func(L *lua.LState) int {
+		list := L.NewTable()
+		for _, c := range r.viewdefManager.Collisions() {
+			row := L.NewTable()
+			row.RawSetString("key", lua.LString(c.Key))
+			row.RawSetString("winner", lua.LString(c.Winner))
+			row.RawSetString("winnerPath", lua.LString(c.WinnerPath))
+			row.RawSetString("loser", lua.LString(c.Loser))
+			row.RawSetString("loserPath", lua.LString(c.LoserPath))
+			list.Append(row)
+		}
+		L.Push(list)
+		return 1
+	}))
+
 	// ui.json_decode(string)
 	L.SetField(uiMod, "json_decode", L.NewFunction(func(L *lua.LState) int {
 		str := L.CheckString(1)

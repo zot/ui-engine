@@ -133,6 +133,7 @@ When `--lua` is enabled (default: true), the UI server provides an embedded Lua 
 - `ui.registerPresenter(name, table)` - Register a presenter type
 - `ui.log([level,] message)` - Log from Lua code (delegates to `Config.Log`)
 - `ui.json_encode(value)` / `ui.json_decode(string)` - JSON conversion
+- `ui.viewdefCollisions()` - The server's live viewdef collisions (see [App Discovery](app-discovery.md#viewdefs)), as an array of tables with `key`, `winner`, `winnerPath`, `loser`, `loserPath`
 
 ## Reliability
 
