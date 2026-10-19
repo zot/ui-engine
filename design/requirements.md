@@ -213,3 +213,13 @@
 
 - **R135:** unloadDirectory must clean up HotLoader state for the directory: watches and pendingReloads
 - **R136:** unloadModule must clean up HotLoader state for the module file: watches and pendingReloads
+
+## Feature: Portable OS Primitives
+**Source:** specs/interfaces.md
+
+- **R146:** `ui.mkdir(path)` creates the directory and any missing parents, treats an existing directory as success, and returns `true`, or `nil, err` on failure
+- **R147:** `ui.isDir(path)` returns `true` when `path` resolves (following links) to a directory and `false` otherwise, including when it does not exist; it never fails
+- **R148:** `ui.listDir(path)` returns every entry of the directory, hidden ones included, sorted by name, as an array of `{name, isDir}` tables with `isDir` following links, or `nil, err` on failure
+- **R149:** `ui.base64Decode(text)` decodes standard base64 to a byte string, or returns `nil, err` on invalid input
+- **R150:** `ui.exec(argv)` runs `argv[1]` with the remaining elements as its arguments, directly with no shell, waits for it, and returns its stdout; a failure to start or a non-zero exit returns `nil, err` with the exit status and the program's stderr in `err`
+- **R151:** `ui.platform()` returns a table with `os` set to the server's `GOOS` and `arch` set to its `GOARCH`

@@ -1848,6 +1848,9 @@ func (r *LuaSession) registerUIModule() {
 		return 1
 	}))
 
+	// CRC: crc-PortableOS.md | R146-R151
+	registerPortableOS(L, uiMod)
+
 	// ui.registerWrapper(name, table)
 	// Registers a Lua wrapper type for variable value transformation.
 	// The table must have: computeValue(self, rawValue) -> storedValue

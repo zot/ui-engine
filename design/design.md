@@ -130,6 +130,7 @@ target-to-link reverse mapping is kept.
 - [x] seq-lua-hotload.md
 - [x] seq-prototype-mutation.md
 - [x] crc-Module.md → `internal/lua/module.go`
+- [x] crc-PortableOS.md → `internal/lua/portable.go`, `internal/lua/runtime.go`
 - [x] seq-unload-module.md → `internal/lua/runtime.go`, `internal/lua/hotloader.go`
 - [x] seq-require-lua-file.md → `internal/lua/runtime.go`
 - [x] seq-session-timer.md → `internal/lua/runtime.go`, `internal/server/server.go`
@@ -170,6 +171,7 @@ target-to-link reverse mapping is kept.
 - [x] test-AppDiscovery.md → `internal/lua/collisions_test.go`, `internal/site/discovery_test.go`, `internal/viewdef/viewdefs_test.go`, `internal/server/site_test.go`, `internal/server/appstatic_test.go`, `internal/lua/appwatch_test.go`, `internal/viewdef/hotloader_test.go`
 - [x] test-HotLoader.md
 - [x] test-Lua.md
+- [x] test-PortableOS.md → `internal/lua/portable_test.go`
 
 ## Gaps
 

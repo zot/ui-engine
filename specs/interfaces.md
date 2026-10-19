@@ -135,6 +135,20 @@ When `--lua` is enabled (default: true), the UI server provides an embedded Lua 
 - `ui.json_encode(value)` / `ui.json_decode(string)` - JSON conversion
 - `ui.viewdefCollisions()` - The server's live viewdef collisions (see [App Discovery](app-discovery.md#viewdefs)), as an array of tables with `key`, `winner`, `winnerPath`, `loser`, `loserPath`
 
+**Portable OS primitives.** Apps must not shell out (`os.execute`, `io.popen`) for
+file or process work: `mkdir -p`, `ls`, `test -d`, `base64 -d` and POSIX syntax such
+as `VAR=x cmd` or `2>/dev/null` do not exist on Windows, and an app that uses them
+breaks there. These functions do that work in Go, so they behave the same on every
+platform the server runs on. Each one that can fail returns `nil, err` (a message
+string) on failure.
+
+- `ui.mkdir(path)` - Create a directory and any missing parents (like `mkdir -p`); an existing directory is success. Returns `true`
+- `ui.isDir(path)` - `true` when `path` is a directory, following links (so a symlink or Windows junction to a directory counts); `false` when it is anything else or does not exist. Never fails
+- `ui.listDir(path)` - The directory's entries, hidden ones included, sorted by name, as an array of tables with `name` and `isDir` (`isDir` follows links, as `ui.isDir` does)
+- `ui.base64Decode(text)` - Decode standard base64 to a byte string (Lua strings hold bytes, so the result can be written to a file opened in `"wb"` mode)
+- `ui.exec(argv)` - Run a program directly, with no shell: `argv` is an array whose first element is the program (a path, or a name found on `PATH`) and the rest are its arguments, passed as-is with no quoting or expansion. Waits for it to exit and returns its stdout. A non-zero exit or a failure to start is `nil, err`, where `err` carries the exit status and the program's stderr. It blocks the session while it runs, as `io.popen` did
+- `ui.platform()` - The server's platform as a table: `os` (Go's `GOOS`, e.g. `linux`, `windows`, `darwin`) and `arch` (Go's `GOARCH`, e.g. `amd64`, `arm64`)
+
 ## Reliability
 
 The server is designed to remain stable even when application logic fails:
