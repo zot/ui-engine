@@ -5,7 +5,34 @@ package cli
 import (
 	"fmt"
 	"os"
+	"runtime/debug"
 )
+
+// Version is stamped at build time by the Makefile
+// (-X github.com/zot/ui-engine/cli.Version=...). When it is empty, the
+// version comes from the module's build info, which is how a host that
+// imports ui-engine (frictionless, ark) reports the release it was built with.
+var Version string
+
+const modulePath = "github.com/zot/ui-engine"
+
+// EngineVersion reports this build's ui-engine version.
+func EngineVersion() string {
+	if Version != "" {
+		return Version
+	}
+	if bi, ok := debug.ReadBuildInfo(); ok {
+		if bi.Main.Path == modulePath {
+			return bi.Main.Version
+		}
+		for _, dep := range bi.Deps {
+			if dep.Path == modulePath {
+				return dep.Version
+			}
+		}
+	}
+	return "dev"
+}
 
 // Hooks allows extending the CLI with additional commands.
 type Hooks struct {
@@ -132,7 +159,7 @@ Protocol Examples:
 }
 
 func printVersion(hooks *Hooks) {
-	fmt.Println("UI Engine v0.1.0")
+	fmt.Println("UI Engine " + EngineVersion())
 	if hooks != nil && hooks.CustomVersion != nil {
 		fmt.Println(hooks.CustomVersion())
 	}

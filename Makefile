@@ -4,8 +4,7 @@
 # Build configuration
 BINARY_NAME := ui-engine
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
-BUILD_TIME := $(shell date -u '+%Y-%m-%d_%H:%M:%S')
-LDFLAGS := -ldflags "-X main.Version=$(VERSION) -X main.BuildTime=$(BUILD_TIME)"
+LDFLAGS := -ldflags "-X github.com/zot/ui-engine/cli.Version=$(VERSION)"
 
 # Go configuration
 GO := go
