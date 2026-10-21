@@ -70,6 +70,7 @@ The ticker runs until `clearInterval(handle)` is called or the session shuts dow
      |--clearXxx------->|
      |   (handle)       |
      |                  |--lookup registry[handle]
+     |                  |  return if absent or already cancelled
      |                  |  set cancelled = true
      |                  |  call stop() if present
      |                  |

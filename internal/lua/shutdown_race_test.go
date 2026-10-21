@@ -1,6 +1,6 @@
 // Regression tests for the LuaSession shutdown race: the executor goroutine
 // must never touch the Lua VM after State.Close().
-// CRC: crc-LuaSession.md | Seq: seq-session-timer.md | R115, R116, R117
+// CRC: crc-LuaSession.md | Seq: seq-session-timer.md | R102, R109, R115, R116, R117
 package lua
 
 import (
@@ -170,4 +170,26 @@ func TestDeferredWrapperSkipsAfterShutdown(t *testing.T) {
 	}
 
 	rt.State.Close()
+}
+
+// TestClearedIntervalSurvivesShutdown: an interval Lua already cleared stays in
+// the registry, and Shutdown cancels every registered handle. Cancelling must be
+// a no-op the second time, since an interval's stop closes a channel. Before the
+// fix this panicked with "close of closed channel" inside Shutdown, and ark's
+// graceful stop never finished. R102, R109
+func TestClearedIntervalSurvivesShutdown(t *testing.T) {
+	rt, err := NewRuntime(config.DefaultConfig(), "/tmp", nil)
+	if err != nil {
+		t.Fatalf("NewRuntime: %v", err)
+	}
+	defer func() {
+		if p := recover(); p != nil {
+			t.Fatalf("cancelling a cleared interval again panicked: %v", p)
+		}
+	}()
+	done := make(chan struct{})
+	handle := rt.allocTimerHandle(func() { close(done) })
+	rt.cancelTimer(handle) // clearInterval
+	rt.cancelTimer(handle) // a second clear is a no-op too
+	rt.Shutdown()          // and so is Shutdown's sweep of the registry
 }

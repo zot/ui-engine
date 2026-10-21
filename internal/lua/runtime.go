@@ -2466,13 +2466,18 @@ func (r *LuaSession) allocTimerHandle(stop func()) int64 {
 	return handle
 }
 
-// cancelTimer cancels a timer by handle. No-op if already fired or cancelled.
+// cancelTimer cancels a timer by handle. No-op if already fired or cancelled:
+// an interval's stop closes a channel, so stopping it twice panics, and Shutdown
+// cancels every registered handle, including ones Lua already cleared.
+// CRC: crc-LuaSession.md | Seq: seq-session-timer.md | R102, R109
 func (r *LuaSession) cancelTimer(handle int64) {
-	if entry, ok := r.timerRegistry[handle]; ok {
-		entry.cancelled = true
-		if entry.stop != nil {
-			entry.stop()
-		}
+	entry, ok := r.timerRegistry[handle]
+	if !ok || entry.cancelled {
+		return
+	}
+	entry.cancelled = true
+	if entry.stop != nil {
+		entry.stop()
 	}
 }
 
