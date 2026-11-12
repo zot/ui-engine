@@ -170,6 +170,7 @@ target-to-link reverse mapping is kept.
 ### Test Designs
 - [x] test-AppDiscovery.md → `internal/lua/collisions_test.go`, `internal/site/discovery_test.go`, `internal/viewdef/viewdefs_test.go`, `internal/server/site_test.go`, `internal/server/appstatic_test.go`, `internal/lua/appwatch_test.go`, `internal/viewdef/hotloader_test.go`
 - [x] test-HotLoader.md
+- [x] test-ArrayGetter.md → `internal/lua/arrayget_test.go`
 - [x] test-Lua.md
 - [x] test-SessionTimer.md → `internal/lua/shutdown_race_test.go`
 - [x] test-PortableOS.md → `internal/lua/portable_test.go`

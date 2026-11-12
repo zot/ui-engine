@@ -643,6 +643,16 @@ ViewList is a wrapper type (see protocol.md). When `ui-viewlist="path"` is used:
 
 This preserves internal state (like selection) while keeping ViewListItems in sync with the array.
 
+**An empty Lua table is an empty array.** A list bound to `{}` shows no items
+and logs nothing: Lua cannot tell an empty array from an empty object, and a
+list asked for an array, so the empty table is read as one. A table holding
+non-array keys, or a typed object, is still an error. Only the places that read
+a value *as an array* make this call; elsewhere an empty table is still sent as
+an object, so an empty object never turns into `[]`. Before this, every list
+bound to an empty table logged `Attempt to index Lua table that is not an
+array` on each sync while rendering correctly, which in ark was 11,484 log
+lines in one day (measured 2026-11-12).
+
 The ViewList can access path properties like `itemWrapper=ContactPresenter` from the variable's properties.
 
 **ViewListItem objects:**

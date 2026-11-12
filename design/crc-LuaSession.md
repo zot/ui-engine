@@ -1,7 +1,7 @@
 # LuaSession
 
 **Source Spec:** libraries.md, interfaces.md, protocol.md, deployment.md, remove-prototype.md, module-tracking.md, session-defer.md
-**Requirements:** R1-7, R9-21, R92-111, R115-118, R145
+**Requirements:** R1-7, R9-21, R92-111, R115-118, R145, R152
 
 ## Responsibilities
 
@@ -33,6 +33,7 @@
 - nextTimerHandle: Sequential counter for timer handle allocation
 
 ### Does
+- ArrayGetter: read a value as an array (a Lua array table or a Go slice) for ViewList sync and ArrayGet. An untyped table with no keys bar `_` ones is an empty array, with no error (R152); isArray, which serialization uses to pick array versus object, stays strict so an empty object never becomes `[]`.
 - CreateLuaSession(vendedID): Initialize session, create session table, load main.lua
 - createAppVariable: Create variable 1, store reference to Lua object for change detection
 - getApp: Return the actual Lua app object (the live table, not a wrapper)

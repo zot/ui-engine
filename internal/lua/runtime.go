@@ -2606,6 +2606,23 @@ func (s *LuaSession) isArray(tbl *lua.LTable) bool {
 	return hasNumericKeys && !hasStringKeys
 }
 
+// isEmptyTable reports whether tbl is untyped and holds no keys other than
+// `_`-prefixed internal ones: the shape of an empty array or an empty object.
+// CRC: crc-LuaSession.md | R152
+func (s *LuaSession) isEmptyTable(tbl *lua.LTable) bool {
+	if GetType(s.State, tbl) != "" {
+		return false
+	}
+	empty := true
+	tbl.ForEach(func(key, _ lua.LValue) {
+		if k, ok := key.(lua.LString); ok && len(k) > 0 && k[0] == '_' {
+			return
+		}
+		empty = false
+	})
+	return empty
+}
+
 func (s *LuaSession) GetTracker() *changetracker.Tracker {
 	return s.variableStore.GetTracker(s.ID)
 }
@@ -2627,8 +2644,19 @@ func (s *LuaSession) ArrayGet(array any, index int) (any, error) {
 	}
 }
 
+// ArrayGetter reads a value as an array: a Lua array table or a Go slice.
+// An untyped table with no keys (bar `_` ones) is an empty array here (R152):
+// Lua cannot tell `{}` from an empty object, and this caller asked for an
+// array. isArray itself stays strict, since serialization uses it to choose
+// between array and object, and an empty object must not become `[]`.
+// CRC: crc-LuaSession.md | R152
 func (s *LuaSession) ArrayGetter(array any) (func(int) (any, error), int, error) {
 	if la, ok := (array).(*lua.LTable); ok {
+		if s.isEmptyTable(la) {
+			return func(index int) (any, error) {
+				return nil, fmt.Errorf("Bad index %d for an empty Lua table", index)
+			}, 0, nil
+		}
 		if !s.isArray(la) {
 			return nil, 0, fmt.Errorf("Attempt to index Lua table that is not an array")
 		}

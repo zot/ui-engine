@@ -80,6 +80,11 @@
 - **R48:** (inferred) VariableStore.create() must be synchronous (no Promise)
 - **R49:** Connection class must maintain nextVarId counter for frontend ID vending
 
+## Feature: Empty Table As Empty Array
+**Source:** specs/viewdefs.md
+
+- **R152:** Reading a Lua value as an array (`ArrayGetter`, behind ViewList sync and `ArrayGet`) treats an untyped table with no keys other than `_`-prefixed ones as an empty array, without error. A table with non-array keys or a type is still an error. The general array test (`isArray`), which decides whether a table is serialized as an array or an object, is unchanged, so an empty table still serializes as an object.
+
 ## Feature: Null View Clearing
 **Source:** specs/viewdefs.md
 
