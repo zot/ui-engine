@@ -228,3 +228,28 @@
 - **R149:** `ui.base64Decode(text)` decodes standard base64 to a byte string, or returns `nil, err` on invalid input
 - **R150:** `ui.exec(argv)` runs `argv[1]` with the remaining elements as its arguments, directly with no shell, waits for it, and returns its stdout; a failure to start or a non-zero exit returns `nil, err` with the exit status and the program's stderr in `err`
 - **R151:** `ui.platform()` returns a table with `os` set to the server's `GOOS` and `arch` set to its `GOARCH`
+
+## Feature: Session References and Views
+**Source:** specs/session-ref.md
+
+- **R153:** `Server.SessionRef(vendedID)` returns a reference and `true` for an existing session, and `false` when there is no such session
+- **R154:** `SessionRef.ID()` returns the vended session ID
+- **R155:** `SessionRef.Valid()` is true while the session's Lua session is running, and false after the session is destroyed or its Lua environment is restarted
+- **R156:** A `SessionRef` never keeps its session alive and is safe to hold after the session ends
+- **R157:** A `SessionRef` provides a Lua view, a browser view, an execution view, and a `Station` holding all three
+- **R158:** Every view returns its reference (`Ref()`) and produces the session's `Station`
+- **R159:** `ExecView.Post(fn)` queues `fn` on the session's executor without waiting, runs it with the session's Lua context set, and runs no change detection afterward
+- **R160:** `ExecView.PostUpdate(fn)` queues `fn` like `Post`, and after it runs, runs change detection and pushes changes when a browser is connected
+- **R161:** `Post` and `PostUpdate` return `false` and do nothing when the reference is invalid; posted work runs whether or not a browser is connected
+- **R162:** `BrowserView.Connected()` reports whether a browser connection is attached to the session
+- **R163:** `BrowserView.Update()` runs change detection and pushes changes immediately, and is called only on the session's executor
+- **R164:** `LuaView.Session()` returns the session's `LuaSession`, for use only on the session's executor
+- **R165:** (inferred) Obtaining a view or the station does no work beyond copying the reference
+- **~~R166:~~** (Retired T3 — see R173) Session references are implemented over the existing session maps; `ExecuteInSession`, `ExecuteInSessionAsync` and the maps are unchanged
+- **R167:** ui-engine exposes no notion of a current session; a host that has one supplies the reference
+- **R168:** `Server.ExecuteInSession` keeps its signature and delegates all its behaviour to `Server.PrimitiveExecuteInSession(vendedID, fn, dangerous)` with `dangerous` true
+- **R169:** `PrimitiveExecuteInSession` with `dangerous` false behaves exactly as `ExecuteInSession` did before dangerous execution was introduced
+- **R170:** With `dangerous` true and `AllowDangerousExecution` set, `PrimitiveExecuteInSession` logs a warning naming the file and line that called `ExecuteInSession`, at most once per site for the life of the process, then proceeds as with `dangerous` false
+- **R171:** With `dangerous` true and `AllowDangerousExecution` not set, `PrimitiveExecuteInSession` panics with a message naming the calling site, before queueing anything
+- **R172:** The session config property `AllowDangerousExecution` (`allow_dangerous_execution` in the config file) defaults to set
+- **R173:** Session references are implemented over the existing session maps; `ExecuteInSessionAsync` and the maps are unchanged

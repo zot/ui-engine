@@ -149,6 +149,23 @@ func (ws *WebSocketEndpoint) ExecuteInSessionAsync(sessionID string, fn func() (
 	})
 }
 
+// ExecuteInSessionPassive queues fn on the session executor without waiting and
+// without running afterBatch afterward. The passive twin of ExecuteInSessionAsync.
+// CRC: crc-WebSocketEndpoint.md | Seq: seq-session-ref.md#1.2.3 | R159
+func (ws *WebSocketEndpoint) ExecuteInSessionPassive(sessionID string, fn func()) {
+	svc := ws.getOrCreateSvc(sessionID)
+	Svc(svc, fn)
+}
+
+// RunAfterBatch runs change detection and pushes changes now, when a browser is
+// connected. Call it only on the session executor.
+// CRC: crc-WebSocketEndpoint.md | R163
+func (ws *WebSocketEndpoint) RunAfterBatch(sessionID string) {
+	if ws.afterBatch != nil && ws.HasConnectionsForSession(sessionID) {
+		ws.afterBatch(sessionID, false)
+	}
+}
+
 // HandleWebSocket handles incoming WebSocket connections.
 func (ws *WebSocketEndpoint) HandleWebSocket(w http.ResponseWriter, r *http.Request, sessionID string) {
 	conn, err := upgrader.Upgrade(w, r, nil)

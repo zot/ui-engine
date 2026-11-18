@@ -46,6 +46,10 @@ type LuaConfig struct {
 // SessionConfig holds session-related settings.
 type SessionConfig struct {
 	Timeout Duration `toml:"timeout"` // Session expiration (0 = never)
+	// AllowDangerousExecution makes a dangerous synchronous ExecuteInSession warn
+	// once per calling site instead of panicking. Set by default while callers move.
+	// CRC: crc-Config.md | R172
+	AllowDangerousExecution bool `toml:"allow_dangerous_execution"`
 }
 
 // LoggingConfig holds logging settings.
@@ -134,7 +138,8 @@ func DefaultConfig() *Config {
 			Path:    "lua/",
 		},
 		Session: SessionConfig{
-			Timeout: Duration(24 * time.Hour),
+			Timeout:                 Duration(24 * time.Hour),
+			AllowDangerousExecution: true, // R172
 		},
 		Logging: LoggingConfig{
 			Level:     "info",

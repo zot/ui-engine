@@ -57,7 +57,7 @@ target-to-link reverse mapping is kept.
 - [x] crc-Viewdef.md → `internal/viewdef/viewdef.go`, `web/src/viewdef.ts`
 - [x] crc-AppDiscovery.md → `internal/site/discovery.go`
 - [x] crc-ViewdefManager.md → `internal/viewdef/viewdefs.go`, `cli/exports.go`
-- [x] crc-Server.md → `internal/server/server.go`
+- [x] crc-Server.md → `internal/server/server.go`, `internal/server/dangerous.go`
 - [x] seq-app-discovery.md → `internal/site/discovery.go`, `internal/viewdef/viewdefs.go`, `internal/viewdef/hotloader.go`, `internal/lua/hotloader.go`, `internal/server/server.go`
 - [x] crc-ViewdefStore.md → `internal/viewdef/store.go`, `internal/viewdef/hotloader.go`, `web/src/viewdef_store.ts` *(hot-reload)*
 - [x] crc-View.md → `web/src/view.ts`, `web/src/namespace.ts`
@@ -83,6 +83,8 @@ target-to-link reverse mapping is kept.
 
 ### Session System
 - [x] crc-Session.md → `internal/session/session.go`
+- [x] crc-SessionRef.md → `internal/server/sessionref.go`, `cli/exports.go`
+- [x] seq-session-ref.md → `internal/server/sessionref.go`, `internal/server/server.go`, `internal/server/websocket.go`
 - [x] crc-SessionManager.md → `internal/session/manager.go`
 - [x] crc-Router.md → `internal/router/router.go`, `web/src/router.ts`
 - [x] seq-create-session.md
@@ -174,11 +176,13 @@ target-to-link reverse mapping is kept.
 - [x] test-Lua.md
 - [x] test-SessionTimer.md → `internal/lua/shutdown_race_test.go`
 - [x] test-PortableOS.md → `internal/lua/portable_test.go`
+- [x] test-SessionRef.md → `internal/server/sessionref_test.go`, `internal/server/dangerous_test.go`
 
 ## Gaps
 
 - T1: R13 retired by R135 (2026-10-07 per-app hot-loading: symlinkTargets retired; app dirs are watched through their lua/<app> entry)
 - T2: R20 retired by R136 (2026-10-07 per-app hot-loading: symlinkTargets retired; app dirs are watched through their lua/<app> entry)
+- T3: R166 retired by R173 (2026-11-18 dangerous execution: ExecuteInSession now delegates to PrimitiveExecuteInSession)
 
 ### Incomplete Implementation
 

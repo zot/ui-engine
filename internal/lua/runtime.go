@@ -2417,6 +2417,17 @@ func (r *LuaSession) SetValue(tbl *lua.LTable, key string, value interface{}) {
 	})
 }
 
+// IsShutdown reports whether Shutdown has begun (its done channel is closed).
+// CRC: crc-LuaSession.md | R155
+func (r *LuaSession) IsShutdown() bool {
+	select {
+	case <-r.done:
+		return true
+	default:
+		return false
+	}
+}
+
 // Shutdown cleans up the Lua VM and stops the executor.
 //
 // The Lua VM runs on a single executor goroutine, so Shutdown must not close

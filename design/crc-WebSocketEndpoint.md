@@ -1,7 +1,7 @@
 # WebSocketEndpoint
 
 **Source Spec:** interfaces.md, deployment.md
-**Requirements:** R40, R41
+**Requirements:** R40, R41, R159, R162, R163
 
 ## Responsibilities
 
@@ -24,6 +24,9 @@
 - onDisconnect: Handle connection close
 - isSessionReconnectable: Check if session exists and can be rejoined
 - generateReconnectToken: Create token for validating reconnection to same session
+- ExecuteInSessionPassive(sessionID, fn): queue fn on the session executor without waiting and without afterBatch (R159)
+- RunAfterBatch(sessionID): run change detection and push now when a browser is connected; called on the executor (R163)
+- HasConnectionsForSession(sessionID): whether a browser is attached (R162)
 
 ## Collaborators
 
@@ -40,6 +43,7 @@
 - seq-frontend-reconnect.md: Frontend reconnection to existing session
 - seq-relay-message.md: Message routing
 - seq-activate-tab.md: Tab activation via WebSocket
+- seq-session-ref.md: posting through a session reference
 
 ## Notes
 

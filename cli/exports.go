@@ -22,6 +22,13 @@ type (
 	Tracker  = changetracker.Tracker
 	// Debug types
 	DebugVariable = server.DebugVariable
+	// Session references and views
+	// CRC: crc-SessionRef.md | R153, R157
+	SessionRef  = server.SessionRef
+	Station     = server.Station
+	LuaView     = server.LuaView
+	BrowserView = server.BrowserView
+	ExecView    = server.ExecView
 )
 
 // Re-export server constructor

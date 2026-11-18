@@ -1,5 +1,5 @@
 # CRC: Config
-**Requirements:** R124
+**Requirements:** R124, R172
 
 **Spec:** deployment.md, config.md
 
@@ -24,6 +24,7 @@
 | LuaHotLoader      | Provides lua.hotload flag for file watching   |
 | AppDiscovery      | Provides site dir and built-in app names (`Server.BuiltinApps`, set by the host, never read from TOML) |
 | SessionManager    | Provides session timeout setting              |
+| Server            | Provides `Session.AllowDangerousExecution` (default set, R172) |
 | WebSocketEndpoint | Logging delegate (connection events)          |
 | HTTPEndpoint      | Provides host and port settings               |
 | BackendSocket     | Logging delegate (socket events)              |

@@ -50,6 +50,8 @@ type Server struct {
 	viewdefManager   *viewdef.ViewdefManager
 	hotLoader        *lua.HotLoader     // Lua hot-reloading (nil if disabled)
 	viewdefHotLoader *viewdef.HotLoader // Viewdef hot-reloading (nil if disabled)
+	dangerousMu      sync.Mutex
+	dangerousSites   map[string]bool // call sites already warned about (R170)
 }
 
 // luaSetupConfig holds shared configuration for creating Lua sessions.
@@ -724,12 +726,22 @@ func (s *Server) AfterBatch(internalSessionID string, userEvent bool) {
 	}
 }
 
-// ExecuteInSession executes code within a session's context.
-// This queues through the session's executor to serialize with WebSocket operations.
-// AfterBatch is called after execution to detect and push any changes.
-// Also sets up the Lua session context so session:getApp() etc. work.
+// ExecuteInSession executes code within a session's context and waits for it.
+// It is dangerous: called from inside an executor it deadlocks, and nothing in
+// the call shows which kind of caller it is. So it delegates to
+// PrimitiveExecuteInSession with dangerous set, which warns once per calling
+// site or panics, per Config.Session.AllowDangerousExecution.
 // vendedID is the compact session ID ("1", "2", etc.)
+// CRC: crc-Server.md | Seq: seq-session-ref.md#2.1.1 | R168
 func (s *Server) ExecuteInSession(vendedID string, fn func() (interface{}, error)) (interface{}, error) {
+	return s.PrimitiveExecuteInSession(vendedID, fn, true)
+}
+
+// executeInSession is ExecuteInSession's behaviour from before dangerous
+// execution existed: queue through the session's executor, set the Lua
+// session context, wait, and run afterBatch when a browser is connected.
+// CRC: crc-Server.md | Seq: seq-session-ref.md#2.2.4 | R169
+func (s *Server) executeInSession(vendedID string, fn func() (interface{}, error)) (interface{}, error) {
 	internalID := s.sessions.GetInternalID(vendedID)
 	if internalID == "" {
 		return nil, fmt.Errorf("session %s not found", vendedID)

@@ -12,6 +12,7 @@ ones Lua already cleared.
 **Expected:** no panic from the second cancel or from Shutdown
 **Refs:** crc-LuaSession.md, seq-session-timer.md
 **Code:** internal/lua/shutdown_race_test.go
+**Alarm:** 1
 **Fire alarm:** drop the `entry.cancelled` check in cancelTimer; the second cancel panics with "close of closed channel" and the test fails on its recover message
 **Inject:** internal/lua/runtime.go:LuaSession.cancelTimer
 **Pulled:** 2026-10-21 — rang: guard dropped; "cancelling a cleared interval again panicked: close of closed channel"

@@ -1,7 +1,7 @@
 # LuaSession
 
 **Source Spec:** libraries.md, interfaces.md, protocol.md, deployment.md, remove-prototype.md, module-tracking.md, session-defer.md
-**Requirements:** R1-7, R9-21, R92-111, R115-118, R145, R152
+**Requirements:** R1-7, R9-21, R92-111, R115-118, R145, R152, R155
 
 ## Responsibilities
 
@@ -51,6 +51,7 @@
 - clearImmediate/clearTimeout/clearInterval(handle): Cancel a timer by handle
 - AfterBatch: Trigger change detection and return updates after message batch
 - Shutdown: Signal stop (close `done`), join the executor on `executorStopped` (bounded by a timeout), cancel timers and clear the registry, then close the Lua VM
+- IsShutdown: whether `done` is closed; SessionRef uses it for validity (R155)
 - prototype(name, init, base): Declare/update prototype with instance field tracking (see below)
 - create(prototype, instance): Create tracked instance with weak reference (see below)
 - processMutationQueue: Process queued prototypes after file load (see seq-prototype-mutation.md)
