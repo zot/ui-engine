@@ -43,10 +43,10 @@ type wsConn struct {
 // WebSocketEndpoint handles WebSocket connections.
 type WebSocketEndpoint struct {
 	config          *config.Config
-	connections     map[string]*wsConn // connectionID -> conn
-	sessionBindings map[string]string  // connectionID -> sessionID
-	reconnectTokens map[string]string  // sessionID -> token
-	sessionSvc      map[string]ChanSvc // sessionID -> executor (serializes session operations)
+	connections     map[string]*wsConn  // connectionID -> conn
+	sessionBindings map[string]string   // connectionID -> sessionID
+	reconnectTokens map[string]string   // sessionID -> token
+	sessionSvc      map[string]*ChanSvc // sessionID -> executor (serializes session operations)
 	sessions        *SessionManager
 	handler         *protocol.Handler
 	afterBatch      AfterBatchCallback // Called after each message to detect changes
@@ -61,7 +61,7 @@ func NewWebSocketEndpoint(cfg *config.Config, sessions *SessionManager, handler 
 		connections:     make(map[string]*wsConn),
 		sessionBindings: make(map[string]string),
 		reconnectTokens: make(map[string]string),
-		sessionSvc:      make(map[string]ChanSvc),
+		sessionSvc:      make(map[string]*ChanSvc),
 		sessions:        sessions,
 		handler:         handler,
 	}
@@ -89,8 +89,10 @@ func (ws *WebSocketEndpoint) getSession(sessionID string) *Session {
 	return sess
 }
 
-// getOrCreateSvc returns the executor for a session, creating if needed.
-func (ws *WebSocketEndpoint) getOrCreateSvc(sessionID string) ChanSvc {
+// getOrCreateSvc returns the executor for a session, creating and starting it on
+// first use.
+// CRC: crc-WebSocketEndpoint.md | R204
+func (ws *WebSocketEndpoint) getOrCreateSvc(sessionID string) *ChanSvc {
 	ws.mu.Lock()
 	defer ws.mu.Unlock()
 
@@ -98,19 +100,20 @@ func (ws *WebSocketEndpoint) getOrCreateSvc(sessionID string) ChanSvc {
 		return svc
 	}
 
-	svc := make(ChanSvc)
+	svc := NewChanSvc()
 	ws.sessionSvc[sessionID] = svc
-	RunSvc(svc)
+	svc.Start()
 	return svc
 }
 
-// cleanupSessionSvc closes and removes a session's executor.
+// cleanupSessionSvc stops and removes a session's executor.
+// CRC: crc-WebSocketEndpoint.md | R204
 func (ws *WebSocketEndpoint) cleanupSessionSvc(sessionID string) {
 	ws.mu.Lock()
 	defer ws.mu.Unlock()
 
 	if svc, ok := ws.sessionSvc[sessionID]; ok {
-		close(svc)
+		svc.Stop()
 		delete(ws.sessionSvc, sessionID)
 	}
 }

@@ -25,6 +25,7 @@ type Session struct {
 	lastActivity  time.Time
 	mu            sync.RWMutex
 	batchCount    int
+	tailors       map[*Tailor]struct{} // pending list: open Tailors (R191)
 }
 
 // NewSession creates a new session with the given ID.
@@ -176,4 +177,35 @@ func GenerateSessionID() string {
 	bytes := make([]byte, 16)
 	rand.Read(bytes)
 	return hex.EncodeToString(bytes)
+}
+
+// addTailor puts t on the session's pending list.
+// CRC: crc-Session.md | Seq: seq-tailor.md#1.1.2 | R191
+func (s *Session) addTailor(t *Tailor) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.tailors == nil {
+		s.tailors = make(map[*Tailor]struct{})
+	}
+	s.tailors[t] = struct{}{}
+}
+
+// removeTailor takes t off the session's pending list.
+// CRC: crc-Session.md | R191
+func (s *Session) removeTailor(t *Tailor) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	delete(s.tailors, t)
+}
+
+// openTailors snapshots the session's pending list.
+// CRC: crc-Session.md | R192, R193
+func (s *Session) openTailors() []*Tailor {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	ts := make([]*Tailor, 0, len(s.tailors))
+	for t := range s.tailors {
+		ts = append(ts, t)
+	}
+	return ts
 }

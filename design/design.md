@@ -82,9 +82,12 @@ target-to-link reverse mapping is kept.
 - [x] seq-no-flash.md *(no-flash view rendering)*
 
 ### Session System
-- [x] crc-Session.md → `internal/session/session.go`
-- [x] crc-SessionRef.md → `internal/server/sessionref.go`, `cli/exports.go`
+- [x] crc-Session.md → `internal/server/session.go`
+- [x] crc-SessionRef.md → `internal/server/sessionref.go`, `internal/server/tailor.go`, `cli/exports.go`
 - [x] seq-session-ref.md → `internal/server/sessionref.go`, `internal/server/server.go`, `internal/server/websocket.go`
+- [x] crc-Tailor.md → `internal/server/tailor.go`
+- [x] seq-tailor.md → `internal/server/tailor.go`, `internal/server/server.go`, `internal/server/session.go`
+- [x] crc-ChanSvc.md → `internal/server/svc.go`
 - [x] crc-SessionManager.md → `internal/session/manager.go`
 - [x] crc-Router.md → `internal/router/router.go`, `web/src/router.ts`
 - [x] seq-create-session.md
@@ -177,6 +180,8 @@ target-to-link reverse mapping is kept.
 - [x] test-SessionTimer.md → `internal/lua/shutdown_race_test.go`
 - [x] test-PortableOS.md → `internal/lua/portable_test.go`
 - [x] test-SessionRef.md → `internal/server/sessionref_test.go`, `internal/server/dangerous_test.go`
+- [x] test-Tailor.md → `internal/server/tailor_test.go`
+- [x] test-ChanSvc.md → `internal/server/svc_test.go`
 
 ## Gaps
 
@@ -207,7 +212,7 @@ None identified.
 - [ ] O2: Frontend test coverage
   - No TypeScript unit tests (`*.test.ts`) for web/src/ components
   - Test designs exist (test-Frontend.md) but no implementation
-- [ ] O3: ChanSvc utility undocumented
+- [x] O3: ChanSvc utility undocumented
   - `internal/server/svc.go` provides channel-based service pattern
   - Used for concurrency but has no CRC card (minor - utility code)
 

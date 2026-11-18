@@ -1,5 +1,5 @@
 # SessionRef
-**Requirements:** R153, R154, R155, R156, R157, R158, R159, R160, R161, R162, R163, R164, R165, R167, R173
+**Requirements:** R153-165, R167, R173, R174, R192
 
 A handle to one session, plus the per-system views reached through it. This is the seam
 the coherency carve's later steps move session state behind; in this step every view is
@@ -37,6 +37,8 @@ Each view is a struct holding the reference. Every view has `Ref()` and `Station
 - BrowserView.Update: `WebSocketEndpoint.RunAfterBatch(internalID)`; executor only
   (R163).
 - LuaView.Session: the resolved `LuaSession`, or nil when invalid; executor only (R164).
+- ExecView.Tailor(name, deadline): a new Tailor on this session (R174).
+- ExecView.PendingTailors: snapshots of the session's open Tailors (R192).
 
 There is no current-session accessor; hosts supply references (R167).
 

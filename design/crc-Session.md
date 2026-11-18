@@ -1,4 +1,5 @@
 # Session
+**Requirements:** R191, R192
 
 **Source Spec:** main.md (UI Server Architecture - Frontend Layer), interfaces.md
 
@@ -6,6 +7,7 @@
 
 ### Knows
 - id: Unique session identifier (URL path component)
+- tailors: the pending list, open Tailors on this session, mutex-guarded (R191)
 - backend: Backend instance (LuaBackend or ProxiedBackend)
 - connections: List of connected frontend connections
 - createdAt: Session creation timestamp
@@ -20,6 +22,7 @@
 - getConnectionCount: Return number of active connections
 - touch: Update lastActivity timestamp
 - handleMessage: Delegate to backend.HandleMessage
+- addTailor / removeTailor / tailors: maintain and snapshot the pending list (R191, R192)
 
 ## Collaborators
 
@@ -32,6 +35,7 @@
 - seq-session-create-backend.md: Session creation with backend initialization
 - seq-frontend-connect.md: Frontend connecting to session
 - seq-frontend-reconnect.md: Frontend reconnecting to existing session
+- seq-tailor.md: Tailors join and leave the pending list
 
 ## Notes
 

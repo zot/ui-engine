@@ -29,6 +29,9 @@ type (
 	LuaView     = server.LuaView
 	BrowserView = server.BrowserView
 	ExecView    = server.ExecView
+	// CRC: crc-Tailor.md | R174, R192
+	Tailor     = server.Tailor
+	TailorInfo = server.TailorInfo
 )
 
 // Re-export server constructor

@@ -1,5 +1,5 @@
 # Server
-**Requirements:** R119, R120, R138, R143, R153, R168-171
+**Requirements:** R119, R120, R138, R143, R153, R168-171, R193
 
 Top-level server. This card covers its site-directory responsibilities and its
 session entry points (references and dangerous execution); protocol and HTTP behavior
@@ -26,6 +26,8 @@ are on their own cards.
 - SessionRef(vendedID): a reference holding a weak pointer to the registered
   LuaSession, or false when none is registered (R153).
 - ExecuteInSession: delegates to PrimitiveExecuteInSession with dangerous true (R168).
+- DestroyLuaBackendForSession: first closes every open Tailor on the session as
+  failed (R193).
 - PrimitiveExecuteInSession(vendedID, fn, dangerous): when dangerous, find the site that
   called ExecuteInSession; with AllowDangerousExecution set, warn once per site and
   continue (R170); unset, panic naming the site before queueing (R171). Then the
@@ -39,3 +41,4 @@ are on their own cards.
 - seq-app-discovery.md
 - seq-server-startup.md
 - seq-session-ref.md
+- seq-tailor.md

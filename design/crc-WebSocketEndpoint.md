@@ -1,13 +1,14 @@
 # WebSocketEndpoint
 
 **Source Spec:** interfaces.md, deployment.md
-**Requirements:** R40, R41, R159, R162, R163
+**Requirements:** R40, R41, R159, R162, R163, R204
 
 ## Responsibilities
 
 ### Knows
 - connections: Map of connection ID to WebSocket connection
 - sessionBindings: Map of connection ID to session ID
+- sessionSvc: Map of session ID to its ChanSvc executor, created and started on first use (R204)
 - messageQueue: Outbound message queue per connection
 - reconnectTokens: Map of session ID to reconnect token for reconnection validation
 
@@ -26,6 +27,7 @@
 - generateReconnectToken: Create token for validating reconnection to same session
 - ExecuteInSessionPassive(sessionID, fn): queue fn on the session executor without waiting and without afterBatch (R159)
 - RunAfterBatch(sessionID): run change detection and push now when a browser is connected; called on the executor (R163)
+- cleanupSessionSvc(sessionID): stop the session's ChanSvc and forget it (R204)
 - HasConnectionsForSession(sessionID): whether a browser is attached (R162)
 
 ## Collaborators
@@ -36,6 +38,7 @@
 - MessageRelay: Coordinates message flow
 - SharedWorker: Coordinates with other tabs
 - Config: Logging delegate (connection events and errors)
+- ChanSvc: one per session, serializes and orders session work
 
 ## Sequences
 

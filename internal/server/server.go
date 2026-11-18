@@ -619,6 +619,12 @@ func (s *Server) DestroyLuaBackendForSession(vendedID string, sess *Session) {
 		return
 	}
 
+	// Close the session's open Tailors first: cancel their contexts and log them.
+	// CRC: crc-Server.md | Seq: seq-tailor.md#2.2.1 | R193
+	for _, t := range sess.openTailors() {
+		t.close("session destroyed", true)
+	}
+
 	// Get and remove the Lua session
 	s.luaSessionsMu.Lock()
 	luaSession := s.luaSessions[vendedID]

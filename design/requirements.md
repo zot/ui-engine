@@ -253,3 +253,42 @@
 - **R171:** With `dangerous` true and `AllowDangerousExecution` not set, `PrimitiveExecuteInSession` panics with a message naming the calling site, before queueing anything
 - **R172:** The session config property `AllowDangerousExecution` (`allow_dangerous_execution` in the config file) defaults to set
 - **R173:** Session references are implemented over the existing session maps; `ExecuteInSessionAsync` and the maps are unchanged
+
+## Feature: Tailor
+**Source:** specs/tailor.md
+
+- **R174:** `ExecView.Tailor(name, deadline)` creates a Tailor for one sewing operation on the view's session
+- **R175:** A Tailor created with deadline 0 is long-lived: it never expires
+- **R176:** `Sew(fn, updateOnErr)`, `SewUpdate(fn)`, `End(fn)` and `EndUpdate(fn)` each post a stitch to the session executor and return without waiting
+- **R177:** A stitch runs with the session's Lua context set; `Sew` and `End` stitches are passive, and `SewUpdate` and `EndUpdate` stitches run change detection afterward, pushing changes when a browser is connected
+- **R178:** Posting a stitch records the current time and the calling site (file and line) in the Tailor's pending entry
+- **R179:** Before posting, a stitch checks `IsValid()`; if the session has ended, the Tailor closes as failed and nothing is posted
+- **R180:** A stitch runs `fn` with panics recovered, and a panic counts as an error
+- **R181:** When a stitch's `fn` returns an error, the error is logged with the Tailor's name and the Tailor closes as failed
+- **R182:** A `Sew` stitch whose `fn` errors runs change detection afterward only when `updateOnErr` is set
+- **R183:** `End` and `EndUpdate` close the Tailor after `fn` runs, whether or not it errored
+- **R184:** Posting a stitch after `End` or `EndUpdate` has been posted panics
+- **R185:** Posting a stitch after the Tailor closed through a failure, its deadline, or its session ending logs once and posts nothing
+- **R186:** `IsValid()` is true while the session is valid and the Tailor is not closed
+- **R187:** `State()` returns the session's `*lua.LState` while a stitch of this Tailor is running, and panics otherwise
+- **R188:** A Tailor never hands out the session's `LuaSession`
+- **R189:** A Tailor with a non-zero deadline closes as failed when the deadline passes, logging its name and last calling site
+- **R190:** `Context()` returns a context that is cancelled when the Tailor closes for any reason
+- **R191:** A Tailor joins its session's pending list when created and leaves it when it closes
+- **R192:** `ExecView.PendingTailors()` lists the session's open Tailors with name, creation time, last stitch time, last calling site, and whether each is long-lived
+- **R193:** When a session is destroyed, each of its open Tailors closes as failed, its context is cancelled, and it is logged with its name, age, and last calling site
+- **R194:** `Tailor.Ref()` returns the Tailor's session reference
+
+## Feature: Closure Actor
+**Source:** specs/closure-actor.md
+
+- **R195:** Closures posted to a `ChanSvc` by one goroutine run in the order that goroutine posted them, for fire-and-forget and synchronous posts alike
+- **R196:** A post is a direct send on the calling goroutine; it is never handed to a freshly spawned goroutine
+- **R197:** The `ChanSvc` loop goroutine never runs a posted closure; it keeps a queue and an in-flight flag, touched only on that goroutine, and each closure runs on a goroutine of its own that posts back when it finishes
+- **R198:** Exactly one closure posted to a `ChanSvc` runs at any instant
+- **R199:** A `ChanSvc` absorbs bursts in an unbounded queue; its channel is one slot deep
+- **R200:** A closure panic is not recovered by the `ChanSvc`
+- **R201:** A fire-and-forget post from inside a running closure queues behind it; a synchronous post from inside a running closure is forbidden
+- **R202:** Popping the `ChanSvc` queue clears the popped slot before advancing
+- **R203:** `ChanSvc.Stop` posts a sentinel behind everything already posted and never closes the channel
+- **R204:** A session's executor is created and started on first use, and stopped when the session's executor is cleaned up
