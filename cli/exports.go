@@ -32,6 +32,8 @@ type (
 	// CRC: crc-Tailor.md | R174, R192
 	Tailor     = server.Tailor
 	TailorInfo = server.TailorInfo
+	// CRC: crc-HostOp.md | R209
+	HostOp = server.HostOp
 )
 
 // Re-export server constructor

@@ -88,6 +88,8 @@ target-to-link reverse mapping is kept.
 - [x] crc-Tailor.md → `internal/server/tailor.go`
 - [x] seq-tailor.md → `internal/server/tailor.go`, `internal/server/server.go`, `internal/server/session.go`
 - [x] crc-ChanSvc.md → `internal/server/svc.go`
+- [x] crc-HostOp.md → `internal/server/hostop.go`, `cli/exports.go`
+- [x] seq-host-op.md → `internal/server/hostop.go`
 - [x] crc-SessionManager.md → `internal/session/manager.go`
 - [x] crc-Router.md → `internal/router/router.go`, `web/src/router.ts`
 - [x] seq-create-session.md
@@ -182,6 +184,7 @@ target-to-link reverse mapping is kept.
 - [x] test-SessionRef.md → `internal/server/sessionref_test.go`, `internal/server/dangerous_test.go`
 - [x] test-Tailor.md → `internal/server/tailor_test.go`
 - [x] test-ChanSvc.md → `internal/server/svc_test.go`
+- [x] test-HostOp.md → `internal/server/hostop_test.go`
 
 ## Gaps
 

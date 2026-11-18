@@ -292,3 +292,19 @@
 - **R202:** Popping the `ChanSvc` queue clears the popped slot before advancing
 - **R203:** `ChanSvc.Stop` posts a sentinel behind everything already posted and never closes the channel
 - **R204:** A session's executor is created and started on first use, and stopped when the session's executor is cleaned up
+
+## Feature: Host Operations
+**Source:** specs/host-ops.md
+
+- **R205:** `LuaView.DefineHostOp(name, deadline, op)` installs `ui[name]` in the session's Lua state
+- **R206:** Calling a host operation with a `target` that is not a table, or a `field` that is not a string, raises a Lua argument error at the call
+- **R207:** A host operation call returns nothing, at once, without waiting for its work
+- **R208:** A trailing function argument is taken as the callback and is not passed to `op`
+- **R209:** `op` is called on the executor with the arguments after `target` and `field`, and returns the `work` to run
+- **R210:** When `op` returns an error, the error is delivered as a failure and no work runs
+- **R211:** Each call creates a Tailor named after the operation; `work` runs on its own goroutine with a context that is cancelled when the deadline passes or the session ends
+- **R212:** The result is delivered in one terminal active stitch, which runs change detection afterward
+- **R213:** On success, delivery sets `target[field]` to the result converted with `GoToLua` and sets `target[field .. "Error"]` to nil
+- **R214:** On failure, delivery sets `target[field]` to nil and `target[field .. "Error"]` to the error message
+- **R215:** After the fields are written, a callback is called as `cb(result, nil)` on success or `cb(nil, message)` on failure
+- **R216:** A deadline of 0 means none; otherwise `work`'s context expires after the deadline, and the Tailor closes as failed after twice the deadline, delivering nothing if `work` has not returned
