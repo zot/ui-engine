@@ -53,6 +53,11 @@ Footer (24 bytes):
 
 **Detection:** At startup, the server reads the last 24 bytes. If the magic marker matches, the ZIP is served directly. Otherwise, the binary is unbundled.
 
+**Files left out:** a bundle holds site content only. Editor leftovers (names starting
+with `#` or `.#`, or ending with `~`) and fossil version-control state (checkout databases
+`.fslckout` and `_FOSSIL_`, and repositories, `*.fossil`) are skipped. A checkout database
+shipped in a bundle binds every install to the bundler's own repository path.
+
 **Symlink handling:**
 - Relative symlinks within the site directory are preserved in the bundle
 - Symlinks are stored using ZIP's standard symlink mode (Unix external attributes)

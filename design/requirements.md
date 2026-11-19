@@ -308,3 +308,8 @@
 - **R214:** On failure, delivery sets `target[field]` to nil and `target[field .. "Error"]` to the error message
 - **R215:** After the fields are written, a callback is called as `cb(result, nil)` on success or `cb(nil, message)` on failure
 - **R216:** A deadline of 0 means none; otherwise `work`'s context expires after the deadline, and the Tailor closes as failed after twice the deadline, delivering nothing if `work` has not returned
+
+## Feature: Bundling
+**Source:** specs/deployment.md
+
+- **R217:** Bundling skips editor leftovers (names starting with `#` or `.#`, or ending with `~`) and fossil version-control state (`.fslckout`, `_FOSSIL_`, `*.fossil`)

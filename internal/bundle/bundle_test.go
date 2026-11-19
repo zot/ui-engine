@@ -574,3 +574,42 @@ func TestValidateSymlinkTarget(t *testing.T) {
 		})
 	}
 }
+
+// Test: bundling leaves out editor leftovers and fossil state (R217)
+// Test: test-Bundle.md
+func TestAddDirToZip_SkipsEditorAndFossilFiles(t *testing.T) {
+	tmpDir := t.TempDir()
+	app := filepath.Join(tmpDir, "apps", "prefs")
+	if err := os.MkdirAll(app, 0755); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{
+		"app.lua", "fossil.txt", // kept
+		".fslckout", "_FOSSIL_", "checkpoint.fossil", "original.fossil", // fossil state
+		"#app.lua#", ".#app.lua", "app.lua~", // editor leftovers
+	} {
+		if err := os.WriteFile(filepath.Join(app, name), []byte("x"), 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	var buf bytes.Buffer
+	zipWriter := zip.NewWriter(&buf)
+	if err := addDirToZip(zipWriter, tmpDir, ""); err != nil {
+		t.Fatalf("addDirToZip failed: %v", err)
+	}
+	zipWriter.Close()
+	zipReader, err := zip.NewReader(bytes.NewReader(buf.Bytes()), int64(buf.Len()))
+	if err != nil {
+		t.Fatalf("failed to read ZIP: %v", err)
+	}
+
+	var names []string
+	for _, f := range zipReader.File {
+		names = append(names, f.Name)
+	}
+	want := []string{"apps/prefs/app.lua", "apps/prefs/fossil.txt"}
+	if len(names) != len(want) || names[0] != want[0] || names[1] != want[1] {
+		t.Fatalf("bundled %v, want only %v", names, want)
+	}
+}

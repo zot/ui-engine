@@ -1,9 +1,11 @@
 # Bundle
 **Source Spec:** deployment.md, executable-attrs.md
+**Requirements:** R217
 
 ## Knows
 - MagicMarker: identifies bundled binaries ("UISERVER")
 - FooterSize: 24 bytes (offset + size + magic)
+- IGNORE_FILES: editor leftovers and fossil version-control state, never bundled (R217)
 - IGNORE_FILES: regex for files to skip (backup/temp files)
 
 ## Does

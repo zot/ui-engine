@@ -24,7 +24,11 @@ const (
 	FooterSize = 24
 )
 
-var IGNORE_FILES = regexp.MustCompile(`^(|.*/)((#|\.#)[^/]*|[^/]*~)$`)
+// IGNORE_FILES matches files that are never site content: editor leftovers (#name,
+// .#name, name~) and fossil version-control state (.fslckout, _FOSSIL_, *.fossil).
+// A checkout database in a bundle would bind every install to the bundler's repository.
+// CRC: crc-Bundle.md | R217
+var IGNORE_FILES = regexp.MustCompile(`^(|.*/)((#|\.#)[^/]*|[^/]*~|\.fslckout|_FOSSIL_|[^/]*\.fossil)$`)
 
 // Footer contains metadata about the bundled ZIP
 type Footer struct {
