@@ -55,6 +55,61 @@ written to fail if the delivery path loses it again.
 **Refs:** crc-ChanSvc.md
 **Code:** internal/server/svc_test.go
 
+## Test: posts after a stop return at once
+**Purpose:** a stopped actor never blocks a poster (R219, R220). Before 2026-11-19 the loop simply returned, so the first late post filled the one-slot channel and every later one blocked forever
+**Input:** start and stop an actor; then, under a 2-second deadline, post 5 fire-and-forget closures and one SvcSync
+**Expected:** every post returns before the deadline; no closure runs; SvcSync returns `ErrStopped`
+**Refs:** crc-ChanSvc.md
+**Code:** internal/server/svc_test.go
+**Alarm:** 4
+**Fire alarm:** make send a plain `s.ch <- f` without the select on done; the second late post blocks and the deadline fails the test
+**Inject:** internal/server/svc.go:ChanSvc.send
+@alarm-hash: 72fb77050aabf0e3
+**Pulled:** 2026-11-19 — rang: send made a plain `s.ch <- fn` with no select on done; "posting to a stopped actor did not return within 2s"
+
+## Test: an abandoned synchronous caller gets ErrStopped
+**Purpose:** a SvcSync whose job was queued behind the in-flight one when the actor stopped does not wait forever (R218, R221)
+**Input:** hold a first closure in flight; post a SvcSync from another goroutine so it queues; Stop; release the first closure
+**Expected:** the SvcSync caller returns `ErrStopped` within 2 seconds; its closure never ran; the held closure ran to completion
+**Refs:** crc-ChanSvc.md
+**Code:** internal/server/svc_test.go
+**Alarm:** 5
+**Fire alarm:** in SvcSync, wait only for the result, not for done; the abandoned caller hangs and the deadline fails the test
+**Inject:** internal/server/svc.go:SvcSync
+@alarm-hash: 86fd10c35ef2d4ae
+**Pulled:** 2026-11-19 — rang: SvcSync waits only for its result, not for done; "a SvcSync abandoned by Stop waited forever (R221)"
+
+## Test: a synchronous caller whose closure stops the actor gets its result
+**Purpose:** a job in flight runs to completion, so the caller of a closure that calls Stop gets that closure's result, not `ErrStopped` (R218, R223). This is the shape of a session destroying itself from inside its executor
+**Input:** SvcSync a closure that calls Stop, sleeps 10ms so done closes first, and returns 42
+**Expected:** SvcSync returns 42 and no error
+**Refs:** crc-ChanSvc.md
+**Code:** internal/server/svc_test.go
+**Alarm:** 6
+**Fire alarm:** in SvcSync, return `ErrStopped` whenever done wakes it, ignoring launched; the caller gets `ErrStopped`
+**Inject:** internal/server/svc.go:SvcSync
+@alarm-hash: 86fd10c35ef2d4ae
+**Pulled:** 2026-11-19 — rang: SvcSync returns ErrStopped whenever done wakes it, ignoring launched; "got (0, executor stopped), want (42, nil)"
+
+## Test: stopping twice is harmless
+**Purpose:** Stop is idempotent (R223)
+**Input:** start an actor; call Stop three times, under a 2-second deadline
+**Expected:** every call returns; a later post returns at once
+**Refs:** crc-ChanSvc.md
+**Code:** internal/server/svc_test.go
+**Alarm:** 7
+**Fire alarm:** make Stop a plain `s.ch <- nil` that bypasses send; after the loop has ended the second sentinel fills the empty slot and the third blocks, failing the deadline. Three calls, not two, because two pass with the defect present
+**Inject:** internal/server/svc.go:ChanSvc.Stop
+@alarm-hash: 1016843207ade23f
+**Pulled:** 2026-11-19 — rang: Stop a plain `s.ch <- nil` bypassing send; "three Stops and a post did not return within 2s"
+
+## Test: stopping ends the loop goroutine
+**Purpose:** the goroutine count returns after a stop (R219)
+**Input:** record `runtime.NumGoroutine`; start 50 actors, run one closure on each, stop them all
+**Expected:** within 2 seconds the count is back to the recorded value
+**Refs:** crc-ChanSvc.md
+**Code:** internal/server/svc_test.go
+
 ## Not tested, deliberately
 **The panic policy (R200).** A panicking closure terminates the process, so testing it
 in-process would take the test binary down. Its implementation is the absence of a recover;

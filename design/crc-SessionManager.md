@@ -1,6 +1,7 @@
 # SessionManager
 
 **Source Spec:** interfaces.md, protocol.md
+**Requirements:** R224, R225, R226, R227
 
 ## Responsibilities
 
@@ -14,9 +15,9 @@
 - vendedToInternal: Map of vended ID to internal session ID
 
 ### Does
-- createSession: Generate new session ID, assign vended ID, create Session, trigger Lua session creation
+- createSession: Generate new session ID, assign vended ID, create Session (which starts its executor, R224), trigger Lua session creation; when that fails, stop the new session's executor before forgetting it (R227)
 - getSession: Retrieve session by ID (internal ID)
-- destroySession: Clean up session, destroy Lua session, remove vended ID mappings, and all resources
+- destroySession: Clean up session, destroy Lua session, remove vended ID mappings, and all resources; last, after the destroy callback has torn down the backend, stop the session's executor (R225, R227). Safe to call from inside that executor (R226)
 - sessionExists: Check if session ID is valid
 - registerUrlPath: Associate URL path with presenter for session
 - resolveUrlPath: Find presenter for URL path
@@ -37,6 +38,7 @@
 - seq-create-session.md: Full session creation (including Lua session)
 - seq-navigate-url.md: URL path resolution
 - seq-frontend-reconnect.md: Reconnection to existing session
+- seq-session-executor.md: the executor created and stopped with the session
 
 ## Notes
 

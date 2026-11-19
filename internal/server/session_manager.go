@@ -85,6 +85,8 @@ func (m *SessionManager) CreateSession() (*Session, string, error) {
 			delete(m.internalToVended, internalID)
 			delete(m.vendedToInternal, vendedID)
 			m.mu.Unlock()
+			// CRC: crc-SessionManager.md | Seq: seq-session-executor.md#1.1.3.1 | R227
+			session.stopExecutor()
 			return nil, "", err
 		}
 	}
@@ -159,6 +161,11 @@ func (m *SessionManager) DestroySession(id string) error {
 	if m.onSessionDestroyed != nil && vendedID != "" {
 		m.onSessionDestroyed(vendedID, session)
 	}
+
+	// Stop the executor last, after the backend has been torn down, so the teardown
+	// can still use it. Safe from inside that executor: Stop never blocks there.
+	// CRC: crc-SessionManager.md | Seq: seq-session-executor.md#2.1.3 | R225, R226, R227
+	session.stopExecutor()
 
 	return nil
 }

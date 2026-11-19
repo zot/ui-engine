@@ -7,9 +7,10 @@ package server
 // nothing failed. They are written to fail if the delivery path loses it again,
 // not merely to show that it holds today.
 //
-// CRC: crc-ChanSvc.md | Test: test-ChanSvc.md | R195, R196, R197, R198, R199, R201
+// CRC: crc-ChanSvc.md | Test: test-ChanSvc.md | R195, R196, R197, R198, R199, R201, R218, R219, R220, R221, R223
 
 import (
+	"runtime"
 	"sync"
 	"testing"
 	"time"
@@ -207,4 +208,140 @@ func TestChanSvcBurstLargerThanChannelStaysOrdered(t *testing.T) {
 		t.Fatal("burst did not drain")
 	}
 	wantInOrder(t, &r, n, "backlog drained out of order (R199)")
+}
+
+// within fails the test if f has not returned after d. It is how these tests turn a
+// hang into a failure.
+func within(t *testing.T, d time.Duration, what string, f func()) {
+	t.Helper()
+	finished := make(chan struct{})
+	go func() { f(); close(finished) }()
+	select {
+	case <-finished:
+	case <-time.After(d):
+		t.Fatalf("%s did not return within %v", what, d)
+	}
+}
+
+// settles polls until the goroutine count is back to want, failing after 2 seconds.
+func settles(t *testing.T, want int) {
+	t.Helper()
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		got := runtime.NumGoroutine()
+		if got <= want {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("goroutines: %d, want %d (leaked %d)", got, want, got-want)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+}
+
+// Test: posts after a stop return at once (R219, R220)
+// CRC: crc-ChanSvc.md | Test: test-ChanSvc.md | R219, R220
+func TestChanSvc_PostsAfterStopReturn(t *testing.T) {
+	s := NewChanSvc()
+	s.Start()
+	s.Stop()
+	ran := false
+	var err error
+	within(t, 2*time.Second, "posting to a stopped actor", func() {
+		for i := 0; i < 5; i++ {
+			Svc(s, func() { ran = true })
+		}
+		_, err = SvcSync(s, func() (int, error) { ran = true; return 1, nil })
+	})
+	if ran {
+		t.Error("a closure posted after Stop ran")
+	}
+	if err != ErrStopped {
+		t.Errorf("SvcSync after Stop: err = %v, want ErrStopped", err)
+	}
+}
+
+// Test: an abandoned synchronous caller gets ErrStopped (R218, R221)
+// CRC: crc-ChanSvc.md | Test: test-ChanSvc.md | R218, R221
+func TestChanSvc_AbandonedSyncCallerGetsErrStopped(t *testing.T) {
+	s := NewChanSvc()
+	s.Start()
+	release := make(chan struct{})
+	heldStarted := make(chan struct{})
+	heldDone := make(chan struct{})
+	Svc(s, func() { close(heldStarted); <-release; close(heldDone) })
+	<-heldStarted
+
+	queuedRan := false
+	result := make(chan error, 1)
+	go func() {
+		_, err := SvcSync(s, func() (int, error) { queuedRan = true; return 1, nil })
+		result <- err
+	}()
+	time.Sleep(20 * time.Millisecond) // let the SvcSync queue behind the held closure
+	s.Stop()
+	time.Sleep(20 * time.Millisecond) // let the loop take the sentinel
+	close(release)
+
+	select {
+	case err := <-result:
+		if err != ErrStopped {
+			t.Errorf("abandoned SvcSync: err = %v, want ErrStopped", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("a SvcSync abandoned by Stop waited forever (R221)")
+	}
+	<-heldDone // the in-flight closure ran to completion (R218)
+	if queuedRan {
+		t.Error("a closure queued behind the in-flight one ran after Stop")
+	}
+}
+
+// Test: a synchronous caller whose closure stops the actor gets its result (R218, R223)
+// CRC: crc-ChanSvc.md | Test: test-ChanSvc.md | R218, R223
+func TestChanSvc_SyncCallerOfStoppingClosureGetsResult(t *testing.T) {
+	s := NewChanSvc()
+	s.Start()
+	var val int
+	var err error
+	within(t, 2*time.Second, "a SvcSync whose closure stops the actor", func() {
+		val, err = SvcSync(s, func() (int, error) {
+			s.Stop()
+			time.Sleep(10 * time.Millisecond) // done closes while this is in flight
+			return 42, nil
+		})
+	})
+	if val != 42 || err != nil {
+		t.Errorf("got (%d, %v), want (42, nil): an in-flight closure runs to completion", val, err)
+	}
+}
+
+// Test: stopping twice is harmless (R223)
+// CRC: crc-ChanSvc.md | Test: test-ChanSvc.md | R223
+func TestChanSvc_StopIsIdempotent(t *testing.T) {
+	s := NewChanSvc()
+	s.Start()
+	within(t, 2*time.Second, "three Stops and a post", func() {
+		s.Stop()
+		time.Sleep(10 * time.Millisecond) // the loop has ended; the slot is empty
+		s.Stop()
+		s.Stop()
+		Svc(s, func() {})
+	})
+}
+
+// Test: stopping ends the loop goroutine (R219)
+// CRC: crc-ChanSvc.md | Test: test-ChanSvc.md | R219
+func TestChanSvc_StopEndsLoopGoroutine(t *testing.T) {
+	before := runtime.NumGoroutine()
+	svcs := make([]*ChanSvc, 50)
+	for i := range svcs {
+		svcs[i] = NewChanSvc()
+		svcs[i].Start()
+		SvcSync(svcs[i], func() (int, error) { return 0, nil })
+	}
+	for _, s := range svcs {
+		s.Stop()
+	}
+	settles(t, before)
 }

@@ -43,10 +43,9 @@ type wsConn struct {
 // WebSocketEndpoint handles WebSocket connections.
 type WebSocketEndpoint struct {
 	config          *config.Config
-	connections     map[string]*wsConn  // connectionID -> conn
-	sessionBindings map[string]string   // connectionID -> sessionID
-	reconnectTokens map[string]string   // sessionID -> token
-	sessionSvc      map[string]*ChanSvc // sessionID -> executor (serializes session operations)
+	connections     map[string]*wsConn // connectionID -> conn
+	sessionBindings map[string]string  // connectionID -> sessionID
+	reconnectTokens map[string]string  // sessionID -> token
 	sessions        *SessionManager
 	handler         *protocol.Handler
 	afterBatch      AfterBatchCallback // Called after each message to detect changes
@@ -61,7 +60,6 @@ func NewWebSocketEndpoint(cfg *config.Config, sessions *SessionManager, handler 
 		connections:     make(map[string]*wsConn),
 		sessionBindings: make(map[string]string),
 		reconnectTokens: make(map[string]string),
-		sessionSvc:      make(map[string]*ChanSvc),
 		sessions:        sessions,
 		handler:         handler,
 	}
@@ -89,33 +87,14 @@ func (ws *WebSocketEndpoint) getSession(sessionID string) *Session {
 	return sess
 }
 
-// getOrCreateSvc returns the executor for a session, creating and starting it on
-// first use.
-// CRC: crc-WebSocketEndpoint.md | R204
-func (ws *WebSocketEndpoint) getOrCreateSvc(sessionID string) *ChanSvc {
-	ws.mu.Lock()
-	defer ws.mu.Unlock()
-
-	if svc, ok := ws.sessionSvc[sessionID]; ok {
-		return svc
+// executor returns the session's executor, or nil when there is no such session. It
+// never creates one: work for a session that is gone has nowhere to run.
+// CRC: crc-WebSocketEndpoint.md | Seq: seq-session-executor.md#3.1.1 | R228
+func (ws *WebSocketEndpoint) executor(sessionID string) *ChanSvc {
+	if sess := ws.getSession(sessionID); sess != nil {
+		return sess.Executor()
 	}
-
-	svc := NewChanSvc()
-	ws.sessionSvc[sessionID] = svc
-	svc.Start()
-	return svc
-}
-
-// cleanupSessionSvc stops and removes a session's executor.
-// CRC: crc-WebSocketEndpoint.md | R204
-func (ws *WebSocketEndpoint) cleanupSessionSvc(sessionID string) {
-	ws.mu.Lock()
-	defer ws.mu.Unlock()
-
-	if svc, ok := ws.sessionSvc[sessionID]; ok {
-		svc.Stop()
-		delete(ws.sessionSvc, sessionID)
-	}
+	return nil
 }
 
 // ExecuteInSession executes a function within a session's executor.
@@ -123,8 +102,14 @@ func (ws *WebSocketEndpoint) cleanupSessionSvc(sessionID string) {
 // AfterBatch is called after execution to detect and push any changes,
 // but only if there are active browser connections to receive the updates.
 // Returns the result and any error from the function.
+// With no such session it returns an error; when the session is destroyed while the
+// call waits, ErrStopped.
+// CRC: crc-WebSocketEndpoint.md | Seq: seq-session-executor.md#3.1.2 | R228
 func (ws *WebSocketEndpoint) ExecuteInSession(sessionID string, fn func() (interface{}, error)) (interface{}, error) {
-	svc := ws.getOrCreateSvc(sessionID)
+	svc := ws.executor(sessionID)
+	if svc == nil {
+		return nil, fmt.Errorf("session %s not found", sessionID)
+	}
 	return SvcSync(svc, func() (interface{}, error) {
 		result, err := fn()
 		// Trigger change detection after execution, but only if there are connections
@@ -142,8 +127,13 @@ func (ws *WebSocketEndpoint) ExecuteInSession(sessionID string, fn func() (inter
 // AfterBatch is called after execution to detect and push any changes.
 // CRC: crc-LuaSession.md
 // Seq: seq-session-timer.md
+// With no such session the work is dropped.
+// CRC: crc-WebSocketEndpoint.md | Seq: seq-session-executor.md#3.1.2 | R228
 func (ws *WebSocketEndpoint) ExecuteInSessionAsync(sessionID string, fn func() (interface{}, error)) {
-	svc := ws.getOrCreateSvc(sessionID)
+	svc := ws.executor(sessionID)
+	if svc == nil {
+		return
+	}
 	Svc(svc, func() {
 		fn()
 		if ws.afterBatch != nil && ws.HasConnectionsForSession(sessionID) {
@@ -154,9 +144,13 @@ func (ws *WebSocketEndpoint) ExecuteInSessionAsync(sessionID string, fn func() (
 
 // ExecuteInSessionPassive queues fn on the session executor without waiting and
 // without running afterBatch afterward. The passive twin of ExecuteInSessionAsync.
-// CRC: crc-WebSocketEndpoint.md | Seq: seq-session-ref.md#1.2.3 | R159
+// With no such session the work is dropped.
+// CRC: crc-WebSocketEndpoint.md | Seq: seq-session-ref.md#1.2.3, seq-session-executor.md#3.1.2 | R159, R228
 func (ws *WebSocketEndpoint) ExecuteInSessionPassive(sessionID string, fn func()) {
-	svc := ws.getOrCreateSvc(sessionID)
+	svc := ws.executor(sessionID)
+	if svc == nil {
+		return
+	}
 	Svc(svc, fn)
 }
 
@@ -222,7 +216,12 @@ func (ws *WebSocketEndpoint) readPump(connectionID string, conn *websocket.Conn)
 		}
 
 		// Queue message processing through session's executor
-		svc := ws.getOrCreateSvc(sessionID)
+		// A message for a session that is gone is dropped (R228).
+		// Seq: seq-session-executor.md#3.1.2
+		svc := ws.executor(sessionID)
+		if svc == nil {
+			continue
+		}
 		Svc(svc, func() {
 			ws.processMessage(connectionID, sessionID, message)
 		})

@@ -26,18 +26,34 @@ type Session struct {
 	mu            sync.RWMutex
 	batchCount    int
 	tailors       map[*Tailor]struct{} // pending list: open Tailors (R191)
+	exec          *ChanSvc             // the session's executor, born and stopped with it (R224, R225)
 }
 
-// NewSession creates a new session with the given ID.
+// NewSession creates a new session with the given ID, and builds and starts its
+// executor.
+// CRC: crc-Session.md | Seq: seq-session-executor.md#1.1.1 | R224
 func NewSession(id string) *Session {
 	now := time.Now()
+	exec := NewChanSvc()
+	exec.Start()
 	return &Session{
 		ID:           id,
 		connections:  make(map[string]struct{}),
 		createdAt:    now,
 		lastActivity: now,
+		exec:         exec,
 	}
 }
+
+// Executor returns the session's executor. It is set once, at construction, so no
+// lock is needed.
+// CRC: crc-Session.md
+func (s *Session) Executor() *ChanSvc { return s.exec }
+
+// stopExecutor stops the session's executor; SessionManager calls it once the session
+// is destroyed.
+// CRC: crc-Session.md | Seq: seq-session-executor.md#2.1.3 | R225
+func (s *Session) stopExecutor() { s.exec.Stop() }
 
 // GetID returns the session ID.
 func (s *Session) GetID() string {

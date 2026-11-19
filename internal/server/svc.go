@@ -2,7 +2,14 @@ package server
 
 // The closure actor, ported from ark's svc.go. See specs/closure-actor.md for the
 // contract and design/crc-ChanSvc.md for the card.
-// CRC: crc-ChanSvc.md | R195, R196, R197, R198, R199, R200, R201, R202, R203
+// CRC: crc-ChanSvc.md | R195, R196, R197, R198, R199, R200, R201, R202, R218, R219, R220, R221, R222, R223
+
+import "errors"
+
+// ErrStopped is what a synchronous post to a stopped actor returns, and what a
+// synchronous caller gets when its closure was abandoned by a stop.
+// CRC: crc-ChanSvc.md | R220, R221
+var ErrStopped = errors.New("executor stopped")
 
 // chanSvcSlots is the depth of every actor's channel, and it is 1 on purpose. The
 // channel is a doorway, not a buffer: bursts are absorbed by the queue behind it, and
@@ -12,7 +19,8 @@ package server
 // somewhere else. One slot blocks the very next poster, at the site.
 //
 // It cannot deadlock: the loop blocks only on its own receive, and neither accept nor
-// next can block, so it always returns to drain.
+// next can block, so it always returns to drain. Once the loop has stopped, nobody
+// drains, which is why every send selects on done.
 // CRC: crc-ChanSvc.md | R199
 const chanSvcSlots = 1
 
@@ -27,70 +35,97 @@ const chanSvcSlots = 1
 // receive.
 //
 // queue and running are touched only on the loop goroutine, so neither needs a lock.
-// CRC: crc-ChanSvc.md | R195, R196, R197
+// CRC: crc-ChanSvc.md | R195, R196, R197, R219
 type ChanSvc struct {
-	ch chan func() // a doorway, not the buffer (R199)
+	ch   chan func()   // a doorway, not the buffer (R199)
+	done chan struct{} // closed by the loop, and only by it, when it stops (R219)
 
 	// loop goroutine only:
-	queue   []func()
+	queue   []*job
 	running bool
+}
+
+// job is one posted closure. launched is written only on the loop goroutine, before
+// that goroutine closes done, so a reader woken by done reads it without a race.
+// CRC: crc-ChanSvc.md | R218, R221
+type job struct {
+	run      func()
+	launched bool
 }
 
 // NewChanSvc builds an actor without starting it.
 // CRC: crc-ChanSvc.md
 func NewChanSvc() *ChanSvc {
-	return &ChanSvc{ch: make(chan func(), chanSvcSlots)}
+	return &ChanSvc{ch: make(chan func(), chanSvcSlots), done: make(chan struct{})}
 }
 
 // Start launches the loop goroutine. Every closure it receives is bookkeeping (accept
-// or next), so the loop does no caller work and cannot be held.
-// CRC: crc-ChanSvc.md | R197
+// or next), so the loop does no caller work and cannot be held. On the stop sentinel it
+// closes done and returns, abandoning whatever is still queued.
+// CRC: crc-ChanSvc.md | R197, R218, R219
 func (s *ChanSvc) Start() {
 	go func() {
 		for fn := range s.ch {
 			if fn == nil {
-				return // the stop sentinel
+				close(s.done) // the stop sentinel
+				return
 			}
 			fn()
 		}
 	}()
 }
 
-// Stop shuts the loop down once everything already posted has been handled. Closures
-// still queued behind an in-flight one are abandoned. The channel is deliberately never
-// closed: every closure posts next back when it finishes, and a closure finishing after
-// a close would panic sending on a closed channel.
-// CRC: crc-ChanSvc.md | R203
-func (s *ChanSvc) Stop() { s.ch <- nil }
+// Stop shuts the loop down once everything already posted has been handled. A closure
+// in flight runs to completion; closures still queued behind it are abandoned. The
+// sentinel goes through send, so a Stop after the loop has ended returns at once, and a
+// second sentinel sent before the loop took the first lies unread in the slot: Stop is
+// idempotent with no flag of its own. Calling it from inside a running closure is
+// fine, since closures run off the loop goroutine.
+// CRC: crc-ChanSvc.md | R218, R223
+func (s *ChanSvc) Stop() { s.send(nil) }
+
+// send is the one way anything enters the channel. Once the actor has stopped it
+// returns false at once instead of blocking on a channel nobody drains.
+// CRC: crc-ChanSvc.md | R219, R222
+func (s *ChanSvc) send(fn func()) bool {
+	select {
+	case s.ch <- fn:
+		return true
+	case <-s.done:
+		return false
+	}
+}
 
 // post is the single door onto the loop. The send happens here, on the caller's
 // goroutine, which is what makes delivery ordered.
-// CRC: crc-ChanSvc.md | R195, R196
-func (s *ChanSvc) post(fn func()) { s.ch <- func() { s.accept(fn) } }
+// CRC: crc-ChanSvc.md | R195, R196, R219
+func (s *ChanSvc) post(j *job) bool { return s.send(func() { s.accept(j) }) }
 
-// accept runs on the loop goroutine: queue the closure if one is in flight, otherwise
+// accept runs on the loop goroutine: queue the job if one is in flight, otherwise
 // start it.
 // CRC: crc-ChanSvc.md | R197, R198
-func (s *ChanSvc) accept(fn func()) {
+func (s *ChanSvc) accept(j *job) {
 	if s.running {
-		s.queue = append(s.queue, fn)
+		s.queue = append(s.queue, j)
 		return
 	}
-	s.launch(fn)
+	s.launch(j)
 }
 
-// launch runs on the loop goroutine: mark the actor busy and run the closure on its own
-// goroutine, which posts next back when it finishes.
+// launch runs on the loop goroutine: mark the job launched and the actor busy, and run
+// the closure on its own goroutine, which reports back when it finishes. After a stop
+// that report is a no-op.
 //
 // No recover: a panicking closure takes the process down. The state the actor protects
 // is in an unknown condition once a closure has panicked, and a central recover that
 // forgot to clear running would queue every later closure forever, silently.
-// CRC: crc-ChanSvc.md | R197, R198, R200
-func (s *ChanSvc) launch(fn func()) {
+// CRC: crc-ChanSvc.md | R197, R198, R200, R218, R222
+func (s *ChanSvc) launch(j *job) {
+	j.launched = true
 	s.running = true
 	go func() {
-		fn()
-		s.ch <- s.next
+		j.run()
+		s.send(s.next)
 	}()
 }
 
@@ -115,23 +150,36 @@ func popFront[T any](q *[]T) T {
 	return head
 }
 
-// Svc posts a fire-and-forget closure. Safe from inside a running closure: that
-// closure runs off the loop goroutine, so this merely queues behind it.
-// CRC: crc-ChanSvc.md | R195, R201
-func Svc(s *ChanSvc, fn func()) { s.post(fn) }
+// Svc posts a fire-and-forget closure; once the actor has stopped it is dropped. Safe
+// from inside a running closure: that closure runs off the loop goroutine, so this
+// merely queues behind it.
+// CRC: crc-ChanSvc.md | R195, R201, R219
+func Svc(s *ChanSvc, fn func()) { s.post(&job{run: fn}) }
 
-// SvcSync posts a closure and blocks until it completes. Never call it from inside a
-// running closure: the nested post queues behind the running one, which is blocked here
-// waiting for it.
-// CRC: crc-ChanSvc.md | R195, R201
+// SvcSync posts a closure and blocks until it completes. On a stopped actor it returns
+// ErrStopped at once. Woken by a stop while waiting, it keeps waiting when its closure
+// is in flight, which runs to completion, and returns ErrStopped when the closure was
+// abandoned. Never call it from inside a running closure: the nested post queues
+// behind the running one, which is blocked here waiting for it.
+// CRC: crc-ChanSvc.md | R195, R201, R218, R220, R221
 func SvcSync[T any](s *ChanSvc, fn func() (T, error)) (T, error) {
-	done := make(chan struct{})
+	finished := make(chan struct{})
 	var val T
 	var err error
-	s.post(func() {
+	j := &job{run: func() {
 		val, err = fn()
-		close(done)
-	})
-	<-done
+		close(finished)
+	}}
+	if !s.post(j) {
+		return val, ErrStopped
+	}
+	select {
+	case <-finished:
+	case <-s.done:
+		if !j.launched {
+			return val, ErrStopped
+		}
+		<-finished
+	}
 	return val, err
 }

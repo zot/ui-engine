@@ -290,8 +290,19 @@
 - **R200:** A closure panic is not recovered by the `ChanSvc`
 - **R201:** A fire-and-forget post from inside a running closure queues behind it; a synchronous post from inside a running closure is forbidden
 - **R202:** Popping the `ChanSvc` queue clears the popped slot before advancing
-- **R203:** `ChanSvc.Stop` posts a sentinel behind everything already posted and never closes the channel
-- **R204:** A session's executor is created and started on first use, and stopped when the session's executor is cleaned up
+- **~~R203:~~** (Retired T4 — see R218) `ChanSvc.Stop` posts a sentinel behind everything already posted and never closes the channel
+- **~~R204:~~** (Retired T5 — see R224) A session's executor is created and started on first use, and stopped when the session's executor is cleaned up
+- **R218:** When a `ChanSvc` stops, a closure in flight runs to completion and closures still queued behind it are abandoned
+- **R219:** After `ChanSvc.Stop` the loop goroutine has ended, and a fire-and-forget post is dropped and returns at once
+- **R220:** After `ChanSvc.Stop` a synchronous post returns `ErrStopped` without waiting
+- **R221:** A synchronous caller whose closure was abandoned in the queue by a stop returns `ErrStopped` instead of waiting forever
+- **R222:** A closure finishing after its `ChanSvc` stopped reports back without blocking or panicking
+- **R223:** Stopping a `ChanSvc` twice is harmless, and stopping it from inside a running closure is allowed
+- **R224:** A session's executor is created and started when the session is created
+- **R225:** A session's executor is stopped when the session is destroyed, after the session's backend has been torn down
+- **R226:** Destroying a session from inside its own executor completes
+- **R227:** After a session is destroyed, the goroutine count is what it was before the session was created
+- **R228:** Work for a session that does not exist, including one already destroyed, creates no executor and never blocks its poster: a synchronous execution returns an error, and fire-and-forget work is dropped
 
 ## Feature: Host Operations
 **Source:** specs/host-ops.md

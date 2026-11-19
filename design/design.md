@@ -90,7 +90,8 @@ target-to-link reverse mapping is kept.
 - [x] crc-ChanSvc.md → `internal/server/svc.go`
 - [x] crc-HostOp.md → `internal/server/hostop.go`, `cli/exports.go`
 - [x] seq-host-op.md → `internal/server/hostop.go`
-- [x] crc-SessionManager.md → `internal/session/manager.go`
+- [x] seq-session-executor.md → `internal/server/session.go`, `internal/server/session_manager.go`, `internal/server/websocket.go`, `internal/server/svc.go`
+- [x] crc-SessionManager.md → `internal/server/session_manager.go`
 - [x] crc-Router.md → `internal/router/router.go`, `web/src/router.ts`
 - [x] seq-create-session.md
 - [x] seq-session-create-backend.md
@@ -186,12 +187,15 @@ target-to-link reverse mapping is kept.
 - [x] test-ChanSvc.md → `internal/server/svc_test.go`
 - [x] test-Bundle.md → `internal/bundle/bundle_test.go`
 - [x] test-HostOp.md → `internal/server/hostop_test.go`
+- [x] test-SessionExecutor.md → `internal/server/session_executor_test.go`
 
 ## Gaps
 
 - T1: R13 retired by R135 (2026-10-07 per-app hot-loading: symlinkTargets retired; app dirs are watched through their lua/<app> entry)
 - T2: R20 retired by R136 (2026-10-07 per-app hot-loading: symlinkTargets retired; app dirs are watched through their lua/<app> entry)
 - T3: R166 retired by R173 (2026-11-18 dangerous execution: ExecuteInSession now delegates to PrimitiveExecuteInSession)
+- T4: R203 retired by R218 (stop became final and non-blocking (R218-R223))
+- T5: R204 retired by R224 (the executor belongs to the session (R224-R228))
 
 ### Incomplete Implementation
 

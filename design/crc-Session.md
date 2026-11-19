@@ -1,5 +1,5 @@
 # Session
-**Requirements:** R191, R192
+**Requirements:** R191, R192, R224, R225
 
 **Source Spec:** main.md (UI Server Architecture - Frontend Layer), interfaces.md
 
@@ -8,6 +8,7 @@
 ### Knows
 - id: Unique session identifier (URL path component)
 - tailors: the pending list, open Tailors on this session, mutex-guarded (R191)
+- exec: the session's executor, a ChanSvc built and started with the session and stopped when it is destroyed (R224, R225)
 - backend: Backend instance (LuaBackend or ProxiedBackend)
 - connections: List of connected frontend connections
 - createdAt: Session creation timestamp
@@ -23,12 +24,16 @@
 - touch: Update lastActivity timestamp
 - handleMessage: Delegate to backend.HandleMessage
 - addTailor / removeTailor / tailors: maintain and snapshot the pending list (R191, R192)
+- NewSession: build and start exec (R224)
+- Executor: return exec
+- stopExecutor: stop exec; called by SessionManager once the session is destroyed (R225)
 
 ## Collaborators
 
 - SessionManager: Creates and destroys sessions based on timeout
 - Backend: Handles all protocol messages (LuaBackend or ProxiedBackend)
 - WebSocketEndpoint: Frontend connections
+- ChanSvc: the session's executor, serializing everything done to the session
 
 ## Sequences
 
@@ -36,6 +41,7 @@
 - seq-frontend-connect.md: Frontend connecting to session
 - seq-frontend-reconnect.md: Frontend reconnecting to existing session
 - seq-tailor.md: Tailors join and leave the pending list
+- seq-session-executor.md: the executor's life with the session
 
 ## Notes
 

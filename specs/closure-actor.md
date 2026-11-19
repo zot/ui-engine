@@ -41,21 +41,40 @@ This design is ported from ark, which found and fixed the same defect.
   deadlocks**, and is forbidden.
 - **The queue releases what it has run.** Popping clears the popped slot before
   advancing, so a run closure and everything it captured stop being reachable.
-- **Stopping** posts a sentinel behind everything already posted. Closures still queued
-  behind an in-flight one are abandoned. The channel is never closed, so a closure
-  finishing after a stop does not panic when it posts back.
+- **Stopping is final, and never blocks anyone.** A closure in flight when the actor
+  stops runs to completion; closures still queued behind it are abandoned. Once stopped,
+  the actor's goroutine has ended, and every post is dropped at once instead of waiting
+  on a channel nobody drains: a fire-and-forget post returns, and a synchronous post
+  returns `ErrStopped`. A synchronous caller whose closure was abandoned in the queue
+  also returns `ErrStopped` rather than waiting forever. A closure finishing after the
+  stop does not block or panic when it reports back. Stopping twice is harmless, and
+  stopping from inside a running closure is allowed, since that closure runs off the
+  actor's goroutine.
 
 ## API
 
 ```go
 type ChanSvc struct{ /* unexported */ }
 
+var ErrStopped error                                        // a synchronous post to a stopped actor
+
 func NewChanSvc() *ChanSvc                                  // built, not running
 func (s *ChanSvc) Start()                                   // launch the loop
-func (s *ChanSvc) Stop()                                    // stop after what is already posted
-func Svc(s *ChanSvc, fn func())                             // post, don't wait
+func (s *ChanSvc) Stop()                                    // final; abandon what has not started
+func Svc(s *ChanSvc, fn func())                             // post, don't wait; dropped once stopped
 func SvcSync[T any](s *ChanSvc, fn func() (T, error)) (T, error) // post and wait; never from inside a closure
 ```
 
-The executor for a session is created and started on first use, and stopped when the
-session's executor is cleaned up.
+## The session's executor
+
+A session's executor belongs to the session: it is created and started when the session
+is created, and stopped when the session is destroyed, after the session's backend has
+been torn down, so that teardown can still use it. Destroying a session from inside its
+own executor is allowed and completes. When a session is gone, nothing of its executor
+remains running: the goroutine count after a destroyed session is what it was before the
+session was created.
+
+Work for a session that does not exist creates no executor. A synchronous execution
+returns an error; fire-and-forget work is dropped. This includes work that arrives after
+the session is destroyed, such as a late browser message, a timer, or a host operation
+delivering its result. None of these may block the goroutine that posted it.
