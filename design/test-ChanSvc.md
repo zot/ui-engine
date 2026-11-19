@@ -14,9 +14,8 @@ written to fail if the delivery path loses it again.
 **Alarm:** 1
 **Fire alarm:** restore the historical defect, sending from a spawned goroutine in post; the recorded order breaks
 **Inject:** internal/server/svc.go:ChanSvc.post
-@alarm-hash: 37625d6f5bc2dedc
-**Pulled:** 2026-11-18 — 2026-11-18 — rang: the historical defect restored, post sending from a spawned goroutine; "delivery order broken (R195): got [10 4 0 1 2 3 29 ...]"
-
+@alarm-hash: 816a38546f8b8fcf
+**Pulled:** 2026-11-19 — re-pulled after the job rewrite: post sending from a spawned goroutine; "delivery order broken (R195): got [3 1 2 4 0 102 6 ...]" *Earlier —* 2026-11-18 — 2026-11-18 — rang: the historical defect restored, post sending from a spawned goroutine; "delivery order broken (R195): got [10 4 0 1 2 3 29 ...]"
 ## Test: ordering spans fire-and-forget and synchronous posts
 **Purpose:** both post kinds enter by the same door, so their interleaving keeps order (R195)
 **Input:** from one goroutine, alternate Svc and SvcSync posts that record their index
@@ -33,9 +32,8 @@ written to fail if the delivery path loses it again.
 **Alarm:** 2
 **Fire alarm:** in accept, launch even when a closure is running; concurrency exceeds 1
 **Inject:** internal/server/svc.go:ChanSvc.accept
-@alarm-hash: 759c717aaa520245
-**Pulled:** 2026-11-18 — 2026-11-18 — rang: accept launches even while a closure runs; "max concurrent closures = 8, want 1"
-
+@alarm-hash: 848da150145a1395
+**Pulled:** 2026-11-19 — re-pulled after the job rewrite: accept launches even while a job runs; "max concurrent closures = 8, want 1" *Earlier —* 2026-11-18 — 2026-11-18 — rang: accept launches even while a closure runs; "max concurrent closures = 8, want 1"
 ## Test: a closure may post fire-and-forget without deadlocking
 **Purpose:** a post from inside a running closure queues behind it (R201)
 **Input:** a closure that posts two more and returns; the actor is built without a cleanup Stop, so a wedged loop fails the test instead of hanging it
@@ -45,9 +43,8 @@ written to fail if the delivery path loses it again.
 **Alarm:** 3
 **Fire alarm:** run closures on the loop goroutine (call fn directly in launch, then next); the second inner post blocks on the one-slot channel the loop is not draining, and the test times out. One nested post is not enough: it fits in the empty slot, which is why the test posts two (found 2026-11-18; ark's version of this test posts one)
 **Inject:** internal/server/svc.go:ChanSvc.launch
-@alarm-hash: 25ced8d4daa8dedc
-**Pulled:** 2026-11-18 — 2026-11-18 — rang only after the test was strengthened to post twice from inside: fn run on the loop in launch; "a closure posting fire-and-forget from inside itself deadlocked". With one nested post it stayed green
-
+@alarm-hash: 7b97c3dad23fe8f1
+**Pulled:** 2026-11-19 — re-pulled after the job rewrite: the job run on the loop goroutine in launch, then next; "a closure posting fire-and-forget from inside itself deadlocked (R201)" *Earlier —* 2026-11-18 — 2026-11-18 — rang only after the test was strengthened to post twice from inside: fn run on the loop in launch; "a closure posting fire-and-forget from inside itself deadlocked". With one nested post it stayed green
 ## Test: a burst larger than the channel is absorbed in order
 **Purpose:** the unbounded queue absorbs bursts without reordering (R199)
 **Input:** hold the first closure; post 199 more; release

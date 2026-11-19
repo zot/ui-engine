@@ -26,9 +26,8 @@ time, and a warning repeated per call only adds noise. Each gets an alarm.
 **Alarm:** 2
 **Fire alarm:** implement ExecuteInSessionPassive by calling ExecuteInSessionAsync; the afterBatch count after Post is 1
 **Inject:** internal/server/websocket.go:WebSocketEndpoint.ExecuteInSessionPassive
-@alarm-hash: 8b0559a73698644c
-**Pulled:** 2026-11-18 — 2026-11-18 — rang: ExecuteInSessionPassive routed through ExecuteInSessionAsync; "afterBatch ran 2 times after Post, want 0"
-
+@alarm-hash: be2074a243ad0d8e
+**Pulled:** 2026-11-19 — re-pulled after the executor moved to Session: ExecuteInSessionPassive implemented through ExecuteInSessionAsync; "afterBatch ran 2 times after Post, want 0" *Earlier —* 2026-11-18 — 2026-11-18 — rang: ExecuteInSessionPassive routed through ExecuteInSessionAsync; "afterBatch ran 2 times after Post, want 0"
 ## Test: posting on an invalid reference does nothing
 **Purpose:** Post and PostUpdate return false and queue nothing when the reference is invalid (R161)
 **Input:** a destroyed session's ref; Post a fn that closes a channel
