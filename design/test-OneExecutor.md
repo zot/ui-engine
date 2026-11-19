@@ -46,7 +46,7 @@ a fatal error ends the test binary instead of failing a test.
 
 ## Test: work already on the executor reaches Lua in place
 **Purpose:** rigs, `Server.ExecuteInSession` and timers run their Lua without posting to the executor they are on (R255)
-**Input:** a session; `ExecRig.Post`, `ExecRig.PostUpdate`, `Server.ExecuteInSession` and a Lua `session:setImmediate`, each setting a global
+**Input:** a session; `ExecRig.Post`, `ExecRig.PostUpdate`, `Server.PrimitiveExecuteInSession` with `dangerous` false (the reviewed form of `ExecuteInSession`, called from a goroutine) and a Lua `session:setImmediate`, each setting a global
 **Expected:** all four globals are set within 2 seconds
 **Refs:** crc-SessionRef.md, crc-Server.md
 **Code:** internal/server/one_executor_test.go

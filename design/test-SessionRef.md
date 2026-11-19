@@ -47,7 +47,7 @@ time, and a warning repeated per call only adds noise. Each gets an alarm.
 
 ## Test: a dangerous call warns once per site
 **Purpose:** with AllowDangerousExecution set, ExecuteInSession logs one warning per calling site and still runs (R168, R170)
-**Input:** a capturing logger; call ExecuteInSession three times from one line and once from another
+**Input:** config with the property set explicitly (the default no longer is); a capturing logger; call ExecuteInSession three times from one line and once from another
 **Expected:** exactly two warnings, each naming its own file and line; all four calls return fn's result
 **Refs:** crc-Server.md, seq-session-ref.md
 **Code:** internal/server/dangerous_test.go
@@ -55,8 +55,7 @@ time, and a warning repeated per call only adds noise. Each gets an alarm.
 **Fire alarm:** skip recording the site in the seen set; four warnings appear
 **Inject:** internal/server/dangerous.go:Server.checkDangerous
 @alarm-hash: a2580e2c07a5fccc
-**Pulled:** 2026-11-18 — 2026-11-18 — rang: site not recorded in the seen set; "got 4 warnings, want 2 (one per site)"
-
+**Pulled:** 2026-11-19 — re-pulled after Item 12c made the test set AllowDangerousExecution itself: rang `got 4 warnings, want 2 (one per site)` *Earlier —* 2026-11-18 — 2026-11-18 — rang: site not recorded in the seen set; "got 4 warnings, want 2 (one per site)"
 ## Test: a dangerous call panics when not allowed
 **Purpose:** with AllowDangerousExecution unset, ExecuteInSession panics naming the site and queues nothing (R171)
 **Input:** config with the property unset; ExecuteInSession with a fn that closes a channel, under recover
@@ -68,6 +67,18 @@ time, and a warning repeated per call only adds noise. Each gets an alarm.
 **Inject:** internal/server/dangerous.go:Server.PrimitiveExecuteInSession
 @alarm-hash: a1f0e82f2a64feee
 **Pulled:** 2026-11-18 — 2026-11-18 — rang: checkDangerous moved after executeInSession; "the dangerous call ran its work before panicking"
+
+## Test: dangerous execution is disallowed by default
+**Purpose:** the default panics on a dangerous call, now that every caller in ui-engine, Frictionless and ark has moved (R265)
+**Input:** `config.DefaultConfig()`
+**Expected:** `Session.AllowDangerousExecution` is false
+**Refs:** crc-Config.md
+**Code:** internal/server/dangerous_test.go
+**Alarm:** 16
+**Fire alarm:** default it to true again; the test fails naming the default
+**Inject:** internal/config/config.go:DefaultConfig
+@alarm-hash: 9eaeb42dfabf026a
+**Pulled:** 2026-11-19 — rang: `AllowDangerousExecution is set by default; a dangerous call would only warn (R265)`
 
 ## Test: the non-dangerous path is silent
 **Purpose:** PrimitiveExecuteInSession with dangerous false neither warns nor panics, with the property unset (R169)

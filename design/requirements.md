@@ -258,8 +258,9 @@
 - **R169:** `PrimitiveExecuteInSession` with `dangerous` false behaves exactly as `ExecuteInSession` did before dangerous execution was introduced
 - **R170:** With `dangerous` true and `AllowDangerousExecution` set, `PrimitiveExecuteInSession` logs a warning naming the file and line that called `ExecuteInSession`, at most once per site for the life of the process, then proceeds as with `dangerous` false
 - **R171:** With `dangerous` true and `AllowDangerousExecution` not set, `PrimitiveExecuteInSession` panics with a message naming the calling site, before queueing anything
-- **R172:** The session config property `AllowDangerousExecution` (`allow_dangerous_execution` in the config file) defaults to set
+- **~~R172:~~** (Retired T10 — see R265) The session config property `AllowDangerousExecution` (`allow_dangerous_execution` in the config file) defaults to set
 - **R264:** ui-engine's own code makes no dangerous call: `PushViewdefs` and `triggerSessionRefresh` post their work with the session's `ExecRig.PostUpdate` and do not wait for it
+- **R265:** The session config property `AllowDangerousExecution` (`allow_dangerous_execution` in the config file) defaults to not set, so a dangerous call panics; an embedder sets it to get the warning instead
 - **~~R173:~~** (Retired T7 — see R229) Session references are implemented over the existing session maps; `ExecuteInSessionAsync` and the maps are unchanged
 - **R229:** Each part of a session has exactly one home; the old way of reaching a part reads that home and keeps no copy
 - **R230:** A session's Lua session is attached to the session while it is created, before `main.lua` runs, and does not change for the life of the session

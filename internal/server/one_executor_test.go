@@ -85,7 +85,8 @@ func TestOnExecutorWorkRunsInPlace(t *testing.T) {
 	}
 	ref.Exec().Post(set("viaPost"))
 	ref.Exec().PostUpdate(set("viaPostUpdate"))
-	go s.ExecuteInSession(vendedID, func() (interface{}, error) { set("viaExecute")(); return nil, nil })
+	// Off the executor, so the primitive with dangerous false (the reviewed form).
+	go s.PrimitiveExecuteInSession(vendedID, func() (interface{}, error) { set("viaExecute")(); return nil, nil }, false)
 	ref.Exec().Post(func() {
 		ref.Lua().Session().State.DoString(`session:setImmediate(function() viaImmediate = true end)`)
 	})

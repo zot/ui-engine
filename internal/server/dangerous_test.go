@@ -25,7 +25,7 @@ func answer() (interface{}, error) { return 42, nil }
 
 // Test: a dangerous call warns once per site (R168, R170)
 func TestDangerousCallWarnsOncePerSite(t *testing.T) {
-	s := newRefTestServer(t, nil)
+	s := newRefTestServer(t, func(c *config.Config) { c.Session.AllowDangerousExecution = true })
 	_, vendedID := newSession(t, s)
 	buf := captureLog(t)
 
@@ -85,9 +85,9 @@ func TestNonDangerousPathIsSilent(t *testing.T) {
 	}
 }
 
-// Test: AllowDangerousExecution defaults to set (R172)
+// Test: dangerous execution is disallowed by default (R265)
 func TestAllowDangerousExecutionDefault(t *testing.T) {
-	if !config.DefaultConfig().Session.AllowDangerousExecution {
-		t.Fatal("AllowDangerousExecution is not set by default")
+	if config.DefaultConfig().Session.AllowDangerousExecution {
+		t.Fatal("AllowDangerousExecution is set by default; a dangerous call would only warn (R265)")
 	}
 }

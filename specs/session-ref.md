@@ -103,8 +103,10 @@ func (s *Server) PrimitiveExecuteInSession(vendedID string, fn func() (interface
     line), once per site for the life of the process, then proceed as if `dangerous` were
     false;
   - **not set:** panic, naming the same site, before queueing anything.
-- `AllowDangerousExecution` defaults to set while callers are moved. The warnings are the
-  list of remaining callers. When no site warns any more, the default is meant to flip.
+- `AllowDangerousExecution` defaults to **not set**, so a dangerous call panics. It
+  defaulted to set while callers were moved, with the warnings as the list of remaining
+  callers; once none warned in ui-engine, Frictionless or ark, the default flipped. An
+  embedder with a caller not yet moved sets it to get the warning instead of the panic.
 - **ui-engine's own code makes no dangerous call.** Work that needs no result, only
   change detection afterward, posts with the session's `ExecRig.PostUpdate` and does not
   wait: pushing changed viewdefs to a session, and refreshing a session after a hot

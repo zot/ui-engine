@@ -47,8 +47,10 @@ type LuaConfig struct {
 type SessionConfig struct {
 	Timeout Duration `toml:"timeout"` // Session expiration (0 = never)
 	// AllowDangerousExecution makes a dangerous synchronous ExecuteInSession warn
-	// once per calling site instead of panicking. Set by default while callers move.
-	// CRC: crc-Config.md | R172
+	// once per calling site instead of panicking. Not set by default: every caller
+	// in ui-engine, Frictionless and ark has moved, so a dangerous call panics. An
+	// embedder with a caller not yet moved sets it to get the warning.
+	// CRC: crc-Config.md | R265
 	AllowDangerousExecution bool `toml:"allow_dangerous_execution"`
 }
 
@@ -139,7 +141,7 @@ func DefaultConfig() *Config {
 		},
 		Session: SessionConfig{
 			Timeout:                 Duration(24 * time.Hour),
-			AllowDangerousExecution: true, // R172
+			AllowDangerousExecution: false, // R265: a dangerous call panics
 		},
 		Logging: LoggingConfig{
 			Level:     "info",
