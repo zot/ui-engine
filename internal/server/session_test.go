@@ -118,60 +118,6 @@ func TestAccessInvalidSession(t *testing.T) {
 	}
 }
 
-// TestRegisterURLPath verifies path registration
-func TestRegisterURLPath(t *testing.T) {
-	manager := NewSessionManager(time.Hour)
-
-	session, _, err := manager.CreateSession()
-	if err != nil {
-		t.Fatalf("CreateSession failed: %v", err)
-	}
-
-	err = manager.RegisterURLPath(session.ID, "/users", 42)
-	if err != nil {
-		t.Fatalf("RegisterURLPath failed: %v", err)
-	}
-
-	varID, ok := manager.ResolveURLPath(session.ID, "/users")
-	if !ok {
-		t.Error("Expected to find registered path")
-	}
-	if varID != 42 {
-		t.Errorf("Expected variable ID 42, got %d", varID)
-	}
-}
-
-// TestURLPathResolution verifies registered path lookup
-func TestURLPathResolution(t *testing.T) {
-	manager := NewSessionManager(time.Hour)
-
-	session, _, err := manager.CreateSession()
-	if err != nil {
-		t.Fatalf("CreateSession failed: %v", err)
-	}
-
-	// Register path
-	manager.RegisterURLPath(session.ID, "/users", 10)
-
-	// Resolve registered path
-	varID, ok := manager.ResolveURLPath(session.ID, "/users")
-	if !ok || varID != 10 {
-		t.Errorf("Expected varID 10, got %d (found: %v)", varID, ok)
-	}
-
-	// Resolve unregistered path
-	_, ok = manager.ResolveURLPath(session.ID, "/other")
-	if ok {
-		t.Error("Expected unregistered path to return false")
-	}
-
-	// Resolve for non-existent session
-	_, ok = manager.ResolveURLPath("nonexistent", "/users")
-	if ok {
-		t.Error("Expected non-existent session to return false")
-	}
-}
-
 // TestSessionConnectionTracking verifies connection add/remove
 func TestSessionConnectionTracking(t *testing.T) {
 	session := NewSession("test-session")

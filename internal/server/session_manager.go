@@ -17,9 +17,11 @@ type SessionCreatedCallback func(vendedID string, session *Session) error
 type SessionDestroyedCallback func(vendedID string, session *Session)
 
 // SessionManager manages all sessions.
+// It keeps no per-session URL-path table: registering presenters at URL paths
+// (interfaces.md) is not built yet (gap O11).
+// CRC: crc-SessionManager.md | R249
 type SessionManager struct {
 	sessions           map[string]*Session
-	urlPaths           map[string]map[string]int64 // sessionID -> path -> variableID
 	sessionTimeout     time.Duration
 	onSessionCreated   SessionCreatedCallback
 	onSessionDestroyed SessionDestroyedCallback
@@ -35,7 +37,6 @@ type SessionManager struct {
 func NewSessionManager(sessionTimeout time.Duration) *SessionManager {
 	return &SessionManager{
 		sessions:         make(map[string]*Session),
-		urlPaths:         make(map[string]map[string]int64),
 		sessionTimeout:   sessionTimeout,
 		nextVendedID:     1, // Vended IDs start at 1
 		internalToVended: make(map[string]string),
@@ -71,7 +72,6 @@ func (m *SessionManager) CreateSession() (*Session, string, error) {
 	m.vendedToInternal[vendedID] = internalID
 
 	m.sessions[internalID] = session
-	m.urlPaths[internalID] = make(map[string]int64)
 	m.mu.Unlock()
 
 	// Call callback to create Lua session (if enabled)
@@ -81,7 +81,6 @@ func (m *SessionManager) CreateSession() (*Session, string, error) {
 			// Session creation callback failed - clean up
 			m.mu.Lock()
 			delete(m.sessions, internalID)
-			delete(m.urlPaths, internalID)
 			delete(m.internalToVended, internalID)
 			delete(m.vendedToInternal, vendedID)
 			m.mu.Unlock()
@@ -172,7 +171,6 @@ func (m *SessionManager) DestroySession(id string) error {
 	}
 
 	delete(m.sessions, id)
-	delete(m.urlPaths, id)
 	delete(m.internalToVended, id)
 	if vendedID != "" {
 		delete(m.vendedToInternal, vendedID)
@@ -205,34 +203,6 @@ func (m *SessionManager) SessionExists(id string) bool {
 	defer m.mu.RUnlock()
 	_, ok := m.sessions[id]
 	return ok
-}
-
-// RegisterURLPath associates a URL path with a presenter variable for a session.
-func (m *SessionManager) RegisterURLPath(sessionID, path string, variableID int64) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	paths, ok := m.urlPaths[sessionID]
-	if !ok {
-		return nil // Session doesn't exist
-	}
-
-	paths[path] = variableID
-	return nil
-}
-
-// ResolveURLPath finds the presenter variable for a URL path in a session.
-func (m *SessionManager) ResolveURLPath(sessionID, path string) (int64, bool) {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-
-	paths, ok := m.urlPaths[sessionID]
-	if !ok {
-		return 0, false
-	}
-
-	varID, ok := paths[path]
-	return varID, ok
 }
 
 // GetAllSessions returns all sessions.

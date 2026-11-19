@@ -65,8 +65,6 @@
 - [ ] "Session ID uniqueness"
 - [ ] "Access existing session URL"
 - [ ] "Access invalid session URL"
-- [ ] "Register URL path for presenter"
-- [ ] "URL path resolution"
 - [ ] "Session connection tracking"
 - [ ] "Session cleanup on inactivity"
 - [ ] "Tab activation with existing main tab"

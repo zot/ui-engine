@@ -147,6 +147,10 @@ reaching it keeps working by reading the new home; it never keeps a copy.
   yet closed: change detection does not run for it, and a broadcast to it sends nothing.
 - **Reconnection needs no token.** A browser can rejoin any session that has not timed
   out (`interfaces.md`); nothing issues or checks a reconnect token.
+- **A session keeps no URL paths yet.** Registering presenters at URL paths after the
+  session ID (`interfaces.md`, "SPA History Management") is not built: nothing lets a
+  backend register one, and the server hands every path under a session to the browser.
+  Until it is built, no table of a session's URL paths exists on the server.
 
 Execution through the server reads the same home as the rigs:
 

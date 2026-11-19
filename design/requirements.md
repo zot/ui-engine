@@ -273,6 +273,7 @@
 - **R246:** Messages from a browser connection go to its session's executor; a connection whose session does not exist reaches nothing
 - **R247:** Whether a browser is connected to a session, and which connections a broadcast to it reaches, come from the session; a destroyed session has no connections, so change detection does not run for it and a broadcast to it sends nothing
 - **R248:** Nothing issues or checks a reconnect token; a browser can rejoin any session that has not timed out
+- **R249:** Until registering presenters at URL paths (`interfaces.md`) is built, the server keeps no table of a session's URL paths
 
 ## Feature: Tailor
 **Source:** specs/tailor.md

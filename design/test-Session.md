@@ -82,44 +82,6 @@ Tests for session lifecycle, URL routing, and tab coordination.
 
 ---
 
-### Test: Register URL path for presenter
-
-**Purpose**: Verify path registration
-
-**Input**:
-- Session created
-- registerUrlPath("/users", presenterVarId)
-- Navigate to /SESSION-ID/users
-
-**References**:
-- CRC: crc-Router.md - "Does: register"
-- Sequence: seq-navigate-url.md
-
-**Expected Results**:
-- Path associated with presenter
-- Navigation resolves to presenter
-- Unregistered paths return null
-
----
-
-### Test: URL path resolution
-
-**Purpose**: Verify registered path lookup
-
-**Input**:
-- Path "/users" registered
-- resolve("/users")
-
-**References**:
-- CRC: crc-Router.md - "Does: resolve"
-
-**Expected Results**:
-- Returns registered presenter variable
-- Unregistered path returns null
-- Session context maintained
-
----
-
 ### Test: Session connection tracking
 
 **Purpose**: Verify connection add/remove
@@ -238,7 +200,7 @@ Tests for session lifecycle, URL routing, and tab coordination.
 
 **Responsibilities Covered:**
 - Session: getId, getAppVariable, addConnection, removeConnection, isActive, getConnectionCount, touch
-- SessionManager: createSession, getSession, destroySession, sessionExists, registerUrlPath, resolveUrlPath, generateSessionId, cleanupInactiveSessions
+- SessionManager: createSession, getSession, destroySession, sessionExists, generateSessionId, cleanupInactiveSessions
 - Router: register, unregister, resolve, match, buildUrl, parseUrl, isRegisteredPath
 
 **Scenarios Covered:**

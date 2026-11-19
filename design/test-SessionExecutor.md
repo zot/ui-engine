@@ -15,9 +15,8 @@ before it starts and polls for up to 2 seconds for the count to settle.
 **Alarm:** 1
 **Fire alarm:** drop the stopExecutor call from DestroySession; the count stays 20 above
 **Inject:** internal/server/session_manager.go:SessionManager.DestroySession
-@alarm-hash: 7642472c60f6b44e
-**Pulled:** 2026-11-19 — rang: stopExecutor dropped from DestroySession; "goroutines: 22, want 2 (leaked 20)"
-
+@alarm-hash: 7abf44f1ce94e267
+**Pulled:** 2026-11-19 — re-pulled after 9c removed urlPaths from DestroySession: stopExecutor dropped; "goroutines: 22, want 2 (leaked 20)" *Earlier —* 2026-11-19 — rang: stopExecutor dropped from DestroySession; "goroutines: 22, want 2 (leaked 20)"
 ## Test: the destroy callback still has the executor
 **Purpose:** the executor stops only after backend teardown, so teardown can still use it (R225)
 **Input:** a destroy callback that runs a SvcSync closure on the session's executor and records its result; destroy the session
@@ -27,9 +26,8 @@ before it starts and polls for up to 2 seconds for the count to settle.
 **Alarm:** 2
 **Fire alarm:** in DestroySession, stop the executor before calling the destroy callback; the callback's SvcSync returns `ErrStopped`
 **Inject:** internal/server/session_manager.go:SessionManager.DestroySession
-@alarm-hash: 7642472c60f6b44e
-**Pulled:** 2026-11-19 — rang: executor stopped before the destroy callback; "teardown could not use the executor: ran=false err=executor stopped (R225)"
-
+@alarm-hash: 7abf44f1ce94e267
+**Pulled:** 2026-11-19 — re-pulled after 9c: executor stopped before the destroy callback; "teardown could not use the executor: ran=false err=executor stopped (R225)" *Earlier —* 2026-11-19 — rang: executor stopped before the destroy callback; "teardown could not use the executor: ran=false err=executor stopped (R225)"
 ## Test: a session destroys itself from inside its executor
 **Purpose:** destruction from the session's own executor completes, and the caller waiting on that closure gets its result (R226)
 **Input:** through WebSocketEndpoint.ExecuteInSession, run a closure that destroys its own session and returns 7; 2-second deadline
@@ -46,9 +44,8 @@ before it starts and polls for up to 2 seconds for the count to settle.
 **Alarm:** 3
 **Fire alarm:** drop the stopExecutor call from CreateSession's failure path; the count stays 20 above
 **Inject:** internal/server/session_manager.go:SessionManager.CreateSession
-@alarm-hash: 067fa04981553623
-**Pulled:** 2026-11-19 — rang: stopExecutor dropped from the CreateSession failure path; "goroutines: 22, want 2 (leaked 20)"
-
+@alarm-hash: 1230db129da78191
+**Pulled:** 2026-11-19 — re-pulled after 9c removed urlPaths from CreateSession's failure path: stopExecutor dropped; "goroutines: 22, want 2 (leaked 20)" *Earlier —* 2026-11-19 — rang: stopExecutor dropped from the CreateSession failure path; "goroutines: 22, want 2 (leaked 20)"
 ## Test: work for a destroyed session creates nothing and never blocks
 **Purpose:** a post for a session that is gone neither blocks nor resurrects an executor (R228)
 **Input:** create and destroy a session; record the goroutine count; post to its internal ID 20 times each through ExecuteInSession, ExecuteInSessionAsync and ExecuteInSessionPassive, under a 2-second deadline

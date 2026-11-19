@@ -1,13 +1,12 @@
 # SessionManager
 
 **Source Spec:** interfaces.md, protocol.md
-**Requirements:** R224, R225, R226, R227, R232, R233, R234
+**Requirements:** R224, R225, R226, R227, R232, R233, R234, R249
 
 ## Responsibilities
 
 ### Knows
 - sessions: Map of session ID to Session
-- urlPaths: Map of registered URL paths to presenter variables
 - sessionTimeout: Duration for session inactivity cleanup
 - luaSessionFactory: Factory for creating LuaSessions
 - nextVendedID: Counter for sequential vended IDs (starts at 1)
@@ -19,8 +18,6 @@
 - getSession: Retrieve session by ID (internal ID)
 - destroySession: Clean up session, destroy Lua session, remove vended ID mappings, and all resources; the ID mappings are dropped before the destroy callback runs, so the session cannot be found by vended ID during teardown (R234); last, after the destroy callback has torn down the backend, stop the session's executor (R225, R227). Safe to call from inside that executor (R226)
 - sessionExists: Check if session ID is valid
-- registerUrlPath: Associate URL path with presenter for session
-- resolveUrlPath: Find presenter for URL path
 - generateSessionId: Create unique session identifier (internal UUID)
 - cleanupInactiveSessions: Remove sessions with no activity past timeout
 - getVendedID: Convert internal session ID to vended ID string
@@ -32,18 +29,17 @@
 
 - Session: Individual session instances
 - LuaSession: Per-session Lua environment (created when frontend sessions are created, creates variable 1)
-- Router: URL path registration
 - Config: Provides session timeout setting
 
 ## Sequences
 
 - seq-create-session.md: Full session creation (including Lua session)
-- seq-navigate-url.md: URL path resolution
 - seq-frontend-reconnect.md: Reconnection to existing session
 - seq-session-executor.md: the executor created and stopped with the session
 
 ## Notes
 
+- **No URL paths (R249):** registering presenters at URL paths (`interfaces.md`) is not built (gap O11), so the registry keeps no per-session path table.
 - Sessions remain valid until session timeout expires (default 24h)
 - Frontend can reconnect to any existing session at any time
 - No separate connection timeout - session timeout handles all cleanup

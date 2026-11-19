@@ -156,9 +156,8 @@ time, and a warning repeated per call only adds noise. Each gets an alarm.
 **Alarm:** 11
 **Fire alarm:** in DestroySession, remove the session and its vended ID from the registry after the destroy callback instead of before; GetLuaSession still finds the session inside the callback. Moving only the vended ID mapping does not ring, because GetByVendedID also needs the session entry
 **Inject:** internal/server/session_manager.go:SessionManager.DestroySession
-@alarm-hash: 7642472c60f6b44e
-**Pulled:** 2026-11-19 — rang: session and vended ID removed from the registry after the destroy callback; "GetLuaSession(1) found the session during its teardown (R234)"
-
+@alarm-hash: 7abf44f1ce94e267
+**Pulled:** 2026-11-19 — re-pulled after 9c: session and vended ID removed from the registry after the destroy callback; "GetLuaSession(1) found the session during its teardown (R234)" *Earlier —* 2026-11-19 — rang: session and vended ID removed from the registry after the destroy callback; "GetLuaSession(1) found the session during its teardown (R234)"
 ## Test: nothing is found after server shutdown
 **Purpose:** after `Server.Shutdown` every Lua session reports shut down, so lookups find nothing, as they did when the server's map was cleared (R232, R118)
 **Input:** a server with two sessions; call Shutdown
