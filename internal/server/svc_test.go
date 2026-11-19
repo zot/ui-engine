@@ -12,6 +12,7 @@ package server
 import (
 	"runtime"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -344,4 +345,31 @@ func TestChanSvc_StopEndsLoopGoroutine(t *testing.T) {
 		s.Stop()
 	}
 	settles(t, before)
+}
+
+// Test: drained waits for the closure in flight at the stop (R263)
+func TestChanSvcDrainedWaitsForInFlight(t *testing.T) {
+	s := startedSvc(t)
+	var returned atomic.Bool
+	Svc(s, func() {
+		s.Stop() // done closes now, while this closure is still running
+		time.Sleep(100 * time.Millisecond)
+		returned.Store(true)
+	})
+	select {
+	case <-s.Drained():
+		if !returned.Load() {
+			t.Fatal("Drained closed before the closure in flight at the stop returned")
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("Drained never closed after the in-flight closure returned")
+	}
+
+	idle := startedSvc(t)
+	idle.Stop()
+	select {
+	case <-idle.Drained():
+	case <-time.After(2 * time.Second):
+		t.Fatal("Drained never closed for an actor stopped while idle")
+	}
 }

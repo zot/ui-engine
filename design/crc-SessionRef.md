@@ -1,5 +1,5 @@
 # SessionRef
-**Requirements:** R153, R154, R156-165, R167, R174, R192, R229, R236, R237, R238
+**Requirements:** R153, R154, R156-165, R167, R174, R192, R229, R236, R237, R238, R255
 
 A handle to one session, plus the per-system rigs reached through it. This is the seam
 the coherency carve's steps move session state behind. Every rig reaches the session's
@@ -31,8 +31,9 @@ parts through the Session itself: its executor and its Lua session (R229).
 Each rig is a struct holding the reference. Every rig has `Ref()` and `Station()`
 (R158).
 - ExecRig.Post(fn): resolve, then `WebSocketEndpoint.ExecuteInSessionPassive(internalID,
-  ...)` with a closure that runs `fn` through `LuaSession.ExecuteInSession(vendedID, ...)`
-  so the Lua context is set. Returns false without posting when resolve fails (R159,
+  ...)` with a closure that runs `fn` through `LuaSession.RunInSession(vendedID, ...)`
+  so the Lua context is set: in place, since that closure is already on the session
+  executor (R255). Returns false without posting when resolve fails (R159,
   R161).
 - ExecRig.PostUpdate(fn): the same through `WebSocketEndpoint.ExecuteInSessionAsync`,
   which runs change detection afterward when a browser is connected (R160, R161).

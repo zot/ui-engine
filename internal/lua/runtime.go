@@ -17,51 +17,43 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 	"weak"
 
 	lua "github.com/yuin/gopher-lua"
+	"github.com/yuin/gopher-lua/parse"
 	changetracker "github.com/zot/change-tracker"
 	"github.com/zot/ui-engine/internal/bundle"
 	"github.com/zot/ui-engine/internal/config"
 	"github.com/zot/ui-engine/internal/viewdef"
 )
 
-// WorkItem represents a unit of work for the executor.
-type WorkItem struct {
-	fn     func() (interface{}, error)
-	result chan WorkResult
-}
-
-// WorkResult holds the result of a work item.
-type WorkResult struct {
-	Value interface{}
-	Err   error
-}
-
-// errSessionShutdown is returned to a caller whose queued work is skipped
-// because the session is shutting down.
+// errSessionShutdown is returned to a caller posting Lua work to a session that is
+// shutting down.
 var errSessionShutdown = errors.New("lua session shutting down")
-
-// shutdownJoinTimeout bounds how long Shutdown waits for the executor to stop
-// before closing the VM anyway (a wedged in-flight task must not hang shutdown).
-const shutdownJoinTimeout = 2 * time.Second
 
 // LuaSession represents a Lua runtime environment for a frontend session.
 // Each session has its own Lua state for complete isolation.
 // ID is the vended session ID (compact integer string like "1", "2") for backend communication.
 type LuaSession struct {
 	// Lua VM state and execution
-	State           *lua.LState
-	loadedModules   *lua.LTable // Unified load tracker, keyed by baseDir-relative paths
-	presenterTypes  map[string]*PresenterType
-	luaDir          string
-	executorChan    chan WorkItem
-	done            chan struct{}
-	executorStopped chan struct{} // closed by the executor goroutine when it returns; Shutdown joins on it
-	config          *config.Config
-	mu              sync.RWMutex
-	batchTriggered  bool
+	State          *lua.LState
+	loadedModules  *lua.LTable // Unified load tracker, keyed by baseDir-relative paths
+	presenterTypes map[string]*PresenterType
+	luaDir         string
+	// The session's Lua state is touched only on the session's executor (R254). run
+	// posts work there from outside and waits; closeWhenDrained closes the VM once that
+	// executor has drained. Both are installed by the Server (SetExecutor). Without them,
+	// as in a standalone session, work runs under standaloneMu and the VM closes at once.
+	run              func(fn func() (interface{}, error)) (interface{}, error)
+	closeWhenDrained func(closeVM func())
+	standaloneMu     sync.Mutex
+	done             chan struct{} // closed by Shutdown: the session is shut down
+	vmClosed         atomic.Bool
+	config           *config.Config
+	mu               sync.RWMutex
+	batchTriggered   bool
 
 	// Variable management
 	variableStore   VariableStore
@@ -149,7 +141,9 @@ type VariableStore interface {
 	GetChanges(sessionID string) []changetracker.Change
 }
 
-// NewRuntime creates a new LuaSession with executor goroutine.
+// NewRuntime creates a new LuaSession. It starts no goroutine: Lua runs on the session's
+// executor once the Server installs it (SetExecutor), or under a mutex standalone.
+// CRC: crc-LuaSession.md | Seq: seq-lua-executor-init.md#1.1 | R254
 func NewRuntime(cfg *config.Config, luaDir string, vdm *viewdef.ViewdefManager) (*LuaSession, error) {
 	L := lua.NewState()
 
@@ -159,9 +153,7 @@ func NewRuntime(cfg *config.Config, luaDir string, vdm *viewdef.ViewdefManager) 
 		loadedModules:     L.NewTable(), // Unified load tracker, keyed by baseDir-relative paths
 		presenterTypes:    make(map[string]*PresenterType),
 		luaDir:            luaDir,
-		executorChan:      make(chan WorkItem, 100),
 		done:              make(chan struct{}),
-		executorStopped:   make(chan struct{}),
 		viewdefManager:    vdm,
 		prototypeRegistry: make(map[string]*prototypeInfo),
 		instanceRegistry:  make(map[*lua.LTable][]weakInstance),
@@ -190,9 +182,6 @@ func NewRuntime(cfg *config.Config, luaDir string, vdm *viewdef.ViewdefManager) 
 
 	// Try to load session module (lib/lua/session.lua) - optional for testing
 	s.loadSessionModule()
-
-	// Start executor goroutine
-	s.startExecutor()
 
 	return s, nil
 }
@@ -255,22 +244,6 @@ func (r *LuaSession) SetWrapperRegistry(registry *WrapperRegistry) {
 	r.wrapperRegistry = registry
 }
 
-// GetGlobalTable looks up a Lua global by name and returns it if it's a table.
-// Used for auto-discovery of Lua-defined wrappers.
-// Returns nil if the global doesn't exist or isn't a table.
-func (r *LuaSession) GetGlobalTable(name string) interface{} {
-	var result interface{}
-	r.execute(func() (interface{}, error) {
-		L := r.State
-		val := L.GetGlobal(name)
-		if tbl, ok := val.(*lua.LTable); ok {
-			result = tbl
-		}
-		return nil, nil
-	})
-	return result
-}
-
 // SetMainLuaCode sets the main.lua code to execute for each new session.
 // Used when loading from bundle where filesystem access is not available.
 func (r *LuaSession) SetMainLuaCode(code string) {
@@ -293,7 +266,14 @@ func (s *LuaSession) CreateLuaSession(vendedID string) (*LuaSession, error) {
 	// Create session in variable store with LuaResolver
 	s.variableStore.CreateSession(vendedID, resolver)
 
-	_, err := s.execute(func() (interface{}, error) {
+	// Read and compile main.lua off the executor; only running it goes on (R258).
+	proto, trackingKey, err := s.compileMainLua()
+	if err != nil {
+		s.variableStore.DestroySession(vendedID)
+		return nil, err
+	}
+
+	_, err = s.execute(func() (interface{}, error) {
 		// Create session table for this frontend session
 		sessionTable := s.createSessionTable(vendedID)
 
@@ -305,7 +285,7 @@ func (s *LuaSession) CreateLuaSession(vendedID string) (*LuaSession, error) {
 		s.State.SetGlobal("session", sessionTable)
 
 		// Load main.lua for this session
-		if err := s.loadMainLua(); err != nil {
+		if err := s.runMainLua(proto, trackingKey); err != nil {
 			s.variableStore.DestroySession(vendedID)
 			return nil, err
 		}
@@ -320,42 +300,56 @@ func (s *LuaSession) CreateLuaSession(vendedID string) (*LuaSession, error) {
 	return s, nil
 }
 
-// loadMainLua loads main.lua from filesystem or cached bundle code.
-// Registers the file in loadedModules for hot-reload tracking.
-// Uses ComputeTrackingKey to handle symlinks correctly.
-func (r *LuaSession) loadMainLua() error {
-	// Try cached bundle code first
+// compileMainLua reads and compiles main.lua, from the cached bundle code or the
+// filesystem, off the session's executor. It returns a nil prototype when there is no
+// main.lua (hybrid mode, where the backend creates variable 1), and the tracking key
+// the file is marked loaded under.
+// CRC: crc-LuaSession.md | Seq: seq-lua-executor-init.md#1.4 | R258
+func (r *LuaSession) compileMainLua() (*lua.FunctionProto, string, error) {
 	if r.mainLuaCode != "" {
-		// Mark as loaded for hot-reload tracking
-		r.State.SetField(r.loadedModules, "main.lua", lua.LTrue)
-		if err := r.State.DoString(r.mainLuaCode); err != nil {
-			r.State.SetField(r.loadedModules, "main.lua", lua.LNil) // Unmark on error
+		proto, err := CompileCode("main.lua", r.mainLuaCode)
+		if err != nil {
+			return nil, "", fmt.Errorf("failed to execute main.lua: %w", err)
+		}
+		return proto, "main.lua", nil
+	}
+	mainPath := filepath.Join(r.luaDir, "main.lua")
+	code, err := os.ReadFile(mainPath)
+	if err != nil {
+		// No main.lua found - this is OK for hybrid mode where backend creates variable 1
+		r.Log(2, "LuaRuntime: no main.lua found (hybrid mode or backend-only)")
+		return nil, "", nil
+	}
+	// Compute tracking key for hot-reload (resolves symlinks)
+	trackingKey := "main.lua" // fallback
+	if r.config != nil && r.config.Server.Dir != "" {
+		if key, err := ComputeTrackingKey(r.config.Server.Dir, mainPath); err == nil {
+			trackingKey = key
+		}
+	}
+	proto, err := CompileCode(mainPath, string(code))
+	if err != nil {
+		return nil, "", fmt.Errorf("failed to load main.lua: %w", err)
+	}
+	return proto, trackingKey, nil
+}
+
+// runMainLua runs the compiled main.lua in place, marking it loaded for hot-reload
+// tracking and unmarking it on error. Call it on the session's executor.
+// CRC: crc-LuaSession.md | Seq: seq-lua-executor-init.md#1.4
+func (r *LuaSession) runMainLua(proto *lua.FunctionProto, trackingKey string) error {
+	if proto == nil {
+		return nil
+	}
+	r.State.SetField(r.loadedModules, trackingKey, lua.LTrue)
+	r.State.Push(r.State.NewFunctionFromProto(proto))
+	if err := r.State.PCall(0, lua.MultRet, nil); err != nil {
+		r.State.SetField(r.loadedModules, trackingKey, lua.LNil) // Unmark on error
+		if r.mainLuaCode != "" {
 			return fmt.Errorf("failed to execute main.lua: %w", err)
 		}
-		return nil
+		return fmt.Errorf("failed to load main.lua: %w", err)
 	}
-
-	// Try filesystem
-	mainPath := filepath.Join(r.luaDir, "main.lua")
-	if _, err := os.Stat(mainPath); err == nil {
-		// Compute tracking key for hot-reload (resolves symlinks)
-		trackingKey := "main.lua" // fallback
-		if r.config != nil && r.config.Server.Dir != "" {
-			if key, err := ComputeTrackingKey(r.config.Server.Dir, mainPath); err == nil {
-				trackingKey = key
-			}
-		}
-		// Mark as loaded for hot-reload tracking
-		r.State.SetField(r.loadedModules, trackingKey, lua.LTrue)
-		if err := r.State.DoFile(mainPath); err != nil {
-			r.State.SetField(r.loadedModules, trackingKey, lua.LNil) // Unmark on error
-			return fmt.Errorf("failed to load main.lua: %w", err)
-		}
-		return nil
-	}
-
-	// No main.lua found - this is OK for hybrid mode where backend creates variable 1
-	r.Log(2, "LuaRuntime: no main.lua found (hybrid mode or backend-only)")
 	return nil
 }
 
@@ -1136,19 +1130,6 @@ func (r *LuaSession) updatePrototype(prototype, init *lua.LTable, empty lua.LVal
 	})
 }
 
-// ProcessMutationQueue processes queued prototypes after file load.
-// Called after LoadCode completes. Uses executor for thread safety.
-func (r *LuaSession) ProcessMutationQueue() {
-	if len(r.mutationQueue) == 0 {
-		return
-	}
-
-	r.execute(func() (interface{}, error) {
-		r.processMutationQueueDirect()
-		return nil, nil
-	})
-}
-
 // processMutationQueueDirect processes mutations without executor wrapping.
 // MUST only be called from within an execute() context.
 func (r *LuaSession) processMutationQueueDirect() {
@@ -1340,20 +1321,6 @@ func (r *LuaSession) extractTypeProperty(obj any, props map[string]string) {
 	}
 }
 
-// NotifyPropertyChange notifies Lua watchers of a property change for a session.
-// Called by external code when a variable property changes.
-// vendedID is the compact session ID (e.g., "1", "2").
-func (r *LuaSession) NotifyPropertyChange(vendedID string, varID int64, property string, value interface{}) {
-	if r.ID != vendedID || r.sessionTable == nil {
-		return
-	}
-
-	r.execute(func() (interface{}, error) {
-		r.notifyPropertyChangeInternal(varID, property, value)
-		return nil, nil
-	})
-}
-
 // notifyPropertyChangeInternal notifies watchers (must be called from executor).
 func (r *LuaSession) notifyPropertyChangeInternal(varID int64, property string, value interface{}) {
 	watchers := r.State.GetField(r.sessionTable, "_watchers").(*lua.LTable)
@@ -1394,66 +1361,59 @@ func (r *LuaSession) callWatchers(watchers *lua.LTable, args ...lua.LValue) {
 	})
 }
 
-// startExecutor creates the goroutine that processes work items.
-func (r *LuaSession) startExecutor() {
-	go func() {
-		// Signal Shutdown's join that the executor has stopped.
-		// CRC: crc-LuaSession.md | Seq: seq-session-timer.md | R115
-		defer close(r.executorStopped)
-		for {
-			select {
-			case <-r.done:
-				return
-			case work := <-r.executorChan:
-				// done wins: skip work queued during shutdown so nothing
-				// touches the VM after State.Close().
-				// CRC: crc-LuaSession.md | Seq: seq-session-timer.md | R116
-				select {
-				case <-r.done:
-					work.result <- WorkResult{Err: errSessionShutdown}
-					return
-				default:
-				}
-				result, err := work.fn()
-				work.result <- WorkResult{Value: result, Err: err}
-			}
-		}
-	}()
+// SetExecutor gives the session the Server's executor: run posts work to the session's
+// executor and waits, and closeWhenDrained closes the VM once that executor has
+// drained. The Server calls it once, when it attaches the Lua session.
+// CRC: crc-LuaSession.md | Seq: seq-lua-executor-init.md#1.3 | R254, R260
+func (r *LuaSession) SetExecutor(run func(fn func() (interface{}, error)) (interface{}, error), closeWhenDrained func(closeVM func())) {
+	r.run = run
+	r.closeWhenDrained = closeWhenDrained
 }
 
-// execute queues a function on the executor and blocks until complete.
+// execute runs fn in the Lua state from outside the session's executor: it posts fn
+// there and waits. Never call it from work already on the executor, which would wait
+// for itself; that work calls the Lua side directly (RunInSession).
+// CRC: crc-LuaSession.md | Seq: seq-lua-execute.md | R254, R256, R262
 func (r *LuaSession) execute(fn func() (interface{}, error)) (interface{}, error) {
-	result := make(chan WorkResult, 1)
-	r.executorChan <- WorkItem{fn: fn, result: result}
-	res := <-result
-	return res.Value, res.Err
+	if r.IsShutdown() {
+		return nil, errSessionShutdown
+	}
+	if r.run == nil { // standalone: no Server executor
+		r.standaloneMu.Lock()
+		defer r.standaloneMu.Unlock()
+		return fn()
+	}
+	return r.run(fn)
 }
 
-// ExecuteInSession executes a function within the context of this session.
-// It sets the global 'session' variable to this session's table before execution.
-// Spec: mcp.md
-// CRC: crc-LuaRuntime.md
-// Sequence: seq-mcp-run.md
+// RunInSession runs fn with the session global set, in place. For work already
+// running on the session's executor: rigs, Server.ExecuteInSession, timers.
+// CRC: crc-LuaSession.md | Seq: seq-lua-execute.md | R255
+func (r *LuaSession) RunInSession(sessionID string, fn func() (interface{}, error)) (interface{}, error) {
+	if r.ID != sessionID {
+		return nil, fmt.Errorf("session %s not found (this session is %s)", sessionID, r.ID)
+	}
+	r.State.SetGlobal("session", r.sessionTable)
+	return fn()
+}
+
+// ExecuteInSession is RunInSession from outside the session's executor: it posts the
+// work there and waits. flib's WithLua takes this path.
+// CRC: crc-LuaSession.md | Seq: seq-lua-execute.md#1.2 | R256
 func (r *LuaSession) ExecuteInSession(sessionID string, fn func() (interface{}, error)) (interface{}, error) {
 	if r.ID != sessionID {
 		return nil, fmt.Errorf("session %s not found (this session is %s)", sessionID, r.ID)
 	}
-
 	return r.execute(func() (interface{}, error) {
-		L := r.State
-
-		// Set the global 'session' variable
-		L.SetGlobal("session", r.sessionTable)
-
-		// Execute the function
-		return fn()
+		return r.RunInSession(sessionID, fn)
 	})
 }
 
 // RedirectOutput redirects Lua's print function and standard streams to log files.
-// It is used by the MCP server in Configured state.
+// It is used by the MCP server in Configured state. The log files are opened here, off
+// the session's executor; only installing the redirection is posted to it.
 // Spec: mcp.md
-// CRC: crc-LuaRuntime.md
+// CRC: crc-LuaRuntime.md, crc-LuaSession.md | R259
 func (r *LuaSession) RedirectOutput(logPath, errPath string) error {
 	// Create/Open log files
 	logFile, err := os.OpenFile(logPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
@@ -1888,22 +1848,6 @@ func (r *LuaSession) registerUIModule() {
 	L.SetGlobal("ui", uiMod)
 }
 
-// LoadFile loads and executes a Lua file via executor (relative to luaDir).
-// Deprecated: Use RequireLuaFile for hot-reload compatible loading.
-func (r *LuaSession) LoadFile(filename string) error {
-	path := filepath.Join(r.luaDir, filename)
-	return r.LoadFileAbsolute(path)
-}
-
-// LoadFileAbsolute loads and executes a Lua file via executor (absolute path).
-// Deprecated: Use RequireLuaFile for hot-reload compatible loading.
-func (r *LuaSession) LoadFileAbsolute(path string) error {
-	_, err := r.execute(func() (interface{}, error) {
-		return nil, r.loadFileInternal(path)
-	})
-	return err
-}
-
 // loadFileInternal is the non-executor version used internally.
 // Uses unified load tracker with circularity handling.
 func (r *LuaSession) loadFileInternal(path string) error {
@@ -1930,15 +1874,10 @@ func (r *LuaSession) loadFileInternal(path string) error {
 
 // IsFileLoaded checks if a file has been loaded by this session.
 // The trackingKey should be a baseDir-relative path (e.g., "apps/myapp/app.lua").
-// Used by hot-loader to skip files not yet loaded.
+// Used by hot-loader to skip files not yet loaded. Call it on the session executor.
 // CRC: crc-LuaSession.md
 func (r *LuaSession) IsFileLoaded(trackingKey string) bool {
-	var loaded bool
-	r.execute(func() (interface{}, error) {
-		loaded = r.State.GetField(r.loadedModules, trackingKey) != lua.LNil
-		return nil, nil
-	})
-	return loaded
+	return r.State.GetField(r.loadedModules, trackingKey) != lua.LNil
 }
 
 // BaseDir returns the site root directory from config.
@@ -2064,55 +2003,45 @@ func ComputeTrackingKey(baseDir, absPath string) (string, error) {
 }
 
 // SetReloading sets the session.reloading flag.
-// Called by hot-loader before/after reloading files.
+// Called by hot-loader before/after reloading files, on the session executor.
 func (r *LuaSession) SetReloading(reloading bool) {
-	r.execute(func() (interface{}, error) {
-		if r.sessionTable != nil {
-			if reloading {
-				r.State.SetField(r.sessionTable, "reloading", lua.LTrue)
-			} else {
-				r.State.SetField(r.sessionTable, "reloading", lua.LFalse)
-			}
-		}
-		return nil, nil
-	})
+	if r.sessionTable != nil {
+		r.State.SetField(r.sessionTable, "reloading", lua.LBool(reloading))
+	}
 }
 
-// LoadCode loads and executes Lua code string via executor.
-// It returns the result of the execution (if any).
-// After execution, processes any queued prototype mutations.
-// Spec: mcp.md, libraries.md
-// CRC: crc-LuaRuntime.md, crc-LuaSession.md
-func (r *LuaSession) LoadCode(name, code string) (interface{}, error) {
-	return r.execute(func() (interface{}, error) {
-		// Load the string into a function
-		fn, err := r.State.LoadString(code)
-		if err != nil {
-			return nil, fmt.Errorf("failed to load code %s: %w", name, err)
-		}
+// CompileCode parses and compiles Lua source into a function prototype. It touches no
+// Lua state, so it runs off the session's executor: only running the result needs the
+// executor (sewing). A syntax error is found here, before any work is posted.
+// CRC: crc-LuaSession.md | R257, R258
+func CompileCode(name, code string) (*lua.FunctionProto, error) {
+	chunk, err := parse.Parse(strings.NewReader(code), name)
+	if err != nil {
+		return nil, fmt.Errorf("failed to compile code %s: %w", name, err)
+	}
+	proto, err := lua.Compile(chunk, name)
+	if err != nil {
+		return nil, fmt.Errorf("failed to compile code %s: %w", name, err)
+	}
+	return proto, nil
+}
 
-		// Push function
-		r.State.Push(fn)
-
-		// Call it (0 arguments, 1 result)
-		if err := r.State.PCall(0, 1, nil); err != nil {
-			return nil, fmt.Errorf("failed to execute code %s: %w", name, err)
-		}
-
-		// Get result
-		ret := r.State.Get(-1) // Get top
-		r.State.Pop(1)         // Pop it
-
-		// Process mutation queue after code execution
-		r.processMutationQueueDirect()
-
-		if ret == lua.LNil {
-			return nil, nil
-		}
-
-		// Convert to Go
-		return LuaToGo(ret), nil
-	})
+// RunCompiled runs a prototype from CompileCode in the Lua state, in place, and
+// returns its result (if any). After execution, processes any queued prototype
+// mutations. Call it on the session's executor.
+// CRC: crc-LuaSession.md | R256
+func (r *LuaSession) RunCompiled(name string, proto *lua.FunctionProto) (interface{}, error) {
+	r.State.Push(r.State.NewFunctionFromProto(proto))
+	if err := r.State.PCall(0, 1, nil); err != nil {
+		return nil, fmt.Errorf("failed to execute code %s: %w", name, err)
+	}
+	ret := r.State.Get(-1)
+	r.State.Pop(1)
+	r.processMutationQueueDirect()
+	if ret == lua.LNil {
+		return nil, nil
+	}
+	return LuaToGo(ret), nil
 }
 
 // LoadCodeDirect executes Lua code without executor wrapping.
@@ -2169,221 +2098,9 @@ func (r *LuaSession) ListPresenterTypes() []string {
 	return names
 }
 
-// CallMethod invokes a method on a Lua presenter instance via executor.
-func (r *LuaSession) CallMethod(instance *lua.LTable, method string, args ...interface{}) (interface{}, error) {
-	return r.execute(func() (interface{}, error) {
-		L := r.State
-
-		fn := L.GetField(instance, method)
-		if fn == lua.LNil {
-			return nil, fmt.Errorf("method %s not found", method)
-		}
-
-		lfn, ok := fn.(*lua.LFunction)
-		if !ok {
-			return nil, fmt.Errorf("%s is not a function", method)
-		}
-
-		// Push function and self
-		L.Push(lfn)
-		L.Push(instance)
-
-		// Push arguments
-		for _, arg := range args {
-			L.Push(r.GoToLua(arg))
-		}
-
-		// Call method (self + args)
-		if err := L.PCall(len(args)+1, 1, nil); err != nil {
-			return nil, err
-		}
-
-		// Get result
-		result := L.Get(-1)
-		L.Pop(1)
-
-		return LuaToGo(result), nil
-	})
-}
-
-// CallLuaWrapperMethod invokes a method on a Lua wrapper table via executor.
-// Used by LuaWrapper to call computeValue and destroy methods.
-// The instance can be any interface{} but must be a *lua.LTable at runtime.
-func (r *LuaSession) CallLuaWrapperMethod(instance interface{}, method string, args ...interface{}) (interface{}, error) {
-	tbl, ok := instance.(*lua.LTable)
-	if !ok {
-		return nil, fmt.Errorf("wrapper instance is not a Lua table")
-	}
-
-	return r.execute(func() (interface{}, error) {
-		L := r.State
-
-		fn := L.GetField(tbl, method)
-		if fn == lua.LNil {
-			// Method not found is not an error for optional methods like destroy
-			return nil, nil
-		}
-
-		lfn, ok := fn.(*lua.LFunction)
-		if !ok {
-			return nil, fmt.Errorf("%s is not a function", method)
-		}
-
-		// Push function and self
-		L.Push(lfn)
-		L.Push(tbl)
-
-		// Push arguments (convert json.RawMessage specially)
-		for _, arg := range args {
-			if raw, ok := arg.(json.RawMessage); ok {
-				// Parse JSON and convert to Lua
-				var val interface{}
-				if err := json.Unmarshal(raw, &val); err != nil {
-					L.Push(lua.LNil)
-				} else {
-					L.Push(r.GoToLua(val))
-				}
-			} else {
-				L.Push(r.GoToLua(arg))
-			}
-		}
-
-		// Call method (self + args)
-		if err := L.PCall(len(args)+1, 1, nil); err != nil {
-			return nil, err
-		}
-
-		// Get result
-		result := L.Get(-1)
-		L.Pop(1)
-
-		return LuaToGo(result), nil
-	})
-}
-
-// CreateInstance creates a new instance of a presenter type via executor.
-func (r *LuaSession) CreateInstance(typeName string, props map[string]interface{}) (*lua.LTable, error) {
-	result, err := r.execute(func() (interface{}, error) {
-		r.mu.RLock()
-		pt, ok := r.presenterTypes[typeName]
-		r.mu.RUnlock()
-
-		if !ok {
-			return nil, fmt.Errorf("presenter type %s not found", typeName)
-		}
-
-		L := r.State
-
-		// Create new instance table
-		instance := L.NewTable()
-
-		// Set metatable to inherit from presenter type
-		mt := L.NewTable()
-		L.SetField(mt, "__index", pt.Table)
-		L.SetMetatable(instance, mt)
-
-		// Set initial properties
-		for k, v := range props {
-			L.SetField(instance, k, r.GoToLua(v))
-		}
-
-		// Call init method if exists
-		initFn := L.GetField(pt.Table, "init")
-		if initFn != lua.LNil {
-			if lfn, ok := initFn.(*lua.LFunction); ok {
-				L.Push(lfn)
-				L.Push(instance)
-				if err := L.PCall(1, 0, nil); err != nil {
-					return nil, fmt.Errorf("init failed: %w", err)
-				}
-			}
-		}
-
-		return instance, nil
-	})
-
-	if err != nil {
-		return nil, err
-	}
-	return result.(*lua.LTable), nil
-}
-
 // ItemWrapperInstance represents a created item wrapper (presenter).
 type ItemWrapperInstance struct {
 	instance *lua.LTable
-}
-
-// CreateItemWrapper creates an ItemWrapper instance for a ViewListItem.
-// The ItemWrapper constructor receives the ViewListItem: ItemWrapper(viewListItem).
-// Returns nil if no itemType is specified or the type isn't registered.
-func (r *LuaSession) CreateItemWrapper(typeName string, viewItem *ViewListItem) (*ItemWrapperInstance, error) {
-	if typeName == "" {
-		return nil, nil
-	}
-
-	result, err := r.execute(func() (interface{}, error) {
-		r.mu.RLock()
-		pt, ok := r.presenterTypes[typeName]
-		r.mu.RUnlock()
-
-		if !ok {
-			// Auto-discovery: Check if there's a global table with this name
-			L := r.State
-			val := L.GetGlobal(typeName)
-			if tbl, ok := val.(*lua.LTable); ok {
-				pt = &PresenterType{
-					Name:    typeName,
-					Methods: make(map[string]*lua.LFunction),
-					Table:   tbl,
-				}
-				r.mu.Lock()
-				r.presenterTypes[typeName] = pt
-				r.mu.Unlock()
-
-				r.Log(2, "LuaRuntime: auto-discovered presenter type %s", typeName)
-			} else {
-				return nil, fmt.Errorf("item wrapper type %s not found", typeName)
-			}
-		}
-
-		L := r.State
-
-		// Create new instance table
-		instance := L.NewTable()
-
-		// Set metatable to inherit from presenter type
-		mt := L.NewTable()
-		L.SetField(mt, "__index", pt.Table)
-		L.SetMetatable(instance, mt)
-
-		// Set ViewListItem properties on the instance
-		// The presenter can access: viewListItem.item, viewListItem.list, viewListItem.index
-		L.SetField(instance, "viewListItem", r.createViewListItemLuaWrapper(viewItem))
-
-		// Call init method if exists, passing the viewListItem
-		initFn := L.GetField(pt.Table, "init")
-		if initFn != lua.LNil {
-			if lfn, ok := initFn.(*lua.LFunction); ok {
-				L.Push(lfn)
-				L.Push(instance)
-				if err := L.PCall(1, 0, nil); err != nil {
-					return nil, fmt.Errorf("init failed: %w", err)
-				}
-			}
-		}
-
-		return &ItemWrapperInstance{
-			instance: instance,
-		}, nil
-	})
-
-	if err != nil {
-		return nil, err
-	}
-	if result == nil {
-		return nil, nil
-	}
-	return result.(*ItemWrapperInstance), nil
 }
 
 func (s *LuaSession) createLuaViewListItem(viewItem *ViewListItem) *lua.LTable {
@@ -2406,23 +2123,6 @@ func (r *LuaSession) createViewListItemLuaWrapper(viewItem *ViewListItem) *lua.L
 	return wrapper
 }
 
-// GetValue gets a value from a Lua table via executor.
-func (r *LuaSession) GetValue(tbl *lua.LTable, key string) interface{} {
-	result, _ := r.execute(func() (interface{}, error) {
-		val := r.State.GetField(tbl, key)
-		return LuaToGo(val), nil
-	})
-	return result
-}
-
-// SetValue sets a value on a Lua table via executor.
-func (r *LuaSession) SetValue(tbl *lua.LTable, key string, value interface{}) {
-	r.execute(func() (interface{}, error) {
-		r.State.SetField(tbl, key, r.GoToLua(value))
-		return nil, nil
-	})
-}
-
 // IsShutdown reports whether Shutdown has begun (its done channel is closed).
 // CRC: crc-LuaSession.md | R238
 func (r *LuaSession) IsShutdown() bool {
@@ -2434,35 +2134,39 @@ func (r *LuaSession) IsShutdown() bool {
 	}
 }
 
-// Shutdown cleans up the Lua VM and stops the executor.
+// Shutdown marks the session shut down and closes its Lua VM once the session executor
+// has drained.
 //
-// The Lua VM runs on a single executor goroutine, so Shutdown must not close
-// the VM while the executor is mid-work, or the process crashes with a nil
-// dereference inside the VM. It signals stop, joins the executor (bounded by a
-// timeout), then cancels timers and closes the VM.
-// CRC: crc-LuaSession.md | Seq: seq-session-timer.md | R115, R116
+// No work may touch the VM after State.Close(), or the process crashes inside the VM.
+// CRC: crc-LuaSession.md | Seq: seq-session-timer.md#2.1 | R117, R260, R261, R262
 func (r *LuaSession) Shutdown() {
-	close(r.done)
+	close(r.done) // marks the session shut down; deferred-task wrappers skip the VM
 
-	// Join the executor so no work runs against the VM after State.Close().
-	// Bounded: a wedged in-flight task must not hang shutdown forever.
-	select {
-	case <-r.executorStopped:
-	case <-time.After(shutdownJoinTimeout):
-		r.config.Log(0, "Lua session %s: executor did not stop within %s; proceeding with shutdown", r.ID, shutdownJoinTimeout)
+	// Timers and the VM are touched only on the executor, so both are torn down once it
+	// has drained: then nothing else can be running. Shutdown itself never waits, so it
+	// completes when the session is destroyed from inside its own executor.
+	closeVM := func() {
+		for handle := range r.timerRegistry {
+			r.cancelTimer(handle)
+		}
+		r.timerRegistry = nil
+		r.mu.Lock()
+		defer r.mu.Unlock()
+		r.State.Close()
+		r.vmClosed.Store(true)
 	}
-
-	// Cancel all active timers (executor is stopped, so no concurrent access)
-	for handle := range r.timerRegistry {
-		r.cancelTimer(handle)
+	if r.closeWhenDrained == nil { // standalone: no Server executor
+		r.standaloneMu.Lock()
+		defer r.standaloneMu.Unlock()
+		closeVM()
+		return
 	}
-	r.timerRegistry = nil
-
-	r.mu.Lock()
-	defer r.mu.Unlock()
-
-	r.State.Close()
+	r.closeWhenDrained(closeVM)
 }
+
+// VMClosed reports whether Shutdown has closed the Lua VM.
+// CRC: crc-LuaSession.md | R260
+func (r *LuaSession) VMClosed() bool { return r.vmClosed.Load() }
 
 // SetDeferCallback sets the callback for fire-and-forget async execution.
 // Called by Server during session setup to decouple LuaSession from Server.

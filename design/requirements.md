@@ -167,10 +167,13 @@
 - **R109:** On session Shutdown, all active timers must be cancelled
 - **R110:** (inferred) LuaSession must accept an `onDefer` callback set by the Server to decouple session from server
 - **R111:** (inferred) LuaSession must maintain a timer registry with sequential integer handles
-- **R115:** On Shutdown, the executor goroutine must finish any in-flight work item and stop before the Lua VM is closed (`State.Close()`); the wait is bounded by a timeout, after which Shutdown logs and proceeds
-- **R116:** After shutdown is signaled (`done` closed), the executor must not begin executing a work item already queued on the executor channel; it returns a shutdown error to the caller instead
+- **~~R115:~~** (Retired T9 — see R260) On Shutdown, the executor goroutine must finish any in-flight work item and stop before the Lua VM is closed (`State.Close()`); the wait is bounded by a timeout, after which Shutdown logs and proceeds
+- **~~R116:~~** (Retired T8 — see R262) After shutdown is signaled (`done` closed), the executor must not begin executing a work item already queued on the executor channel; it returns a shutdown error to the caller instead
 - **R117:** A deferred-task wrapper must check the shutdown signal before touching the Lua VM and skip execution if shutdown has begun
 - **R118:** `Server.Shutdown` must not hold the sessions lock while invoking a session's Shutdown (snapshot under the lock, release, then shut down) so an in-flight deferred task that re-enters the Server cannot deadlock the executor join
+- **R260:** Shutdown marks the session shut down and, once the session's executor has drained, cancels its timers, clears the timer registry and closes the Lua VM; it never waits for the executor itself, so it completes when called from work running on that executor
+- **R261:** If the executor has not drained within a timeout, that is logged once and the VM is still closed only after it drains, never while a closure may be using it
+- **R262:** Work that reaches a session's executor after it has stopped does not run, so nothing reaches the Lua VM once it may be closing
 
 ## Feature: Destroy Response Batching
 **Source:** specs/destroy-response-batching.md
@@ -328,6 +331,13 @@
 - **R226:** Destroying a session from inside its own executor completes
 - **R227:** After a session is destroyed, the goroutine count is what it was before the session was created
 - **R228:** Work for a session that does not exist, including one already destroyed, creates no executor and never blocks its poster: a synchronous execution returns an error, and fire-and-forget work is dropped
+- **R254:** Only work running on a session's executor touches the session's Lua state; no other goroutine runs Lua for the session
+- **R255:** Work already running on a session's executor (browser messages, change detection, timers, host-operation deliveries, rig work) runs its Lua in place and never posts to that executor and waits
+- **R256:** Hot reloading a file, flib's `WithLua` and `WithLuaUpdate`, running `main.lua` in a new session, and redirecting Lua's output each post their Lua work to the session's executor; a synchronous one waits for it there
+- **R257:** Hot reloading parses and compiles the changed file off the executor before posting; a file that does not compile is reported and the session is not touched
+- **R258:** `main.lua` is compiled off the executor before it runs in a new session
+- **R259:** Redirecting Lua's output opens its log files off the executor; only installing the redirection runs on it
+- **R263:** A stopped actor reports when it has drained: once its loop has stopped and the closure in flight at the stop, if any, has returned
 
 ## Feature: Host Operations
 **Source:** specs/host-ops.md

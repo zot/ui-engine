@@ -50,6 +50,10 @@ This design is ported from ark, which found and fixed the same defect.
   stop does not block or panic when it reports back. Stopping twice is harmless, and
   stopping from inside a running closure is allowed, since that closure runs off the
   actor's goroutine.
+- **An actor says when it has drained:** stopped, with the closure that was in flight
+  when it stopped, if any, returned. Stopping alone does not mean that, since an
+  in-flight closure runs on after the stop. Code that must not overlap the actor's last
+  closure, such as closing what the actor protects, waits for this instead.
 
 ## API
 
@@ -78,3 +82,30 @@ Work for a session that does not exist creates no executor. A synchronous execut
 returns an error; fire-and-forget work is dropped. This includes work that arrives after
 the session is destroyed, such as a late browser message, a timer, or a host operation
 delivering its result. None of these may block the goroutine that posted it.
+
+## The session's Lua state
+
+A session's Lua state belongs to its executor: only work running on the session's
+executor touches it, and no other goroutine runs Lua for that session. Lua VMs are not
+thread-safe. Two goroutines in one VM can end the process with a fatal error that no
+`recover` catches.
+
+- **Work already on the executor reaches Lua in place.** Browser messages, change
+  detection, timers, host-operation deliveries and rig work run their Lua directly. They
+  never post to the executor and wait, which deadlocks (see Delivery).
+- **Work from anywhere else posts to the executor.** Hot reloading a file, an embedder
+  running a closure in the Lua state (flib's `WithLua` and `WithLuaUpdate`), running
+  `main.lua` in a new session, and redirecting Lua's output all queue on the session's
+  executor. A synchronous one waits there like any other synchronous post.
+- **Only the Lua touch goes on the executor.** The executor serves every browser
+  message, timer and change detection of its session, so time spent on it is time they
+  wait. Anything that does not need the Lua state is done before posting, off the
+  executor: reading a file, parsing and compiling Lua source, opening a log file.
+  - Hot reloading compiles the changed file before posting. A file that does not compile
+    is reported, and the session is not touched.
+  - `main.lua` is compiled before it runs in the new session.
+- **An embedder's closure runs on the executor.** A caller of `WithLua` or
+  `WithLuaUpdate` does its I/O before the call and keeps only Lua access inside the
+  closure.
+- **Shutdown closes the Lua state once the executor has drained** (`session-defer.md`,
+  "Shutdown Safety"), so nothing touches it afterward.

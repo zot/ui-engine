@@ -15,9 +15,8 @@ stderr and an exit status, or sleep.
 **Alarm:** 1
 **Fire alarm:** define it after `CreateLuaSession` instead of before; main.lua records `nil`
 **Inject:** internal/server/server.go:Server.CreateLuaBackendForSession
-@alarm-hash: 7821df4809d0c3f9
-**Pulled:** 2026-11-19 — rang: `main.lua saw type(ui.execAsync) = nil, want function (R250)`
-
+@alarm-hash: 0aeb3332c0b72fc3
+**Pulled:** 2026-11-19 — re-pulled after Item 14 added SetExecutor to this function: rang `main.lua saw type(ui.execAsync) = nil, want function (R250)` *Earlier —* 2026-11-19 — rang: `main.lua saw type(ui.execAsync) = nil, want function (R250)`
 ## Test: stdout lands in the field and the callback
 **Purpose:** a successful run delivers the program's stdout, verbatim argv, no shell (R251)
 **Input:** `ui.execAsync(t, "out", {<helper>, "echo", "a b", "x>y"}, cb)`

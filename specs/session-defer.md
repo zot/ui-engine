@@ -5,16 +5,11 @@
 
 ## Purpose
 
-Allow Lua code to schedule functions for deferred or timed execution. This avoids the deadlock that occurs when Lua code (running on the executor goroutine inside a ChanSvc turn) tries to call `ExecuteInSession` synchronously.
+Allow Lua code to schedule functions for deferred or timed execution. This avoids the deadlock that occurs when Lua code (running on the session's executor) tries to call `ExecuteInSession` synchronously.
 
 ## Problem
 
-The session execution model has two nested serialization layers (closure-actor pattern):
-
-1. **ChanSvc** — serializes all session operations (WebSocket messages, external calls)
-2. **executorChan** — serializes Lua VM access within a ChanSvc turn
-
-When Lua code is running, both layers are occupied. A synchronous `ExecuteInSession` call from Lua would try to queue onto ChanSvc, but ChanSvc is blocked waiting for the executor — deadlock.
+Lua code runs on the session's executor, the one closure actor that serializes everything the session does: browser messages, external calls, and all access to its Lua state (`closure-actor.md`, "The session's Lua state"). A synchronous `ExecuteInSession` call from Lua would post to that executor and wait for it while it is busy running the caller — deadlock.
 
 ## API
 
@@ -57,7 +52,7 @@ func (s *Server) ExecuteInSessionAsync(vendedID string, fn func() (interface{}, 
 ```
 
 - Queues execution through ChanSvc using `Svc` (async) instead of `SvcSync` (blocking)
-- Runs `fn` through `luaSession.ExecuteInSession` (sets session context, uses executor)
+- Runs `fn` on the session's executor with the session context set
 - Triggers `afterBatch` after execution
 - Errors are logged, not returned (fire-and-forget)
 
@@ -69,7 +64,7 @@ All three timer functions share the same execution path:
 2. Allocate a handle from an incrementing counter; store in a registry with a `cancelled` flag
 3. Schedule via the `onDefer` callback (set by Server), which calls `Server.ExecuteInSessionAsync`
 4. Before executing, check the `cancelled` flag — skip if cancelled
-5. The function runs through ChanSvc → executor with session context, then `afterBatch` pushes changes
+5. The function runs on the session's executor with session context, then `afterBatch` pushes changes
 
 Timing differences:
 - **setImmediate**: calls `onDefer` directly (next ChanSvc turn)
@@ -98,31 +93,27 @@ LuaSession maintains a `timerRegistry map[int64]*timerEntry`:
 
 ## Shutdown Safety
 
-A session's Lua VM runs on a single executor goroutine. `Shutdown` must free
-that VM (`State.Close()`) with no work touching it concurrently, or the process
-crashes with a nil-pointer dereference inside the Lua VM. Deferred tasks
-(timers, and the app-loader a timer may invoke) are the work most likely to be
-in flight when a session shuts down.
+A session's Lua VM is touched only on the session's executor. `Shutdown` must free
+that VM (`State.Close()`) with no work touching it, or the process crashes inside
+the Lua VM. Deferred tasks (timers, and the app-loader a timer may invoke) are the
+work most likely to be in flight when a session shuts down.
 
-Shutdown proceeds in order:
+Shutdown never waits for the executor and never closes the VM itself, because it
+can be called from work running on that executor (destroying a session from inside
+its own executor is allowed) and nothing can tell whether it is:
 
-1. Signal shutdown by closing the session's `done` channel.
-2. Wait for the executor goroutine to finish any in-flight work item and
-   return, bounded by a timeout. On timeout, log and proceed: a wedged task
-   must not hang `ark stop` forever.
-3. Cancel all active timers and clear the timer registry.
-4. Close the Lua VM.
+1. Mark the session shut down, so deferred-task wrappers and late work skip the VM.
+2. Once the session's executor has drained (stopped, with its last closure returned:
+   `closure-actor.md`, Delivery), cancel all active timers, clear the timer registry and
+   close the Lua VM. Timers and the VM are touched only on the executor, so after the
+   drain nothing else can be using them. The session's own teardown
+   stops the executor right after, so this follows promptly. If the executor has not
+   drained after a timeout, that is logged once and the teardown keeps waiting: a wedged
+   task leaks its VM rather than having it closed under it.
+3. Work that reaches the executor after it has stopped does not run; it is work for a
+   destroyed session (`closure-actor.md`).
 
-The executor cooperates with the signal in two places:
-
-- When it dequeues a work item, it re-checks `done` before running it. If
-  shutdown has begun it returns a shutdown error to the caller instead of
-  executing, so work queued during teardown never runs.
-- Each deferred-task wrapper re-checks `done` before touching the VM, skipping
-  execution when shutdown has begun.
-
-Because the executor join in step 2 can block while an in-flight task runs, the
-Server must not hold its sessions lock while shutting a session down.
+The Server still must not hold its sessions lock while shutting a session down.
 `Server.Shutdown` snapshots the session set under the lock, releases it, then
 shuts each session down. Otherwise an in-flight deferred task that calls back
 into the Server (for example, the app-loader resolving a session) would block

@@ -1,6 +1,7 @@
 # Sequence: Lua Hot-Loading
 
 **Source Spec:** deployment.md, libraries.md (Prototype Management)
+**Requirements:** R256, R257
 **Use Case:** Re-execute modified Lua files in active sessions when `--hotload` is enabled
 
 ## Participants
@@ -28,28 +29,25 @@
         |                   |                   |                   |                   |
         |                   |<--[]*LuaSession----|                   |                   |
         |                   |                   |                   |                   |
+        |                   |--CompileCode(trackingKey, content), once, off the executor   |
+        |                   |   [touches no Lua state; a compile error is logged and   |
+        |                   |    no session is touched (R257)]                         |
+        |                   |                   |                   |                   |
         |                   |--[for each session, with panic recovery]                  |
         |                   |                   |                   |                   |
-        |                   |--IsFileLoaded(trackingKey)---------------------------------->|
-        |                   |                   |                   |                   |
-        |                   |<--bool (skip if false)----------------------------------------|
-        |                   |                   |                   |                   |
-        |                   |--[set session.reloading = true]----------------------------->|
-        |                   |                   |                   |                   |
-        |                   |--LoadCode(trackingKey, content)----------------------------->|
-        |                   |                   |                   |                   |
-        |                   |                   |                   |   [execute Lua    |
-        |                   |                   |                   |    in session]    |
-        |                   |                   |                   |                   |
-        |                   |                   |                   |   [prototype()    |
-        |                   |                   |                   |    queues changed |
-        |                   |                   |                   |    prototypes]    |
-        |                   |                   |                   |                   |
+        |                   |--run(work): post to the session executor and wait (R256)--->|
+        |                   |                   |                   |   [on the executor:
+        |                   |                   |                   |    IsFileLoaded, or
+        |                   |                   |                   |    skip; reloading =
+        |                   |                   |                   |    true; RunCompiled
+        |                   |                   |                   |    (prototype()
+        |                   |                   |                   |    queues changed
+        |                   |                   |                   |    prototypes);
+        |                   |                   |                   |    reloading = false]
         |                   |<--ok/error-------------------------------------------------|
         |                   |                   |                   |                   |
-        |                   |--[set session.reloading = false]---------------------------->|
-        |                   |                   |                   |                   |
-        |                   |--processMutationQueue()---------------------------------->|
+        |                   |   [RunCompiled processed the mutation queue on the    |
+        |                   |    executor, so nothing here touches Lua]            |
         |                   |                   |                   |                   |
         |                   |                   |                   |   [see seq-       |
         |                   |                   |                   |    prototype-     |

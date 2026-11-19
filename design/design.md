@@ -190,6 +190,7 @@ target-to-link reverse mapping is kept.
 - [x] test-WebSocketEndpoint.md → `internal/server/connection_test.go`
 - [x] test-Tailor.md → `internal/server/tailor_test.go`
 - [x] test-ChanSvc.md → `internal/server/svc_test.go`
+- [x] test-OneExecutor.md → `internal/server/one_executor_test.go`, `internal/lua/hotloader_test.go`, `internal/lua/shutdown_race_test.go`
 - [x] test-Bundle.md → `internal/bundle/bundle_test.go`
 - [x] test-HostOp.md → `internal/server/hostop_test.go`
 - [x] test-SessionExecutor.md → `internal/server/session_executor_test.go`
@@ -203,6 +204,8 @@ target-to-link reverse mapping is kept.
 - T5: R204 retired by R224 (the executor belongs to the session (R224-R228))
 - T6: R155 retired by R238 (nothing restarts a Lua session; the real case is vended-ID reuse)
 - T7: R173 retired by R229 (the Lua session moved into the session and ExecuteInSessionAsync became PostUpdate (R229-R237))
+- T8: R116 retired by R262 (Item 14: there is no separate Lua executor to dequeue from)
+- T9: R115 retired by R260 (Item 14: one executor per session; shutdown is executor work (R260), with a bounded wait from outside (R261), not a join of a Lua goroutine)
 
 ### Incomplete Implementation
 

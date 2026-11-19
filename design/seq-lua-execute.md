@@ -1,67 +1,40 @@
-# Sequence: Lua Execute via Channel
+# Sequence: Lua Work from Outside the Executor
 
-**Source Spec:** interfaces.md
-**Use Case:** Thread-safe Lua code execution via executor channel
+**Source Spec:** interfaces.md, closure-actor.md
+**Requirements:** R254, R255, R256
+**Use Case:** Running Lua for a session from code that is not already on the session's executor
 
 ## Participants
 
-- Caller: Any goroutine (ProtocolHandler, MCPTool, etc.)
+- Caller: code off the executor (flib's WithLua, the hot-loader, session creation, output redirection)
 - LuaSession: Per-session Lua environment
-- ExecutorGoroutine: Single goroutine for Lua execution
+- ChanSvc: the session's executor (closure-actor.md)
 - LuaVM: Lua virtual machine
 
 ## Sequence
 
 ```
-     Caller              LuaSession          ExecutorGoroutine            LuaVM
+     Caller              LuaSession              ChanSvc                LuaVM
         |                      |                      |                      |
-        |---execute(func)----->|                      |                      |
+        |--1.1 [prepare off the executor: read, compile, open files]         |
         |                      |                      |                      |
-        |                      |---makeResultChan()--->|                      |
-        |                      |                      |                      |
-        |                      |---send(work)-------->|                      |
-        |                      |   [executorChan]     |                      |
-        |                      |                      |                      |
-        |                      |                      |---receive(work)----->|
-        |                      |                      |                      |
-        |                      |                      |   [now in executor   |
-        |                      |                      |    goroutine context]|
-        |                      |                      |                      |
-        |                      |                      |---func()------------>|
-        |                      |                      |                      |
-        |                      |                      |                      |---[lua code
-        |                      |                      |                      |    executes]
-        |                      |                      |                      |
-        |                      |                      |<--result/error-------|
-        |                      |                      |                      |
-        |                      |                      |---send(result)------>|
-        |                      |                      |   [resultChan]       |
-        |                      |                      |                      |
-        |                      |<--receive(result)----|                      |
-        |                      |                      |                      |
+        |--1.2 ExecuteInSession(vendedID, fn)-------->|                      |
+        |                      |--run(fn): SvcSync--->|                      |
+        |                      |                      |--fn, with the        |
+        |                      |                      |  session global set->|
+        |                      |                      |                      |--[lua code
+        |                      |                      |                      |   runs]
+        |                      |<--result/error-------|                      |
         |<--result/error-------|                      |                      |
-        |                      |                      |                      |
 ```
 
-## Work Item Structure
-
-```go
-type luaWork struct {
-    fn         func() (any, error)  // zero-arg function to execute
-    resultChan chan luaResult       // channel for result
-}
-
-type luaResult struct {
-    value any
-    err   error
-}
-```
+Work already on the executor (browser messages, change detection, timers, host-op
+deliveries, rig work) never takes this path. It calls `RunInSession`, which runs `fn` in
+place: a synchronous post from inside the executor would wait for itself (R255).
 
 ## Notes
 
-- All Lua operations (callMethod, setProperty, loadCode) use execute()
-- Caller blocks until execution completes (synchronous from caller's view)
-- ExecutorGoroutine is the only goroutine that touches Lua VM state
-- Prevents race conditions in multi-connection scenarios
-- Channel buffer size 0 (unbuffered) for backpressure
-- On shutdown, executorChan is closed, goroutine exits
+- 1.1 is the sewing rule: only the Lua touch goes on the executor, because the executor serves every browser message, timer and change detection of its session (closure-actor.md)
+- The caller blocks until execution completes; the executor does not
+- A standalone LuaSession (no Server) runs `fn` under a mutex instead of a ChanSvc
+- After the session's executor stops, the post is dropped and the caller gets an error (R228, R262)

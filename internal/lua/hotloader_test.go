@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	lua "github.com/yuin/gopher-lua"
 	"github.com/zot/ui-engine/internal/config"
 )
 
@@ -387,5 +388,64 @@ func TestResolveReloadPathSymlinkTarget(t *testing.T) {
 	path := h.resolveReloadPath(targetFile)
 	if path != targetFile {
 		t.Errorf("resolveReloadPath(%q) = %q, want %q", targetFile, path, targetFile)
+	}
+}
+
+// reloadFixture is a standalone session that has loaded dir/app.lua (probe = 1), a
+// recording executor that counts the work posted to it, and a HotLoader over it.
+func reloadFixture(t *testing.T) (*HotLoader, *LuaSession, string, *int) {
+	t.Helper()
+	dir := t.TempDir()
+	cfg := config.DefaultConfig()
+	cfg.Server.Dir = dir
+	path := filepath.Join(dir, "app.lua")
+	if err := os.WriteFile(path, []byte("probe = 1\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	sess, err := NewRuntime(cfg, dir, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(sess.Shutdown)
+	if err := sess.State.DoString("probe = 1"); err != nil {
+		t.Fatal(err)
+	}
+	sess.State.SetField(sess.loadedModules, "app.lua", lua.LTrue)
+	posts := 0
+	sess.SetExecutor(func(fn func() (interface{}, error)) (interface{}, error) {
+		posts++
+		return fn()
+	}, nil)
+	h := &HotLoader{config: cfg, luaDir: dir, getSessions: func() []*LuaSession { return []*LuaSession{sess} }}
+	return h, sess, path, &posts
+}
+
+// Test: hot reload posts its Lua work through the executor (R256)
+func TestHotReloadPostsThroughExecutor(t *testing.T) {
+	h, sess, path, posts := reloadFixture(t)
+	if err := os.WriteFile(path, []byte("probe = 2\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	h.reloadFile(path)
+	if *posts != 1 {
+		t.Errorf("reload posted %d pieces of work to the executor, want 1", *posts)
+	}
+	if got := sess.State.GetGlobal("probe").String(); got != "2" {
+		t.Errorf("probe = %s after reload, want 2", got)
+	}
+}
+
+// Test: a file that does not compile never touches the session (R257)
+func TestHotReloadCompileErrorTouchesNothing(t *testing.T) {
+	h, sess, path, posts := reloadFixture(t)
+	if err := os.WriteFile(path, []byte("probe = (\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	h.reloadFile(path)
+	if *posts != 0 {
+		t.Errorf("a file that does not compile posted %d pieces of work, want 0", *posts)
+	}
+	if got := sess.State.GetGlobal("probe").String(); got != "1" {
+		t.Errorf("probe = %s after a failed reload, want it unchanged at 1", got)
 	}
 }

@@ -1,5 +1,5 @@
 # LuaHotLoader
-**Requirements:** R129, R130, R132, R134, R135, R136
+**Requirements:** R129, R130, R132, R134, R135, R136, R256, R257
 
 **Source Spec:** main.md "Hot-Loading System"
 
@@ -20,7 +20,7 @@
 - rediscover: On a create/remove of a `lua/<app>` entry, re-run AppDiscovery and add/drop app watches; Lua already loaded from a removed app stays loaded
 - queueReload(path): debounce keyed by tracking key, merged by file identity (os.SameFile), so one file reached through two watched paths reloads once; identity rather than key because on Windows EvalSymlinks does not resolve junctions, so one file can carry two keys
 - computeTrackingKey(absPath): Compute baseDir-relative path for file tracking (resolves symlinks)
-- reloadFile(path, session): Check IsFileLoaded(trackingKey), set reloading flag, reload via LoadCode()
+- reloadFile(path, session): compile the file with LuaSession.CompileCode off the executor; a compile error is logged and the session is not touched (R257). Otherwise post one piece of work through the session's run: check IsFileLoaded(trackingKey), set the reloading flag, RunCompiled, clear the flag (R256)
 - triggerSessionRefresh(session): Execute empty function via ws.ExecuteInSession to run AfterBatch (pushes viewdef/variable changes)
 - recoverPanic: Wrap Lua execution in panic recovery, log errors instead of crashing server
 - CleanupModule(trackingKey): Remove watches and pendingReloads for a module file
@@ -29,7 +29,7 @@
 ## Collaborators
 
 - Server: Provides access to active LuaSessions via GetLuaSessions()
-- LuaSession: Provides IsFileLoaded() check, RequireLuaFile() for reload, reloading flag
+- LuaSession: Provides CompileCode (off the executor), and run, IsFileLoaded, the reloading flag and RunCompiled (on it)
 - WebSocketEndpoint: Provides ExecuteInSession() for triggering AfterBatch
 - Config: Provides lua.hotload setting and verbosity for logging
 - AppDiscovery: Active apps and their entry paths

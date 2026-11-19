@@ -113,7 +113,7 @@ func (v ExecRig) Post(fn func()) bool {
 	}
 	vendedID := v.ref.vendedID
 	v.ref.srv.wsEndpoint.ExecuteInSessionPassive(internalID, func() {
-		ls.ExecuteInSession(vendedID, func() (interface{}, error) {
+		ls.RunInSession(vendedID, func() (interface{}, error) {
 			fn()
 			return nil, nil
 		})
@@ -131,7 +131,7 @@ func (v ExecRig) PostUpdate(fn func()) bool {
 	}
 	vendedID := v.ref.vendedID
 	v.ref.srv.wsEndpoint.ExecuteInSessionAsync(internalID, func() (interface{}, error) {
-		return ls.ExecuteInSession(vendedID, func() (interface{}, error) {
+		return ls.RunInSession(vendedID, func() (interface{}, error) {
 			fn()
 			return nil, nil
 		})

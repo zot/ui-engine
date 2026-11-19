@@ -582,6 +582,15 @@ func (s *Server) CreateLuaBackendForSession(vendedID string, sess *Session) erro
 	// CRC: crc-Server.md, crc-Session.md | Seq: seq-session-create-backend.md | R230, R231
 	sess.attachLua(luaSession)
 
+	// Give the Lua session this session's executor: Lua work from outside posts there and
+	// waits, and Shutdown closes the VM once the executor has drained (R254, R260).
+	// CRC: crc-Server.md | Seq: seq-lua-executor-init.md#1.3 | R254, R260
+	exec := sess.Executor()
+	luaSession.SetExecutor(
+		func(fn func() (interface{}, error)) (interface{}, error) { return SvcSync(exec, fn) },
+		func(closeVM func()) { go s.closeWhenDrained(vendedID, exec, closeVM) },
+	)
+
 	// ui.execAsync is built in, defined before main.lua runs so the app can use it.
 	// CRC: crc-ExecAsync.md | Seq: seq-session-create-backend.md | R250
 	if ref, ok := s.SessionRef(vendedID); ok {
@@ -733,10 +742,10 @@ func (s *Server) executeInSession(vendedID string, fn func() (interface{}, error
 	}
 	internalID := sess.ID
 
-	// Delegate to websocket endpoint (queues through session's executor)
-	// Wrap fn to set up Lua session context
+	// Queue on the session's executor, then run fn there in place: that closure is
+	// already on the executor, so posting again would wait for itself (R255).
 	return s.wsEndpoint.ExecuteInSession(internalID, func() (interface{}, error) {
-		return luaSession.ExecuteInSession(vendedID, fn)
+		return luaSession.RunInSession(vendedID, fn)
 	})
 }
 
@@ -1151,4 +1160,25 @@ func (a *luaTrackerAdapter) updateVariable1Viewdefs(vendedID string, viewdefs ma
 	if lb := a.backend(vendedID); lb != nil {
 		lb.GetTracker().GetVariable(1).SetProperty("viewdefs", string(viewdefsJSON))
 	}
+}
+
+// drainLogTimeout is how long closeWhenDrained waits before logging that a session's
+// executor has not drained. It keeps waiting after the log.
+const drainLogTimeout = 2 * time.Second
+
+// closeWhenDrained closes a shut-down session's Lua VM once its executor has drained:
+// stopped, with its last closure returned, so nothing can still be using the VM. If that
+// takes longer than drainLogTimeout it logs once and keeps waiting: a wedged closure
+// leaks its VM rather than having it closed under it.
+// CRC: crc-Server.md | Seq: seq-session-timer.md#2.4 | R260, R261
+func (s *Server) closeWhenDrained(vendedID string, exec *ChanSvc, closeVM func()) {
+	timer := time.NewTimer(drainLogTimeout)
+	defer timer.Stop()
+	select {
+	case <-exec.Drained():
+	case <-timer.C:
+		s.config.Log(0, "Lua session %s: executor has not drained after %s; the VM stays open until it does", vendedID, drainLogTimeout)
+		<-exec.Drained()
+	}
+	closeVM()
 }

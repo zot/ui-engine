@@ -32,8 +32,8 @@ written to fail if the delivery path loses it again.
 **Alarm:** 2
 **Fire alarm:** in accept, launch even when a closure is running; concurrency exceeds 1
 **Inject:** internal/server/svc.go:ChanSvc.accept
-@alarm-hash: 848da150145a1395
-**Pulled:** 2026-11-19 — re-pulled after the job rewrite: accept launches even while a job runs; "max concurrent closures = 8, want 1" *Earlier —* 2026-11-18 — 2026-11-18 — rang: accept launches even while a closure runs; "max concurrent closures = 8, want 1"
+@alarm-hash: bc44e7901ba7739a
+**Pulled:** 2026-11-19 — re-pulled after Item 14 added the stopping state to accept: rang `max concurrent closures = 8, want 1 (R197, R198)` *Earlier —* 2026-11-19 — re-pulled after the job rewrite: accept launches even while a job runs; "max concurrent closures = 8, want 1" *Earlier —* 2026-11-18 — 2026-11-18 — rang: accept launches even while a closure runs; "max concurrent closures = 8, want 1"
 ## Test: a closure may post fire-and-forget without deadlocking
 **Purpose:** a post from inside a running closure queues behind it (R201)
 **Input:** a closure that posts two more and returns; the actor is built without a cleanup Stop, so a wedged loop fails the test instead of hanging it
@@ -43,8 +43,8 @@ written to fail if the delivery path loses it again.
 **Alarm:** 3
 **Fire alarm:** run closures on the loop goroutine (call fn directly in launch, then next); the second inner post blocks on the one-slot channel the loop is not draining, and the test times out. One nested post is not enough: it fits in the empty slot, which is why the test posts two (found 2026-11-18; ark's version of this test posts one)
 **Inject:** internal/server/svc.go:ChanSvc.launch
-@alarm-hash: 7b97c3dad23fe8f1
-**Pulled:** 2026-11-19 — re-pulled after the job rewrite: the job run on the loop goroutine in launch, then next; "a closure posting fire-and-forget from inside itself deadlocked (R201)" *Earlier —* 2026-11-18 — 2026-11-18 — rang only after the test was strengthened to post twice from inside: fn run on the loop in launch; "a closure posting fire-and-forget from inside itself deadlocked". With one nested post it stayed green
+@alarm-hash: 2a56f969e33d7f96
+**Pulled:** 2026-11-19 — re-pulled after Item 14 made the report-back a plain send: rang `a closure posting fire-and-forget from inside itself deadlocked (R201)` *Earlier —* 2026-11-19 — re-pulled after the job rewrite: the job run on the loop goroutine in launch, then next; "a closure posting fire-and-forget from inside itself deadlocked (R201)" *Earlier —* 2026-11-18 — 2026-11-18 — rang only after the test was strengthened to post twice from inside: fn run on the loop in launch; "a closure posting fire-and-forget from inside itself deadlocked". With one nested post it stayed green
 ## Test: a burst larger than the channel is absorbed in order
 **Purpose:** the unbounded queue absorbs bursts without reordering (R199)
 **Input:** hold the first closure; post 199 more; release
@@ -106,6 +106,18 @@ written to fail if the delivery path loses it again.
 **Expected:** within 2 seconds the count is back to the recorded value
 **Refs:** crc-ChanSvc.md
 **Code:** internal/server/svc_test.go
+
+## Test: drained waits for the closure in flight at the stop
+**Purpose:** drained means stopped and the last closure returned, not just stopped (R263). The loop closes done the moment it takes the stop sentinel, while an in-flight closure runs on, so done alone would let a caller close what the actor protects under that closure
+**Input:** a closure that stops the actor from inside, then sleeps 100 ms and records that it returned; then an idle actor that is stopped
+**Expected:** Drained() is not closed before the closure records it returned, and is closed within 2 seconds after; for the idle actor Drained() closes within 2 seconds of the stop
+**Refs:** crc-ChanSvc.md
+**Code:** internal/server/svc_test.go
+**Alarm:** 8
+**Fire alarm:** close drained at the stop sentinel regardless of a closure in flight; Drained() closes before the closure has returned
+**Inject:** internal/server/svc.go:ChanSvc.Start
+@alarm-hash: e7390673259dca8a
+**Pulled:** 2026-11-19 — rang: `Drained closed before the closure in flight at the stop returned`
 
 ## Not tested, deliberately
 **The panic policy (R200).** A panicking closure terminates the process, so testing it

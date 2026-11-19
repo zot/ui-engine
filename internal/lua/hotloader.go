@@ -4,6 +4,7 @@
 package lua
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -11,6 +12,7 @@ import (
 	"time"
 
 	"github.com/fsnotify/fsnotify"
+	lua "github.com/yuin/gopher-lua"
 	"github.com/zot/ui-engine/internal/config"
 	"github.com/zot/ui-engine/internal/site"
 )
@@ -364,36 +366,47 @@ func (h *HotLoader) reloadFile(filePath string) {
 
 	h.config.Log(2, "HotLoader: tracking key for %s is %s", reloadPath, trackingKey)
 
-	// Reload in all active sessions with panic recovery
-	sessions := h.getSessions()
-	for _, sess := range sessions {
-		h.reloadInSession(sess, trackingKey, string(content))
-	}
-}
-
-// reloadInSession reloads code in a single session with panic recovery.
-// Only reloads files that have already been loaded by the session.
-// Sets session.reloading flag during reload.
-// Seq: seq-lua-hotload.md
-func (h *HotLoader) reloadInSession(sess *LuaSession, trackingKey, content string) {
-	// Check if file has been loaded by this session (skip if not)
-	if !sess.IsFileLoaded(trackingKey) {
-		h.config.Log(2, "HotLoader: skipping %s in session %s (not loaded)", trackingKey, sess.ID)
+	// Compile once, off every session's executor: only running the chunk needs it. A
+	// file that does not compile touches no session.
+	// CRC: crc-LuaHotLoader.md | Seq: seq-lua-hotload.md | R257
+	proto, err := CompileCode(trackingKey, string(content))
+	if err != nil {
+		h.config.Log(1, "HotLoader: %s does not compile, no session reloaded: %v", reloadPath, err)
 		return
 	}
 
-	// Panic recovery to prevent crashing the server
-	defer func() {
-		if r := recover(); r != nil {
-			h.config.Log(0, "HotLoader: PANIC reloading %s in session %s: %v", trackingKey, sess.ID, r)
+	// Reload in all active sessions
+	sessions := h.getSessions()
+	for _, sess := range sessions {
+		h.reloadInSession(sess, trackingKey, proto)
+	}
+}
+
+// reloadInSession reloads compiled code in a single session as one piece of work on
+// the session's executor. Only reloads files that have already been loaded by the
+// session, and sets session.reloading while it runs. A panic in that work is recovered
+// there, since it runs on the executor, which does not recover panics.
+// CRC: crc-LuaHotLoader.md | Seq: seq-lua-hotload.md | R256
+func (h *HotLoader) reloadInSession(sess *LuaSession, trackingKey string, proto *lua.FunctionProto) {
+	skipped := false
+	_, err := sess.execute(func() (result interface{}, err error) {
+		defer func() {
+			if r := recover(); r != nil {
+				err = fmt.Errorf("panic: %v", r)
+			}
+		}()
+		if !sess.IsFileLoaded(trackingKey) {
+			skipped = true
+			return nil, nil
 		}
-	}()
-
-	// Set reloading flag before reload
-	sess.SetReloading(true)
-	defer sess.SetReloading(false)
-
-	_, err := sess.LoadCode(trackingKey, content)
+		sess.SetReloading(true)
+		defer sess.SetReloading(false)
+		return sess.RunCompiled(trackingKey, proto)
+	})
+	if skipped {
+		h.config.Log(2, "HotLoader: skipping %s in session %s (not loaded)", trackingKey, sess.ID)
+		return
+	}
 	if err != nil {
 		h.config.Log(1, "HotLoader: error reloading %s in session %s: %v", trackingKey, sess.ID, err)
 		return

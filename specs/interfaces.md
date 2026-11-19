@@ -109,8 +109,8 @@ When `--lua` is enabled (default: true), the UI server provides an embedded Lua 
 - Provides methods for variable management (see Lua Session API in libraries.md)
 
 **Execution Model:**
-- UI server creates a Lua executor goroutine with a channel for zero-arg functions
-- All variable path sets and method calls execute through this channel
+- Each session's Lua state is touched only on that session's executor (`closure-actor.md`, "The session's Lua state"); there is no separate Lua goroutine
+- All variable path sets and method calls run on that executor
 - Ensures single-threaded Lua access (Lua VMs are not thread-safe)
 - Variable updates that trigger Lua methods are queued and processed sequentially
 

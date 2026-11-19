@@ -1,5 +1,5 @@
 # ChanSvc
-**Requirements:** R195, R196, R197, R198, R199, R200, R201, R202, R218, R219, R220, R221, R222, R223
+**Requirements:** R195, R196, R197, R198, R199, R200, R201, R202, R218, R219, R220, R221, R222, R223, R263
 
 The closure actor: serializes access to whatever its owner protects, and runs closures
 posted by one goroutine in the order that goroutine posted them. Ported from ark's
@@ -15,6 +15,11 @@ is what makes order hold.
   buffer (R199)
 - done: closed by the loop goroutine, and only by it, when it takes the stop sentinel;
   closed means stopped (R219)
+- drained: closed once the actor has stopped and the closure in flight at the stop, if
+  any, has returned. Exactly one party closes it: the loop, if nothing was running when it
+  took the stop sentinel; otherwise the in-flight job's goroutine, when its report back
+  fails because the actor has stopped. Only one job is ever in flight, so there is never a
+  second closer (R263)
 - queue: jobs waiting for the in-flight one; unbounded; loop goroutine only (R197, R199)
 - running: whether a job is in flight; a plain bool, loop goroutine only (R197)
 - job: one posted closure, plus `launched`, written only on the loop goroutine when the
@@ -24,8 +29,8 @@ is what makes order hold.
 
 ## Does
 - NewChanSvc / Start: build, then launch the loop. The loop receives from ch and runs only
-  bookkeeping closures (`accept`, `next`); on the stop sentinel it closes done and returns,
-  abandoning the queue (R197, R218, R219).
+  bookkeeping closures (`accept`, `next`); on the stop sentinel it closes done, closes drained too if
+  nothing is running, and returns, abandoning the queue (R197, R218, R219, R263).
 - send(f): the one way anything enters ch: select between sending f and done; reports
   whether f was sent. Once stopped it returns false at once, never blocking (R219, R222).
 - Svc(fn): post a job through send; dropped when stopped (R195, R196, R219).
@@ -36,8 +41,10 @@ is what makes order hold.
 - accept(job) (loop): queue the job if one is in flight, else launch it (R197).
 - launch(job) (loop): set launched and running, run the closure on its own goroutine,
   which reports back with `send(next)` when it returns; after a stop that send is a
-  no-op (R198, R200, R222).
+  no-op, and the goroutine closes drained instead (R198, R200, R222, R263).
 - next() (loop): pop the queue through popFront and launch, or clear running (R197, R202).
+- Drained(): the drained channel, for code that must not overlap the last closure, such as
+  closing what the actor protects (R263).
 - Stop: send the sentinel through send. A later Stop finds done closed and returns, and a
   second sentinel sent before the loop took the first lies unread in the slot, so Stop is
   idempotent with no flag of its own. Callable from inside a running closure, which runs

@@ -39,10 +39,17 @@ const chanSvcSlots = 1
 type ChanSvc struct {
 	ch   chan func()   // a doorway, not the buffer (R199)
 	done chan struct{} // closed by the loop, and only by it, when it stops (R219)
+	// drained is closed by the loop once it has stopped and the closure in flight at the
+	// stop, if any, has returned (R263). Stopping alone does not mean that.
+	drained chan struct{}
 
 	// loop goroutine only:
 	queue   []*job
 	running bool
+	// stopping: done is closed but a closure is still in flight, so the loop keeps
+	// receiving until that closure reports back, dropping anything newly posted.
+	stopping bool
+	ended    bool
 }
 
 // job is one posted closure. launched is written only on the loop goroutine, before
@@ -56,7 +63,7 @@ type job struct {
 // NewChanSvc builds an actor without starting it.
 // CRC: crc-ChanSvc.md
 func NewChanSvc() *ChanSvc {
-	return &ChanSvc{ch: make(chan func(), chanSvcSlots), done: make(chan struct{})}
+	return &ChanSvc{ch: make(chan func(), chanSvcSlots), done: make(chan struct{}), drained: make(chan struct{})}
 }
 
 // Start launches the loop goroutine. Every closure it receives is bookkeeping (accept
@@ -66,14 +73,33 @@ func NewChanSvc() *ChanSvc {
 func (s *ChanSvc) Start() {
 	go func() {
 		for fn := range s.ch {
-			if fn == nil {
-				close(s.done) // the stop sentinel
-				return
+			if fn == nil { // the stop sentinel
+				if s.stopping {
+					continue // a second Stop while the last closure finishes
+				}
+				close(s.done)
+				if !s.running {
+					close(s.drained) // nothing in flight: drained at once (R263)
+					return
+				}
+				// A closure is in flight. Keep receiving until it reports back, so its
+				// report always has a receiver and drained closes after it (R263).
+				s.stopping = true
+				continue
 			}
 			fn()
+			if s.ended {
+				return
+			}
 		}
 	}()
 }
+
+// Drained is closed once the actor has stopped and its last closure has returned. Stop
+// alone does not mean that: a closure in flight runs on after the stop. Code that must
+// not overlap the last closure, such as closing what the actor protects, waits on this.
+// CRC: crc-ChanSvc.md | R263
+func (s *ChanSvc) Drained() <-chan struct{} { return s.drained }
 
 // Stop shuts the loop down once everything already posted has been handled. A closure
 // in flight runs to completion; closures still queued behind it are abandoned. The
@@ -105,6 +131,9 @@ func (s *ChanSvc) post(j *job) bool { return s.send(func() { s.accept(j) }) }
 // start it.
 // CRC: crc-ChanSvc.md | R197, R198
 func (s *ChanSvc) accept(j *job) {
+	if s.stopping {
+		return // posted after the stop: dropped, never launched, so SvcSync sees ErrStopped
+	}
 	if s.running {
 		s.queue = append(s.queue, j)
 		return
@@ -114,24 +143,33 @@ func (s *ChanSvc) accept(j *job) {
 
 // launch runs on the loop goroutine: mark the job launched and the actor busy, and run
 // the closure on its own goroutine, which reports back when it finishes. After a stop
-// that report is a no-op.
+// that report is what lets the loop close drained and end.
 //
 // No recover: a panicking closure takes the process down. The state the actor protects
 // is in an unknown condition once a closure has panicked, and a central recover that
 // forgot to clear running would queue every later closure forever, silently.
-// CRC: crc-ChanSvc.md | R197, R198, R200, R218, R222
+// CRC: crc-ChanSvc.md | R197, R198, R200, R218, R222, R263
 func (s *ChanSvc) launch(j *job) {
 	j.launched = true
 	s.running = true
 	go func() {
 		j.run()
-		s.send(s.next)
+		// A plain send, not send(): while a closure is in flight the loop is always still
+		// receiving, stopping or not, so this cannot block for long, and it must not be
+		// lost to a select that picks done (R222, R263).
+		s.ch <- s.next
 	}()
 }
 
 // next runs on the loop goroutine: start whatever is waiting, or go idle.
 // CRC: crc-ChanSvc.md | R197, R202
 func (s *ChanSvc) next() {
+	if s.stopping { // the last closure has returned: drained (R263)
+		s.running = false
+		close(s.drained)
+		s.ended = true
+		return
+	}
 	if len(s.queue) == 0 {
 		s.running = false
 		return

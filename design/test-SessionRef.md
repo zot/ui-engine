@@ -36,8 +36,8 @@ time, and a warning repeated per call only adds noise. Each gets an alarm.
 **Alarm:** 3
 **Fire alarm:** remove the resolve check in Post so it posts by vended ID; Post returns true
 **Inject:** internal/server/sessionref.go:ExecRig.Post
-@alarm-hash: 6147ef2da912ff9d
-**Pulled:** 2026-11-19 — re-pulled after the rename to ExecRig: Post's resolve check removed; "Post on a destroyed session returned true" *Earlier —* 2026-11-18 — 2026-11-18 — rang: Post returned true on a failed resolve; "Post on a destroyed session returned true"
+@alarm-hash: f63c4ddcdd8f77aa
+**Pulled:** 2026-11-19 — re-pulled after Item 14 made Post run in place: resolve check bypassed, rang `Post on a destroyed session returned true` *Earlier —* 2026-11-19 — re-pulled after the rename to ExecRig: Post's resolve check removed; "Post on a destroyed session returned true" *Earlier —* 2026-11-18 — 2026-11-18 — rang: Post returned true on a failed resolve; "Post on a destroyed session returned true"
 ## Test: rigs and station round-trip
 **Purpose:** every rig returns its reference and the same station (R157, R158)
 **Input:** a valid ref
@@ -133,8 +133,8 @@ time, and a warning repeated per call only adds noise. Each gets an alarm.
 **Alarm:** 9
 **Fire alarm:** attach the Lua session after CreateLuaSession instead of before; the deferred function is dropped because its session cannot be found
 **Inject:** internal/server/server.go:Server.CreateLuaBackendForSession
-@alarm-hash: 7821df4809d0c3f9
-**Pulled:** 2026-11-19 — re-pulled after 11a added the execAsync define to this function: Lua session attached after CreateLuaSession; rang `work main.lua deferred never ran` *Earlier —* 2026-11-19 — re-pulled after 9a removed the store adapter's SetBackend from this function: Lua session attached after CreateLuaSession; "work main.lua deferred never ran" *Earlier —* 2026-11-19 — rang: Lua session attached after CreateLuaSession; "work main.lua deferred never ran: its session could not be found while main.lua ran"
+@alarm-hash: 0aeb3332c0b72fc3
+**Pulled:** 2026-11-19 — re-pulled after Item 14 added SetExecutor to this function: attach moved after CreateLuaSession, rang `work main.lua deferred never ran` *Earlier —* 2026-11-19 — re-pulled after 11a added the execAsync define to this function: Lua session attached after CreateLuaSession; rang `work main.lua deferred never ran` *Earlier —* 2026-11-19 — re-pulled after 9a removed the store adapter's SetBackend from this function: Lua session attached after CreateLuaSession; "work main.lua deferred never ran" *Earlier —* 2026-11-19 — rang: Lua session attached after CreateLuaSession; "work main.lua deferred never ran: its session could not be found while main.lua ran"
 ## Test: a second attach panics
 **Purpose:** a session's Lua session never changes (R230)
 **Input:** a session with a Lua session attached; attach another

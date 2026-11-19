@@ -1,5 +1,5 @@
 # Server
-**Requirements:** R119, R120, R138, R143, R153, R168-171, R193, R118, R229, R231, R232, R233, R235, R236, R239
+**Requirements:** R119, R120, R138, R143, R153, R168-171, R193, R118, R229, R231, R232, R233, R235, R236, R239, R254-R256, R260
 
 Top-level server. This card covers its site-directory responsibilities and its
 session entry points (references and dangerous execution); protocol and HTTP behavior
@@ -36,20 +36,24 @@ are on their own cards.
   attached Lua session's Shutdown (R118, R233). Afterwards luaSessionFor finds nothing,
   since every Lua session reports shut down.
 - CreateLuaBackendForSession: attaches the new LuaSession to the Session before
-  CreateLuaSession runs main.lua (R230); then defines `ui.execAsync` on it, so main.lua
+  CreateLuaSession runs main.lua (R230), and installs its executor with
+  `LuaSession.SetExecutor`: run posts to the session's ChanSvc and waits, without change
+  detection; closeWhenDrained waits on that ChanSvc's drained signal (R254, R260); then defines `ui.execAsync` on it, so main.lua
   can use it (R250, crc-ExecAsync.md); neither the Lua session nor the backend is copied
   to the store adapter, which finds the backend through the registry (R231, R239).
 - ExecuteInSession: delegates to PrimitiveExecuteInSession with dangerous true (R168).
 - ExecuteInSessionAsync(vendedID, fn): SessionRef(vendedID), then Exec().PostUpdate;
   nothing when there is no such session (R235).
 - DestroyLuaBackendForSession: first closes every open Tailor on the session as
-  failed (R193). Then shuts down the session's attached LuaSession; there is no map
-  entry to remove (R231).
+  failed (R193). Then shuts down the session's attached LuaSession, which returns at once
+  and closes its VM once the session executor drains; there is no map entry to remove
+  (R231, R260).
 - PrimitiveExecuteInSession(vendedID, fn, dangerous): when dangerous, find the site that
   called ExecuteInSession; with AllowDangerousExecution set, warn once per site and
   continue (R170); unset, panic naming the site before queueing (R171). Then the
   behavior ExecuteInSession had before: find the session with luaSessionFor, the same way a
-  reference does, queue through the endpoint and the LuaSession, wait (R169, R236).
+  reference does, queue on the endpoint (the session executor) and run fn there through
+  LuaSession.RunInSession, in place, wait (R169, R236, R255).
 
 ## Collaborators
 - AppDiscovery, ViewdefManager, ViewdefStore (hot loader), LuaHotLoader, Config, SessionRef, WebSocketEndpoint, LuaSession, Session, SessionManager

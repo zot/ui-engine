@@ -1,7 +1,7 @@
 # LuaSession
 
 **Source Spec:** libraries.md, interfaces.md, protocol.md, deployment.md, remove-prototype.md, module-tracking.md, session-defer.md
-**Requirements:** R1-7, R9-21, R92-111, R115-118, R145, R152, R238, R241, R242
+**Requirements:** R1-7, R9-21, R92-111, R117-118, R145, R152, R238, R241, R242, R254-262
 
 ## Responsibilities
 
@@ -13,9 +13,9 @@
 - appObject: Reference to the app Lua object (live table, not a wrapper)
 - variableStore: Interface for session variable operations
 - wrapperRegistry: Registry for wrapper factories
-- executorChan: Channel for thread-safe Lua execution
-- done: Channel closed by Shutdown to signal the executor and deferred-task wrappers to stop
-- executorStopped: Channel the executor goroutine closes when it returns; Shutdown joins on it (bounded by a timeout) before closing the VM
+- run: how work from outside reaches the Lua state: posts it to the session's executor and waits (`SetExecutor`, installed by Server at attach). A standalone session (no Server, as in tests) runs it under a mutex instead. There is no Lua goroutine (R254)
+- closeWhenDrained: how Shutdown closes the VM (`SetExecutor` too): the Server's waits for the session executor to drain (R260); a standalone session's closes at once
+- done: Channel closed by Shutdown to mark the session shut down; deferred-task wrappers and IsShutdown read it
 - presenterTypes: Map of registered presenter types
 - prototypeRegistry: Map of prototype name to stored init copy (for change detection)
 - instanceRegistry: Map of prototype to weak set of instances (for mutation)
@@ -41,16 +41,20 @@
 - destroyVariable: Destroy variable by ID (supports object reference lookup)
 - ui.viewdefCollisions(): convert viewdefManager.Collisions() to an array of Lua tables (key, winner, winnerPath, loser, loserPath) (R145)
 - GetLuaSession(vendedID): Return self if vendedID matches (per-session isolation)
-- NotifyPropertyChange: Notify Lua watchers of property changes
 - HandleFrontendCreate: Handle path-based variable creation from frontend
 - HandleFrontendUpdate: Handle updates to path-based variables from frontend
-- ExecuteInSession: Execute function within session context (sets global 'session')
+- RunInSession(vendedID, fn): run fn with the session global set, in place. For work already on the session executor: rigs, Server.executeInSession, timers (R255)
+- ExecuteInSession(vendedID, fn): the same from outside the executor: posts through run and waits. flib's WithLua takes this path (R256)
+- SetExecutor(run, closeWhenDrained): installed once by the Server when the Lua session is attached
+- CompileCode(name, code) (package function, not a method): parse and compile Lua source to a function prototype, touching no Lua state, so it runs off the executor (R257, R258)
+- RunCompiled(name, proto): run a compiled prototype in the Lua state, in place, then process the mutation queue
+- RedirectOutput(logPath, errPath): open both files off the executor, then install the print and stream redirection through run (R259)
 - setImmediate(fn): Schedule fn for next ChanSvc turn, return handle
 - setTimeout(fn, ms): Schedule fn after delay, return handle
 - setInterval(fn, ms): Schedule fn to repeat at interval, return handle
 - clearImmediate/clearTimeout/clearInterval(handle): Cancel a timer by handle
 - AfterBatch: Trigger change detection and return updates after message batch
-- Shutdown: Signal stop (close `done`), join the executor on `executorStopped` (bounded by a timeout), cancel timers and clear the registry, then close the Lua VM
+- Shutdown: close `done`, then closeWhenDrained(cancel timers, clear the registry, close the VM): timers and VM are torn down only after the executor drains. Never waits for the executor, so it completes from inside it (R260, R261)
 - IsShutdown: whether `done` is closed; SessionRef uses it for validity (R238)
 - prototype(name, init, base): Declare/update prototype with instance field tracking (see below)
 - create(prototype, instance): Create tracked instance with weak reference (see below)
@@ -103,7 +107,7 @@
 - LuaBackend: Per-session backend for watch management and change detection
 - luaTrackerAdapter: Implements VariableStore; every operation names its session, and the Lua session passes its own vended ID (R241, R242). See crc-LuaTrackerAdapter.md
 - WrapperRegistry: Provides wrapper factories for ui.registerWrapper
-- LuaHotLoader: Re-executes modified Lua files via RequireLuaFile(), checks IsFileLoaded(), provides cleanup callback
+- LuaHotLoader: compiles a modified file with CompileCode off the executor, then posts one piece of work through run that checks IsFileLoaded, sets reloading and runs it with RunCompiled; provides cleanup callback
 - Module: Tracks resources registered by each module for cleanup during unload
 
 ## Sequences
@@ -158,8 +162,9 @@
   - setInterval: goroutine with time.Ticker, each tick calls onDefer
   - Timer registry tracks handles with cancelled flag and stop function
   - Shutdown cancels all active timers
-- **Shutdown Safety** (R115-R118): a session's Lua VM runs on one executor goroutine; no work may touch it after `State.Close()`, or the process crashes with a nil deref in the VM:
-  - Order: close `done` → join the executor on `executorStopped` (bounded by a timeout; on timeout log and proceed) → cancel timers and clear the registry → `State.Close()`
-  - After dequeuing a work item the executor re-checks `done`; if shutdown has begun it returns `errSessionShutdown` to the caller instead of running the item, so work queued during teardown never runs
+- **Shutdown Safety** (R117, R118, R260-R262): a session's Lua VM is touched only on the session's executor; no work may touch it after `State.Close()`, or the process crashes inside the VM:
+  - Order: close `done` → closeWhenDrained(cancel timers, clear the registry, `State.Close()`). Shutdown never waits, so it completes when the session is destroyed from inside its own executor
+  - The Server's closeWhenDrained waits on the session executor's drained signal (crc-ChanSvc.md), so the VM closes only after the last closure has returned; past a timeout it logs once and keeps waiting
+  - Work posted after the executor stops is dropped by the executor (R228, R262); there is no Lua-side queue to re-check
   - Each deferred-task wrapper re-checks `done` before touching the VM and skips execution when shutdown has begun
-  - `Server.Shutdown` snapshots the session registry (`SessionManager.Snapshot`), which releases its lock, then calls each session's Shutdown — so an in-flight deferred task that re-enters the Server (e.g. the app-loader) cannot deadlock the executor join
+  - `Server.Shutdown` snapshots the session registry (`SessionManager.Snapshot`), which releases its lock, then calls each session's Shutdown
