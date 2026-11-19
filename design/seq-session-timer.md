@@ -85,8 +85,8 @@ no work touching it concurrently, so it joins the executor before `State.Close()
 ```
   Server                       LuaSession                  Executor
      |                              |                          |
-     |--snapshot luaSessions------->|                          |
-     |  under luaSessionsMu,        |                          |
+     |--snapshot session registry-->|                          |
+     |  (SessionManager.Snapshot),  |                          |
      |  release lock, then:         |                          |
      |--Shutdown()----------------->|                          |
      |                              |--close(done)------------>|  (signal stop)
@@ -101,7 +101,7 @@ no work touching it concurrently, so it joins the executor before `State.Close()
      |                              |--State.Close()  (VM freed; executor stopped)
 ```
 
-Server holds `luaSessionsMu` only to snapshot the session set, then releases it
+Server holds the session registry's lock only to snapshot the session set, then releases it
 before calling each `Shutdown()`. The join can block while an in-flight deferred
 task runs, so holding the lock across it would deadlock any task that re-enters
 the Server (e.g. the app-loader calling `ExecuteInSession`).

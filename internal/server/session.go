@@ -7,9 +7,11 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/zot/ui-engine/internal/backend"
+	"github.com/zot/ui-engine/internal/lua"
 )
 
 // Session represents a single user session.
@@ -25,8 +27,9 @@ type Session struct {
 	lastActivity  time.Time
 	mu            sync.RWMutex
 	batchCount    int
-	tailors       map[*Tailor]struct{} // pending list: open Tailors (R191)
-	exec          *ChanSvc             // the session's executor, born and stopped with it (R224, R225)
+	tailors       map[*Tailor]struct{}           // pending list: open Tailors (R191)
+	exec          *ChanSvc                       // the session's executor, born and stopped with it (R224, R225)
+	lua           atomic.Pointer[lua.LuaSession] // attached once, before main.lua runs; the only holder (R230, R231)
 }
 
 // NewSession creates a new session with the given ID, and builds and starts its
@@ -54,6 +57,21 @@ func (s *Session) Executor() *ChanSvc { return s.exec }
 // is destroyed.
 // CRC: crc-Session.md | Seq: seq-session-executor.md#2.1.3 | R225
 func (s *Session) stopExecutor() { s.exec.Stop() }
+
+// attachLua stores the session's Lua session. It is attached once, while the session
+// is created and before main.lua runs, and never replaced, so a second attach is a
+// bug and panics.
+// CRC: crc-Session.md | R230, R231
+func (s *Session) attachLua(ls *lua.LuaSession) {
+	if !s.lua.CompareAndSwap(nil, ls) {
+		panic("session " + s.ID + ": Lua session attached twice")
+	}
+}
+
+// LuaSession returns the attached Lua session, or nil before attachment. Safe from any
+// goroutine: the session is registered before its Lua session is attached.
+// CRC: crc-Session.md | R230
+func (s *Session) LuaSession() *lua.LuaSession { return s.lua.Load() }
 
 // GetID returns the session ID.
 func (s *Session) GetID() string {

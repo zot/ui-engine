@@ -9,7 +9,7 @@
 - HTTPEndpoint: HTTP request handler
 - SessionManager: Session lifecycle management
 - Session: Frontend layer session
-- Server: Main server (owns luaSessions map)
+- Server: Main server (finds Lua sessions through the session registry)
 - LuaSession: Per-session Lua environment with isolated VM
 - LuaBackend: Per-session backend for watch management
 - luaTrackerAdapter: Routes variable operations to per-session tracker
@@ -42,11 +42,10 @@
         |                   |                   |                   |--SetBackend(lb)--|<------------------|-------------------|                   |                   |
         |                   |                   |                   |                   |                   |                   |                   |                   |
         |                   |                   |                   |                   |--SetBackend(id, lb)---------------------------------------->|                   |
-        |                   |                   |                   |                   |--SetLuaSession(id, ls)------------------------------------->|                   |
         |                   |                   |                   |                   |                   |                   |                   |                   |
         |                   |                   |                   |                   |--SetVariableStore(adapter)---------->|                   |                   |
         |                   |                   |                   |                   |                   |                   |                   |                   |
-        |                   |                   |                   |                   |--luaSessions[id] = ls                |                   |                   |
+        |                   |                   |                   |                   |--Session.attachLua(ls)               |                   |                   |
         |                   |                   |                   |                   |                   |                   |                   |                   |
         |                   |                   |                   |                   |--CreateLuaSession(vendedID)--------->|                   |                   |
         |                   |                   |                   |                   |                   |                   |                   |                   |
@@ -69,7 +68,7 @@
 ## Notes
 
 - **Per-Session Isolation**: Each session gets its own LuaSession with isolated Lua VM state
-- **Server Owns LuaSessions**: Server maintains `luaSessions map[string]*LuaSession`
+- **Session Owns Its Lua Session**: Server attaches each LuaSession to its Session and finds it through the session registry; it keeps no map of its own
 - Each session gets its own LuaBackend with its own change-tracker.Tracker
 - Variable IDs are scoped to the session (each session has its own variable 1)
 - main.lua is responsible for creating the app variable via session:createAppVariable()

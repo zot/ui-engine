@@ -1,5 +1,5 @@
 # Session
-**Requirements:** R191, R192, R224, R225
+**Requirements:** R191, R192, R224, R225, R229, R230, R231
 
 **Source Spec:** main.md (UI Server Architecture - Frontend Layer), interfaces.md
 
@@ -9,6 +9,7 @@
 - id: Unique session identifier (URL path component)
 - tailors: the pending list, open Tailors on this session, mutex-guarded (R191)
 - exec: the session's executor, a ChanSvc built and started with the session and stopped when it is destroyed (R224, R225)
+- lua: the session's LuaSession, an atomic pointer: attached once while the session is created, before main.lua runs, and never replaced; the only place it is held (R229, R230, R231)
 - backend: Backend instance (LuaBackend or ProxiedBackend)
 - connections: List of connected frontend connections
 - createdAt: Session creation timestamp
@@ -27,6 +28,8 @@
 - NewSession: build and start exec (R224)
 - Executor: return exec
 - stopExecutor: stop exec; called by SessionManager once the session is destroyed (R225)
+- attachLua(ls): store ls; a second attach panics, since the Lua session never changes (R230)
+- LuaSession: the attached LuaSession, or nil before attachment (R230)
 
 ## Collaborators
 
@@ -34,6 +37,7 @@
 - Backend: Handles all protocol messages (LuaBackend or ProxiedBackend)
 - WebSocketEndpoint: Frontend connections
 - ChanSvc: the session's executor, serializing everything done to the session
+- LuaSession: the session's Lua environment, owned here (R231)
 
 ## Sequences
 

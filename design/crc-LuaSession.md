@@ -1,7 +1,7 @@
 # LuaSession
 
 **Source Spec:** libraries.md, interfaces.md, protocol.md, deployment.md, remove-prototype.md, module-tracking.md, session-defer.md
-**Requirements:** R1-7, R9-21, R92-111, R115-118, R145, R152, R155
+**Requirements:** R1-7, R9-21, R92-111, R115-118, R145, R152, R238
 
 ## Responsibilities
 
@@ -51,7 +51,7 @@
 - clearImmediate/clearTimeout/clearInterval(handle): Cancel a timer by handle
 - AfterBatch: Trigger change detection and return updates after message batch
 - Shutdown: Signal stop (close `done`), join the executor on `executorStopped` (bounded by a timeout), cancel timers and clear the registry, then close the Lua VM
-- IsShutdown: whether `done` is closed; SessionRef uses it for validity (R155)
+- IsShutdown: whether `done` is closed; SessionRef uses it for validity (R238)
 - prototype(name, init, base): Declare/update prototype with instance field tracking (see below)
 - create(prototype, instance): Create tracked instance with weak reference (see below)
 - processMutationQueue: Process queued prototypes after file load (see seq-prototype-mutation.md)
@@ -125,7 +125,7 @@
 - The `lua` property on variable 1 is automatically watched for dynamic code loading
 - Action dispatch uses path resolution to call methods on presenter objects (NOT registered handlers)
 - **Vended IDs**: LuaSession.ID is the vended ID (e.g., "1") not the internal UUID; saves bandwidth in backend communication
-- **Server Owns Sessions**: Server maintains `luaSessions map[string]*LuaSession` and creates/destroys sessions via callbacks
+- **Session Owns Its Lua Session**: Server attaches each LuaSession to its Session and finds it through the session registry; it keeps no map of its own, and creates and destroys sessions via callbacks
 - **Implements PathVariableHandler**: Server routes HandleFrontendCreate/Update to per-session LuaSession
 - **Hot-Loading Support**: Automatic prototype and instance management:
   - `session:prototype(name, init, base)` - declare/update prototype, returns it for local assignment
@@ -162,4 +162,4 @@
   - Order: close `done` → join the executor on `executorStopped` (bounded by a timeout; on timeout log and proceed) → cancel timers and clear the registry → `State.Close()`
   - After dequeuing a work item the executor re-checks `done`; if shutdown has begun it returns `errSessionShutdown` to the caller instead of running the item, so work queued during teardown never runs
   - Each deferred-task wrapper re-checks `done` before touching the VM and skips execution when shutdown has begun
-  - `Server.Shutdown` snapshots its sessions under `luaSessionsMu`, releases the lock, then calls each session's Shutdown — so an in-flight deferred task that re-enters the Server (e.g. the app-loader) cannot deadlock the executor join
+  - `Server.Shutdown` snapshots the session registry (`SessionManager.Snapshot`), which releases its lock, then calls each session's Shutdown — so an in-flight deferred task that re-enters the Server (e.g. the app-loader) cannot deadlock the executor join

@@ -5,7 +5,7 @@
 
 ## Participants
 
-- Server: Main server (owns luaSessions map)
+- Server: Main server (finds Lua sessions through the session registry)
 - LuaSession: Per-session Lua environment
 
 ## Sequence
@@ -45,6 +45,6 @@
 - **Note**: `type Runtime = LuaSession` exists in code for backward compatibility
 - Executor goroutine ensures single-threaded Lua access per session
 - **No variable 1 created at startup** - main.lua creates it via session:createAppVariable()
-- **Server owns sessions**: Server maintains `luaSessions map[string]*LuaSession`
+- **Session owns its Lua session**: Server attaches each LuaSession to its Session and finds it through the session registry; it keeps no map of its own
 - All Lua operations go through executorChan for thread safety
 - See seq-lua-session-init.md for full session initialization including main.lua loading

@@ -7,7 +7,7 @@
 
 - FileSystem: Source of file change events
 - LuaHotLoader: File watcher component
-- Server: Main server (owns luaSessions map)
+- Server: Main server (finds Lua sessions through the session registry)
 - LuaSession: Per-session Lua environment
 - WebSocketEndpoint: Session executor (triggers AfterBatch)
 

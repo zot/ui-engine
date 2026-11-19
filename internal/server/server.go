@@ -1,8 +1,8 @@
-// CRC: crc-LuaSession.md (Server owns luaSessions map)
+// CRC: crc-LuaSession.md, crc-Server.md (each Session owns its LuaSession)
 // Spec: deployment.md, interfaces.md
 // Sequence: seq-server-startup.md, seq-session-create-backend.md, seq-lua-session-init.md
 //
-// Server implements per-session Lua isolation via luaSessions map[string]*lua.LuaSession.
+// Server implements per-session Lua isolation: each Session holds its own LuaSession.
 // It creates/destroys LuaSessions via SessionManager callbacks and implements
 // PathVariableHandler to route HandleFrontendCreate/Update to per-session LuaSession.
 package server
@@ -42,8 +42,6 @@ type Server struct {
 	HttpEndpoint     *HTTPEndpoint
 	wsEndpoint       *WebSocketEndpoint
 	backendSocket    *BackendSocket
-	luaSessions      map[string]*lua.LuaSession // vendedID -> per-session Lua runtime
-	luaSessionsMu    sync.RWMutex
 	luaConfig        *luaSetupConfig // Shared config for creating new sessions
 	wrapperRegistry  *lua.WrapperRegistry
 	storeAdapter     *luaTrackerAdapter
@@ -114,9 +112,7 @@ func New(cfg *config.Config) *Server {
 
 		// Set up debug data provider for /debug/variables page
 		s.HttpEndpoint.SetDebugDataProvider(func(sessionID string, diagLevel int) ([]DebugVariable, int64, error) {
-			s.luaSessionsMu.RLock()
-			luaSession := s.luaSessions[sessionID]
-			s.luaSessionsMu.RUnlock()
+			luaSession, _ := s.luaSessionFor(sessionID)
 			if luaSession == nil {
 				return nil, 0, fmt.Errorf("session %s not found", sessionID)
 			}
@@ -245,17 +241,13 @@ func (s *Server) Shutdown(ctx context.Context) error {
 		s.hotLoader = nil
 	}
 
-	// Shut down all Lua sessions. Snapshot the session set under the lock and
-	// release it before calling Shutdown(): Shutdown joins its executor, which
-	// may run an in-flight deferred task that re-enters the Server (e.g. the
-	// app-loader resolving a session). Holding luaSessionsMu across the join
-	// would deadlock such a task.
-	// CRC: crc-LuaSession.md | Seq: seq-session-timer.md | R118
-	s.luaSessionsMu.Lock()
-	sessions := s.luaSessions
-	s.luaSessions = nil
-	s.luaSessionsMu.Unlock()
-	for vendedID, luaSession := range sessions {
+	// Shut down all Lua sessions. The registry snapshot releases its lock before any
+	// Shutdown(): Shutdown joins its executor, which may run an in-flight deferred task
+	// that re-enters the Server (e.g. the app-loader resolving a session). Holding the
+	// registry lock across the join would deadlock such a task. Afterwards every Lua
+	// session reports shut down, so luaSessionFor finds nothing.
+	// CRC: crc-LuaSession.md, crc-Server.md | Seq: seq-session-timer.md | R118, R233
+	for vendedID, luaSession := range s.runningLuaSessions() {
 		s.config.Log(0, "Shutting down Lua session %s", vendedID)
 		luaSession.Shutdown()
 	}
@@ -383,12 +375,11 @@ func (s *Server) setupViewdefHotLoader(cfg *config.Config) {
 
 // GetSessionIDs returns all active vended session IDs.
 // Implements viewdef.SessionPusher.
+// CRC: crc-Server.md | R233
 func (s *Server) GetSessionIDs() []string {
-	s.luaSessionsMu.RLock()
-	defer s.luaSessionsMu.RUnlock()
-
-	ids := make([]string, 0, len(s.luaSessions))
-	for vendedID := range s.luaSessions {
+	sessions := s.runningLuaSessions()
+	ids := make([]string, 0, len(sessions))
+	for vendedID := range sessions {
 		ids = append(ids, vendedID)
 	}
 	return ids
@@ -512,8 +503,7 @@ func (s *Server) setupLua(cfg *config.Config) {
 		luaDir = filepath.Join(cfg.Server.Dir, "lua")
 	}
 
-	// Initialize sessions map and shared config
-	s.luaSessions = make(map[string]*lua.LuaSession)
+	// Initialize shared config
 	s.luaConfig = &luaSetupConfig{
 		config: cfg,
 		luaDir: luaDir,
@@ -587,23 +577,19 @@ func (s *Server) CreateLuaBackendForSession(vendedID string, sess *Session) erro
 	// Track in store adapter for variable operations
 	if s.storeAdapter != nil {
 		s.storeAdapter.SetBackend(vendedID, lb)
-		s.storeAdapter.SetLuaSession(vendedID, luaSession)
 	}
 
 	// Set variable store on Lua session
 	luaSession.SetVariableStore(s.storeAdapter)
 
-	// Store in our sessions map
-	s.luaSessionsMu.Lock()
-	s.luaSessions[vendedID] = luaSession
-	s.luaSessionsMu.Unlock()
+	// Attach to the session before main.lua runs, so the session can be found while it
+	// starts up; the session is its only holder.
+	// CRC: crc-Server.md, crc-Session.md | Seq: seq-session-create-backend.md | R230, R231
+	sess.attachLua(luaSession)
 
 	// Initialize the session (creates session table, runs main.lua)
 	_, err = luaSession.CreateLuaSession(vendedID)
 	if err != nil {
-		s.luaSessionsMu.Lock()
-		delete(s.luaSessions, vendedID)
-		s.luaSessionsMu.Unlock()
 		sess.SetBackend(nil)
 		return err
 	}
@@ -625,11 +611,9 @@ func (s *Server) DestroyLuaBackendForSession(vendedID string, sess *Session) {
 		t.close("session destroyed", true)
 	}
 
-	// Get and remove the Lua session
-	s.luaSessionsMu.Lock()
-	luaSession := s.luaSessions[vendedID]
-	delete(s.luaSessions, vendedID)
-	s.luaSessionsMu.Unlock()
+	// The session holds its Lua session; there is no map entry to remove.
+	// CRC: crc-Server.md | R231
+	luaSession := sess.LuaSession()
 
 	// Shutdown the Lua session (closes Lua state)
 	if luaSession != nil {
@@ -645,7 +629,6 @@ func (s *Server) DestroyLuaBackendForSession(vendedID string, sess *Session) {
 	// Remove from store adapter
 	if s.storeAdapter != nil {
 		s.storeAdapter.RemoveBackend(vendedID)
-		s.storeAdapter.RemoveLuaSession(vendedID)
 	}
 
 	s.config.Log(0, "Destroyed Lua session %s", vendedID)
@@ -677,11 +660,10 @@ func (s *Server) AfterBatch(internalSessionID string, userEvent bool) {
 		return
 	}
 
-	// Look up the Lua session for this vended ID
-	s.luaSessionsMu.RLock()
-	luaSession := s.luaSessions[vendedID]
-	s.luaSessionsMu.RUnlock()
-	if luaSession == nil {
+	// AfterBatch has the session already; ask it for its Lua session.
+	// CRC: crc-Server.md | R232
+	luaSession := sess.LuaSession()
+	if luaSession == nil || luaSession.IsShutdown() {
 		return
 	}
 
@@ -748,18 +730,12 @@ func (s *Server) ExecuteInSession(vendedID string, fn func() (interface{}, error
 // session context, wait, and run afterBatch when a browser is connected.
 // CRC: crc-Server.md | Seq: seq-session-ref.md#2.2.4 | R169
 func (s *Server) executeInSession(vendedID string, fn func() (interface{}, error)) (interface{}, error) {
-	internalID := s.sessions.GetInternalID(vendedID)
-	if internalID == "" {
+	// Find the session the same way a reference does (R236).
+	luaSession, sess := s.luaSessionFor(vendedID)
+	if luaSession == nil {
 		return nil, fmt.Errorf("session %s not found", vendedID)
 	}
-
-	// Look up the Lua session for this vended ID
-	s.luaSessionsMu.RLock()
-	luaSession := s.luaSessions[vendedID]
-	s.luaSessionsMu.RUnlock()
-	if luaSession == nil {
-		return nil, fmt.Errorf("Lua session %s not found", vendedID)
-	}
+	internalID := sess.ID
 
 	// Delegate to websocket endpoint (queues through session's executor)
 	// Wrap fn to set up Lua session context
@@ -772,40 +748,61 @@ func (s *Server) executeInSession(vendedID string, fn func() (interface{}, error
 // It queues execution through ChanSvc without blocking the caller.
 // Used by session timers (setImmediate/setTimeout/setInterval) to avoid deadlock
 // when Lua code schedules deferred execution from within the executor.
-// CRC: crc-LuaSession.md
-// Seq: seq-session-timer.md
+// It is ExecRig.PostUpdate on a reference to the session, and does nothing when
+// there is no such session.
+// CRC: crc-Server.md, crc-LuaSession.md | Seq: seq-session-timer.md | R235
 func (s *Server) ExecuteInSessionAsync(vendedID string, fn func() (interface{}, error)) {
-	internalID := s.sessions.GetInternalID(vendedID)
-	if internalID == "" {
+	ref, ok := s.SessionRef(vendedID)
+	if !ok {
 		return
 	}
-
-	s.luaSessionsMu.RLock()
-	luaSession := s.luaSessions[vendedID]
-	s.luaSessionsMu.RUnlock()
-	if luaSession == nil {
-		return
-	}
-
-	s.wsEndpoint.ExecuteInSessionAsync(internalID, func() (interface{}, error) {
-		return luaSession.ExecuteInSession(vendedID, fn)
-	})
+	ref.Exec().PostUpdate(func() { fn() })
 }
 
 // GetLuaSession returns a Lua session by vended ID (for testing/advanced use).
+// CRC: crc-Server.md | R232
 func (s *Server) GetLuaSession(vendedID string) *lua.LuaSession {
-	s.luaSessionsMu.RLock()
-	defer s.luaSessionsMu.RUnlock()
-	return s.luaSessions[vendedID]
+	ls, _ := s.luaSessionFor(vendedID)
+	return ls
+}
+
+// luaSessionFor is the one way the server finds a Lua session: from the vended ID to
+// the session, then the session's attached Lua session. It returns nil when there is no
+// such session, no Lua session is attached yet, or it has shut down, which is what
+// makes every lookup fail after Server.Shutdown. The server keeps no table of its own.
+// CRC: crc-Server.md | Seq: seq-session-ref.md#1.1.1 | R229, R231, R232
+func (s *Server) luaSessionFor(vendedID string) (*lua.LuaSession, *Session) {
+	sess := s.sessions.GetByVendedID(vendedID)
+	if sess == nil {
+		return nil, nil
+	}
+	ls := sess.LuaSession()
+	if ls == nil || ls.IsShutdown() {
+		return nil, nil
+	}
+	return ls, sess
+}
+
+// runningLuaSessions returns every registered session's Lua session that is attached
+// and running, keyed by vended ID, read from the session registry.
+// CRC: crc-Server.md | R233
+func (s *Server) runningLuaSessions() map[string]*lua.LuaSession {
+	sessions := make(map[string]*lua.LuaSession)
+	for _, e := range s.sessions.Snapshot() {
+		if ls := e.Session.LuaSession(); ls != nil && !ls.IsShutdown() {
+			sessions[e.VendedID] = ls
+		}
+	}
+	return sessions
 }
 
 // getLuaSessions returns all active Lua sessions (used by HotLoader).
+// CRC: crc-Server.md | R233
 func (s *Server) getLuaSessions() []*lua.LuaSession {
-	s.luaSessionsMu.RLock()
-	defer s.luaSessionsMu.RUnlock()
-	sessions := make([]*lua.LuaSession, 0, len(s.luaSessions))
-	for _, sess := range s.luaSessions {
-		sessions = append(sessions, sess)
+	running := s.runningLuaSessions()
+	sessions := make([]*lua.LuaSession, 0, len(running))
+	for _, ls := range running {
+		sessions = append(sessions, ls)
 	}
 	return sessions
 }
@@ -814,9 +811,7 @@ func (s *Server) getLuaSessions() []*lua.LuaSession {
 // It delegates to the per-session LuaSession.
 // Spec: protocol.md - create(id, parentId, value, properties, nowatch?, unbound?)
 func (s *Server) HandleFrontendCreate(sessionID string, id int64, parentID int64, properties map[string]string) error {
-	s.luaSessionsMu.RLock()
-	luaSession := s.luaSessions[sessionID]
-	s.luaSessionsMu.RUnlock()
+	luaSession, _ := s.luaSessionFor(sessionID)
 	if luaSession == nil {
 		return fmt.Errorf("Lua session %s not found", sessionID)
 	}
@@ -826,9 +821,7 @@ func (s *Server) HandleFrontendCreate(sessionID string, id int64, parentID int64
 // HandleFrontendUpdate implements PathVariableHandler.
 // It delegates to the per-session LuaSession.
 func (s *Server) HandleFrontendUpdate(sessionID string, varID int64, value json.RawMessage, properties map[string]string) error {
-	s.luaSessionsMu.RLock()
-	luaSession := s.luaSessions[sessionID]
-	s.luaSessionsMu.RUnlock()
+	luaSession, _ := s.luaSessionFor(sessionID)
 	if luaSession == nil {
 		return fmt.Errorf("Lua session %s not found", sessionID)
 	}
@@ -1004,7 +997,6 @@ type luaTrackerAdapter struct {
 	config          *config.Config
 	viewdefManager  *viewdef.ViewdefManager
 	backends        map[string]*backend.LuaBackend // vendedID -> backend
-	luaSessions     map[string]*lua.LuaSession     // vendedID -> LuaSession
 	varToSession    map[int64]string               // variableID -> sessionID
 	nextServerVarId map[string]int64               // vendedID -> next negative ID (starts at -1, decrements)
 	mu              sync.RWMutex
@@ -1045,23 +1037,6 @@ func (a *luaTrackerAdapter) RemoveBackend(sessionID string) {
 			delete(a.varToSession, varID)
 		}
 	}
-}
-
-// SetLuaSession sets the LuaSession for a session.
-func (a *luaTrackerAdapter) SetLuaSession(sessionID string, ls *lua.LuaSession) {
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	if a.luaSessions == nil {
-		a.luaSessions = make(map[string]*lua.LuaSession)
-	}
-	a.luaSessions[sessionID] = ls
-}
-
-// RemoveLuaSession removes the LuaSession for a session.
-func (a *luaTrackerAdapter) RemoveLuaSession(sessionID string) {
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	delete(a.luaSessions, sessionID)
 }
 
 // CreateSession creates a new tracker for a session.

@@ -182,7 +182,7 @@ target-to-link reverse mapping is kept.
 - [x] test-Lua.md
 - [x] test-SessionTimer.md → `internal/lua/shutdown_race_test.go`
 - [x] test-PortableOS.md → `internal/lua/portable_test.go`
-- [x] test-SessionRef.md → `internal/server/sessionref_test.go`, `internal/server/dangerous_test.go`
+- [x] test-SessionRef.md → `internal/server/sessionref_test.go`, `internal/server/dangerous_test.go`, `internal/server/session_lua_test.go`
 - [x] test-Tailor.md → `internal/server/tailor_test.go`
 - [x] test-ChanSvc.md → `internal/server/svc_test.go`
 - [x] test-Bundle.md → `internal/bundle/bundle_test.go`
@@ -229,3 +229,4 @@ None identified.
 - [ ] O4: R118 (Server.Shutdown lock-release before per-session Shutdown) has no automated regression test; a deterministic deadlock test needs a full Server harness (config, wsEndpoint, SessionManager, a re-entrant deferred task). Enforced by code review plus TestShutdownJoinsInFlightExecutor proving the join blocks; verified manually via ark stop.- [ ] O5: Legacy design debt predating minispec 4 (found 2026-10-07 at init): 38 CRC cards lack a **Requirements:** field, 10 design files are unlisted in Artifacts, crc-Bundle/crc-LuaResolver name missing sequences, and several seqs reuse step IDs. phase design/validate stay red until it is paid; app-discovery work fixed only the cards it touched.
 - [x] O6: Windows junction hot-loading unverified (resolved 2026-10-07: test-AppDiscovery runs on the Windows VM with junction app entries; it caught and fixed a junction tracking-key split in queueReload) (test-AppDiscovery.md, manual case): fsnotify reporting events under a `lua/<app>` junction path was measured only on Linux (symlinks, 2026-10-07). Needs a run on the Windows test VM from a scheduled task, since ssh's RedirectionTrust refuses non-admin junctions.
 - [ ] O7: inotify gives two paths naming one directory a single watch, so when an app living under `apps/` is deactivated, removing its `lua/<app>` watches also drops the `apps/<app>` watch the Lua hot loader set at start; that app's `init.lua` then stops hot-reloading until restart. Low impact (the app is inactive); fix by reference-counting watches by resolved directory if it matters.
+- [ ] O8: A failed `CreateLuaSession` (main.lua raising) never shuts down the Lua session it made: `CreateLuaBackendForSession` only drops it, so its VM and executor goroutine leak, and until `SessionManager` forgets the session it is still attached and can be found. Found 2026-11-19 designing the Lua session's move into Session (Item 8); predates it. Needs a spec line before a fix.

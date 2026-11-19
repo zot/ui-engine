@@ -1,7 +1,7 @@
 # SessionManager
 
 **Source Spec:** interfaces.md, protocol.md
-**Requirements:** R224, R225, R226, R227
+**Requirements:** R224, R225, R226, R227, R232, R233, R234
 
 ## Responsibilities
 
@@ -17,7 +17,7 @@
 ### Does
 - createSession: Generate new session ID, assign vended ID, create Session (which starts its executor, R224), trigger Lua session creation; when that fails, stop the new session's executor before forgetting it (R227)
 - getSession: Retrieve session by ID (internal ID)
-- destroySession: Clean up session, destroy Lua session, remove vended ID mappings, and all resources; last, after the destroy callback has torn down the backend, stop the session's executor (R225, R227). Safe to call from inside that executor (R226)
+- destroySession: Clean up session, destroy Lua session, remove vended ID mappings, and all resources; the ID mappings are dropped before the destroy callback runs, so the session cannot be found by vended ID during teardown (R234); last, after the destroy callback has torn down the backend, stop the session's executor (R225, R227). Safe to call from inside that executor (R226)
 - sessionExists: Check if session ID is valid
 - registerUrlPath: Associate URL path with presenter for session
 - resolveUrlPath: Find presenter for URL path
@@ -25,6 +25,8 @@
 - cleanupInactiveSessions: Remove sessions with no activity past timeout
 - getVendedID: Convert internal session ID to vended ID string
 - getInternalID: Convert vended ID string to internal session ID
+- GetByVendedID(vendedID): the Session registered under that vended ID, or nil, in one read of the registry (R232, R234)
+- Snapshot: every registered session with its vended ID, copied under the lock and returned after it is released (R233, R118)
 
 ## Collaborators
 

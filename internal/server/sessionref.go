@@ -7,10 +7,10 @@ import (
 )
 
 // SessionRef is a handle to one session. It is cheap to copy, safe to hold
-// after the session ends, and never keeps the session alive. In this step it
-// resolves through the server's existing maps; later steps move session state
-// behind it without changing callers.
-// CRC: crc-SessionRef.md | R154, R156, R173
+// after the session ends, and never keeps the session alive. It resolves through
+// the session registry to the Session, which holds the session's parts; as more
+// parts move into the Session, callers do not change.
+// CRC: crc-SessionRef.md | R154, R156, R229
 type SessionRef struct {
 	srv      *Server
 	vendedID string
@@ -40,17 +40,17 @@ type BrowserRig struct{ ref SessionRef }
 // host that has a current one supplies the reference.
 // CRC: crc-SessionRef.md | R167
 
-// ExecRig posts work to the session's executor.
-// CRC: crc-SessionRef.md | R157
+// ExecRig posts work to the session's executor. It has no method that waits for the
+// executor, and must not gain one: a wait made from inside an executor deadlocks, so
+// synchronous execution stays on Server.ExecuteInSession.
+// CRC: crc-SessionRef.md | R157, R237
 type ExecRig struct{ ref SessionRef }
 
 // SessionRef returns a reference to the session with this vended ID, or false
-// when no Lua session is registered under it.
+// when it has no running Lua session.
 // CRC: crc-SessionRef.md | Seq: seq-session-ref.md#1.1 | R153
 func (s *Server) SessionRef(vendedID string) (SessionRef, bool) {
-	s.luaSessionsMu.RLock()
-	ls := s.luaSessions[vendedID]
-	s.luaSessionsMu.RUnlock()
+	ls, _ := s.luaSessionFor(vendedID)
 	if ls == nil {
 		return SessionRef{}, false
 	}
@@ -58,9 +58,10 @@ func (s *Server) SessionRef(vendedID string) (SessionRef, bool) {
 }
 
 // resolve returns the live Lua session and the internal session ID, or false
-// when the session has ended, been replaced under the same vended ID, or begun
-// shutting down.
-// CRC: crc-SessionRef.md | Seq: seq-session-ref.md#1.2.1 | R155, R156
+// when the session has ended, its vended ID now leads to another session, or its
+// Lua session has begun shutting down. luaSessionFor already excludes a shut-down
+// Lua session, so the identity check is the only one resolve adds.
+// CRC: crc-SessionRef.md | Seq: seq-session-ref.md#1.2.1 | R156, R236, R238
 func (r SessionRef) resolve() (*lua.LuaSession, string, bool) {
 	if r.srv == nil {
 		return nil, "", false
@@ -69,17 +70,11 @@ func (r SessionRef) resolve() (*lua.LuaSession, string, bool) {
 	if ls == nil {
 		return nil, "", false
 	}
-	r.srv.luaSessionsMu.RLock()
-	current := r.srv.luaSessions[r.vendedID]
-	r.srv.luaSessionsMu.RUnlock()
-	if current != ls || ls.IsShutdown() {
+	current, sess := r.srv.luaSessionFor(r.vendedID)
+	if current != ls {
 		return nil, "", false
 	}
-	internalID := r.srv.sessions.GetInternalID(r.vendedID)
-	if internalID == "" {
-		return nil, "", false
-	}
-	return ls, internalID, true
+	return ls, sess.ID, true
 }
 
 // ID returns the vended session ID.
@@ -87,7 +82,7 @@ func (r SessionRef) resolve() (*lua.LuaSession, string, bool) {
 func (r SessionRef) ID() string { return r.vendedID }
 
 // Valid reports whether the session is still running.
-// CRC: crc-SessionRef.md | R155
+// CRC: crc-SessionRef.md | R238
 func (r SessionRef) Valid() bool {
 	_, _, ok := r.resolve()
 	return ok

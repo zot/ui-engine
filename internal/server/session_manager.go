@@ -110,6 +110,35 @@ func (m *SessionManager) GetInternalID(vendedID string) string {
 	return m.vendedToInternal[vendedID]
 }
 
+// SessionEntry is one registered session with its vended ID.
+type SessionEntry struct {
+	VendedID string
+	Session  *Session
+}
+
+// GetByVendedID returns the session registered under a vended ID, or nil, in one read
+// of the registry.
+// CRC: crc-SessionManager.md | R232, R234
+func (m *SessionManager) GetByVendedID(vendedID string) *Session {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.sessions[m.vendedToInternal[vendedID]]
+}
+
+// Snapshot returns every registered session with its vended ID. The list is copied
+// under the lock, which is released before it is returned, so a caller may do slow work
+// over it (R118).
+// CRC: crc-SessionManager.md | R233, R118
+func (m *SessionManager) Snapshot() []SessionEntry {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	entries := make([]SessionEntry, 0, len(m.sessions))
+	for id, sess := range m.sessions {
+		entries = append(entries, SessionEntry{VendedID: m.internalToVended[id], Session: sess})
+	}
+	return entries
+}
+
 // GetSession retrieves a session by ID.
 func (m *SessionManager) GetSession(id string) (*Session, bool) {
 	m.mu.RLock()

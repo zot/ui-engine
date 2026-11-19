@@ -58,7 +58,7 @@ func waitFor(t *testing.T, ch <-chan struct{}, what string) {
 	}
 }
 
-// Test: a reference resolves only its own session (R155, R156)
+// Test: a reference resolves only its own session (R238, R156)
 func TestSessionRefDoesNotFollowReusedVendedID(t *testing.T) {
 	s := newRefTestServer(t, nil)
 	internalID, vendedID := newSession(t, s)
@@ -169,21 +169,22 @@ func TestRigsAndStationRoundTrip(t *testing.T) {
 	}
 }
 
-// Test: identity alone invalidates a replaced session (R155)
+// Test: identity alone invalidates a replaced session (R238)
 func TestSessionRefChecksIdentity(t *testing.T) {
 	s := newRefTestServer(t, nil)
-	_, first := newSession(t, s)
-	_, second := newSession(t, s)
+	firstInternal, first := newSession(t, s)
+	secondInternal, _ := newSession(t, s)
 	ref, _ := s.SessionRef(first)
+	original := s.sessions.Get(firstInternal).LuaSession()
 
-	s.luaSessionsMu.Lock()
-	original := s.luaSessions[first]
-	s.luaSessions[first] = s.luaSessions[second] // replaced, but not shut down
-	s.luaSessionsMu.Unlock()
+	// Point the first vended ID at the second session, without shutting the first down.
+	s.sessions.mu.Lock()
+	s.sessions.vendedToInternal[first] = secondInternal
+	s.sessions.mu.Unlock()
 	t.Cleanup(func() {
-		s.luaSessionsMu.Lock()
-		s.luaSessions[first] = original
-		s.luaSessionsMu.Unlock()
+		s.sessions.mu.Lock()
+		s.sessions.vendedToInternal[first] = firstInternal
+		s.sessions.mu.Unlock()
 	})
 
 	if original.IsShutdown() {
@@ -194,7 +195,7 @@ func TestSessionRefChecksIdentity(t *testing.T) {
 	}
 }
 
-// Test: shutdown alone invalidates a reference (R155)
+// Test: shutdown alone invalidates a reference (R238)
 func TestSessionRefChecksShutdown(t *testing.T) {
 	s := newRefTestServer(t, nil)
 	_, vendedID := newSession(t, s)

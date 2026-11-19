@@ -3,8 +3,8 @@
 // Sequence: seq-lua-executor-init.md, seq-lua-execute.md, seq-lua-handle-action.md, seq-lua-session-init.md, seq-session-create-backend.md, seq-unload-module.md, seq-require-lua-file.md
 //
 // LuaSession provides per-session Lua isolation. Each frontend session gets its own
-// LuaSession with a separate Lua VM state. Server owns luaSessions map and creates
-// sessions via callbacks from SessionManager.
+// LuaSession with a separate Lua VM state. Each server Session owns its LuaSession; the
+// Server creates them via callbacks from SessionManager.
 package lua
 
 import (
@@ -2418,7 +2418,7 @@ func (r *LuaSession) SetValue(tbl *lua.LTable, key string, value interface{}) {
 }
 
 // IsShutdown reports whether Shutdown has begun (its done channel is closed).
-// CRC: crc-LuaSession.md | R155
+// CRC: crc-LuaSession.md | R238
 func (r *LuaSession) IsShutdown() bool {
 	select {
 	case <-r.done:
