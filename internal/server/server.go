@@ -582,6 +582,12 @@ func (s *Server) CreateLuaBackendForSession(vendedID string, sess *Session) erro
 	// CRC: crc-Server.md, crc-Session.md | Seq: seq-session-create-backend.md | R230, R231
 	sess.attachLua(luaSession)
 
+	// ui.execAsync is built in, defined before main.lua runs so the app can use it.
+	// CRC: crc-ExecAsync.md | Seq: seq-session-create-backend.md | R250
+	if ref, ok := s.SessionRef(vendedID); ok {
+		defineExecAsync(ref)
+	}
+
 	// Initialize the session (creates session table, runs main.lua)
 	_, err = luaSession.CreateLuaSession(vendedID)
 	if err != nil {

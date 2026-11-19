@@ -62,5 +62,6 @@ func (v LuaRig) DefineHostOp(name string, deadline time.Duration, op HostOp)
 ## Non-goals
 
 - No pending marker field. Add one when a caller needs it.
-- No specific operations. Hosts define them; Frictionless's checkpoint status is the
-  first.
+- Hosts define their own operations; Frictionless's checkpoint status was the first.
+  ui-engine defines one for every session, `ui.execAsync` (`interfaces.md`), which runs
+  a program off the session in place of the blocking `ui.exec`.

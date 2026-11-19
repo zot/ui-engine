@@ -133,8 +133,8 @@ time, and a warning repeated per call only adds noise. Each gets an alarm.
 **Alarm:** 9
 **Fire alarm:** attach the Lua session after CreateLuaSession instead of before; the deferred function is dropped because its session cannot be found
 **Inject:** internal/server/server.go:Server.CreateLuaBackendForSession
-@alarm-hash: 4751fd84660fbdf7
-**Pulled:** 2026-11-19 — re-pulled after 9a removed the store adapter's SetBackend from this function: Lua session attached after CreateLuaSession; "work main.lua deferred never ran" *Earlier —* 2026-11-19 — rang: Lua session attached after CreateLuaSession; "work main.lua deferred never ran: its session could not be found while main.lua ran"
+@alarm-hash: 7821df4809d0c3f9
+**Pulled:** 2026-11-19 — re-pulled after 11a added the execAsync define to this function: Lua session attached after CreateLuaSession; rang `work main.lua deferred never ran` *Earlier —* 2026-11-19 — re-pulled after 9a removed the store adapter's SetBackend from this function: Lua session attached after CreateLuaSession; "work main.lua deferred never ran" *Earlier —* 2026-11-19 — rang: Lua session attached after CreateLuaSession; "work main.lua deferred never ran: its session could not be found while main.lua ran"
 ## Test: a second attach panics
 **Purpose:** a session's Lua session never changes (R230)
 **Input:** a session with a Lua session attached; attach another

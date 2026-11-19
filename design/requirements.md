@@ -228,6 +228,10 @@
 - **R149:** `ui.base64Decode(text)` decodes standard base64 to a byte string, or returns `nil, err` on invalid input
 - **R150:** `ui.exec(argv)` runs `argv[1]` with the remaining elements as its arguments, directly with no shell, waits for it, and returns its stdout; a failure to start or a non-zero exit returns `nil, err` with the exit status and the program's stderr in `err`
 - **R151:** `ui.platform()` returns a table with `os` set to the server's `GOOS` and `arch` set to its `GOARCH`
+- **R250:** Every session's `ui` table has `execAsync`, a host operation (`host-ops.md`) defined before `main.lua` runs
+- **R251:** `ui.execAsync(target, field, argv [, cb])` runs `argv` as `ui.exec` does (R150), off the executor; on success `target[field]` is the program's stdout, and a failure to start or a non-zero exit delivers an error carrying the exit status and the program's stderr
+- **R252:** A program run by `ui.execAsync` is killed and the call fails when it runs past its time limit: 60 seconds, or `argv.timeout` seconds when given, with 0 meaning no limit
+- **R253:** `ui.exec` is deprecated in favor of `ui.execAsync`: it keeps behaving as R150 until nothing calls it, and is then removed
 
 ## Feature: Session References and Rigs
 **Source:** specs/session-ref.md

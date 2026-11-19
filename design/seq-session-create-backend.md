@@ -46,6 +46,8 @@
         |                   |                   |                   |                   |                   |                   |                   |                   |
         |                   |                   |                   |                   |--Session.attachLua(ls)               |                   |                   |
         |                   |                   |                   |                   |                   |                   |                   |                   |
+        |                   |                   |                   |                   |--defineExecAsync(ref): ui.execAsync (R250)                |                   |
+        |                   |                   |                   |                   |                   |                   |                   |                   |
         |                   |                   |                   |                   |--CreateLuaSession(vendedID)--------->|                   |                   |
         |                   |                   |                   |                   |                   |                   |                   |                   |
         |                   |                   |                   |                   |                   |--createSessionTable()               |                   |

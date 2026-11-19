@@ -5,13 +5,16 @@ package lua
 
 import (
 	"bytes"
+	"context"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
+	"time"
 
 	lua "github.com/yuin/gopher-lua"
 )
@@ -86,29 +89,74 @@ func luaBase64Decode(L *lua.LState) int {
 	return 1
 }
 
-// ui.exec(argv) -> stdout | nil, err
-// R150: no shell, so arguments pass verbatim; err carries exit status and stderr
-func luaExec(L *lua.LState) int {
-	tbl := L.CheckTable(1)
+// DefaultExecTimeout is ui.execAsync's limit when argv has no timeout.
+// CRC: crc-ExecAsync.md | R252
+const DefaultExecTimeout = 60 * time.Second
+
+// ReadExec reads a Lua argv table: its array part as strings, and its timeout
+// field in seconds (absent is DefaultExecTimeout, 0 is none). Call it on the
+// executor.
+// CRC: crc-PortableOS.md | R150, R252
+func ReadExec(v lua.LValue) (argv []string, timeout time.Duration, err error) {
+	tbl, ok := v.(*lua.LTable)
+	if !ok {
+		return nil, 0, errors.New("argv must be a table")
+	}
 	n := tbl.Len()
 	if n == 0 {
-		L.ArgError(1, "argv is empty")
+		return nil, 0, errors.New("argv is empty")
 	}
-	argv := make([]string, n)
+	argv = make([]string, n)
 	for i := range argv {
 		argv[i] = tbl.RawGetInt(i + 1).String()
 	}
+	switch t := tbl.RawGetString("timeout").(type) {
+	case *lua.LNilType:
+		timeout = DefaultExecTimeout
+	case lua.LNumber:
+		if t < 0 {
+			return nil, 0, errors.New("argv.timeout must not be negative")
+		}
+		timeout = time.Duration(float64(t) * float64(time.Second))
+	default:
+		return nil, 0, errors.New("argv.timeout must be a number of seconds")
+	}
+	return argv, timeout, nil
+}
+
+// ExecArgv runs argv[0] with the rest as its arguments, directly with no shell,
+// and returns its stdout. A failure carries the exit status and trimmed stderr.
+// Cancelling ctx kills the program; WaitDelay keeps a grandchild that holds the
+// pipes from stalling the return after a kill.
+// CRC: crc-PortableOS.md | R150, R251
+func ExecArgv(ctx context.Context, argv []string) (string, error) {
 	var stdout, stderr bytes.Buffer
-	cmd := exec.Command(argv[0], argv[1:]...)
+	cmd := exec.CommandContext(ctx, argv[0], argv[1:]...)
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
+	cmd.WaitDelay = time.Second
 	if err := cmd.Run(); err != nil {
 		if msg := strings.TrimSpace(stderr.String()); msg != "" {
 			err = fmt.Errorf("%w: %s", err, msg)
 		}
+		return "", err
+	}
+	return stdout.String(), nil
+}
+
+// ui.exec(argv) -> stdout | nil, err
+// R150: no shell, so arguments pass verbatim; err carries exit status and stderr.
+// R253: deprecated in favor of ui.execAsync; it blocks the executor and has no limit.
+func luaExec(L *lua.LState) int {
+	argv, _, err := ReadExec(L.CheckTable(1))
+	if err != nil {
+		L.ArgError(1, err.Error())
+	}
+	out, err := ExecArgv(context.Background(), argv)
+	if err != nil {
 		return pushErr(L, err)
 	}
-	L.Push(lua.LString(stdout.String()))
+	L.Push(lua.LString(out))
 	return 1
 }
 

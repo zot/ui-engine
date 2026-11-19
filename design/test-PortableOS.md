@@ -57,9 +57,9 @@ prove junctions are followed.
 **Code:** internal/lua/portable_test.go
 **Alarm:** 3
 **Fire alarm:** run the argv through a shell as one joined string (`sh -c` on Unix). Red: the shell takes `x>y` as a redirect, so stdout comes back empty (and `a b` would split, `$HOME` expand). The redirect writes a file `y` in the package directory; delete it after pulling.
-**Inject:** internal/lua/portable.go:luaExec
-**Pulled:** 2026-10-19 — rang: `exec stdout = "", want "a b\n$HOME\nx>y\n"`
-
+**Inject:** internal/lua/portable.go:ExecArgv
+@alarm-hash: e2d92d2befdf6fc1
+**Pulled:** 2026-11-19 — re-pulled after 11a moved the run into ExecArgv: shell injection, rang `exec stdout = "", want "a b\n$HOME\nx>y\n"` *Earlier —* 2026-10-19 — rang: `exec stdout = "", want "a b\n$HOME\nx>y\n"`
 ## Test: exec failure carries the exit status and stderr
 **Purpose:** a failing command is `nil, err`, and `err` says why (R150)
 **Input:** the helper told to write `boom` to stderr and exit 3; then a program that does not exist
@@ -68,9 +68,9 @@ prove junctions are followed.
 **Code:** internal/lua/portable_test.go
 **Alarm:** 4
 **Fire alarm:** drop the stderr from the error message (return `err.Error()` only). Red: the error lacks `boom`.
-**Inject:** internal/lua/portable.go:luaExec
-**Pulled:** 2026-10-19 — rang: `exec(fail) = nil, "exit status 3"; want … boom`
-
+**Inject:** internal/lua/portable.go:ExecArgv
+@alarm-hash: e2d92d2befdf6fc1
+**Pulled:** 2026-11-19 — re-pulled after 11a moved the run into ExecArgv: stderr dropped, rang `exec(fail) = nil, "exit status 3"; want nil and an error naming exit 3 and boom` *Earlier —* 2026-10-19 — rang: `exec(fail) = nil, "exit status 3"; want … boom`
 ## Test: platform reports GOOS and GOARCH
 **Purpose:** apps branch on the server's platform without `uname` (R151)
 **Input:** `ui.platform()`

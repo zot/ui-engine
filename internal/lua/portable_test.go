@@ -188,3 +188,23 @@ func TestUIPlatform(t *testing.T) {
 		t.Errorf("platform = %s/%s, want %s/%s", r[0], r[1], runtime.GOOS, runtime.GOARCH)
 	}
 }
+
+// Test: the limit's default and its off switch (R252)
+func TestReadExecTimeout(t *testing.T) {
+	L := lua.NewState()
+	defer L.Close()
+	if err := L.DoString(`a = {"x"} b = {"x", timeout = 0} c = {} d = "x" e = {"x", timeout = "soon"}`); err != nil {
+		t.Fatal(err)
+	}
+	if _, to, err := ReadExec(L.GetGlobal("a")); err != nil || to != DefaultExecTimeout {
+		t.Errorf("ReadExec({x}) timeout = %v, %v; want %v", to, err, DefaultExecTimeout)
+	}
+	if argv, to, err := ReadExec(L.GetGlobal("b")); err != nil || to != 0 || len(argv) != 1 {
+		t.Errorf("ReadExec({x, timeout=0}) = %v, %v, %v; want [x], 0, nil", argv, to, err)
+	}
+	for _, name := range []string{"c", "d", "e"} {
+		if _, _, err := ReadExec(L.GetGlobal(name)); err == nil {
+			t.Errorf("ReadExec(%s) succeeded, want an error", name)
+		}
+	}
+}

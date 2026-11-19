@@ -140,6 +140,7 @@ target-to-link reverse mapping is kept.
 - [x] seq-prototype-mutation.md
 - [x] crc-Module.md → `internal/lua/module.go`
 - [x] crc-PortableOS.md → `internal/lua/portable.go`, `internal/lua/runtime.go`
+- [x] crc-ExecAsync.md → `internal/server/execasync.go`, `internal/server/server.go`
 - [x] seq-unload-module.md → `internal/lua/runtime.go`, `internal/lua/hotloader.go`
 - [x] seq-require-lua-file.md → `internal/lua/runtime.go`
 - [x] seq-session-timer.md → `internal/lua/runtime.go`, `internal/server/server.go`
@@ -183,6 +184,7 @@ target-to-link reverse mapping is kept.
 - [x] test-Lua.md
 - [x] test-SessionTimer.md → `internal/lua/shutdown_race_test.go`
 - [x] test-PortableOS.md → `internal/lua/portable_test.go`
+- [x] test-ExecAsync.md → `internal/server/execasync_test.go`, `internal/lua/portable_test.go`
 - [x] test-SessionRef.md → `internal/server/sessionref_test.go`, `internal/server/dangerous_test.go`, `internal/server/session_lua_test.go`
 - [x] test-LuaTrackerAdapter.md → `internal/server/store_adapter_test.go`
 - [x] test-WebSocketEndpoint.md → `internal/server/connection_test.go`

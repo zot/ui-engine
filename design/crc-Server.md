@@ -36,7 +36,8 @@ are on their own cards.
   attached Lua session's Shutdown (R118, R233). Afterwards luaSessionFor finds nothing,
   since every Lua session reports shut down.
 - CreateLuaBackendForSession: attaches the new LuaSession to the Session before
-  CreateLuaSession runs main.lua (R230); neither the Lua session nor the backend is copied
+  CreateLuaSession runs main.lua (R230); then defines `ui.execAsync` on it, so main.lua
+  can use it (R250, crc-ExecAsync.md); neither the Lua session nor the backend is copied
   to the store adapter, which finds the backend through the registry (R231, R239).
 - ExecuteInSession: delegates to PrimitiveExecuteInSession with dangerous true (R168).
 - ExecuteInSessionAsync(vendedID, fn): SessionRef(vendedID), then Exec().PostUpdate;
