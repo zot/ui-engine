@@ -106,8 +106,8 @@ leaks a child process. Each gets an alarm.
 **Alarm:** 8
 **Fire alarm:** remove the pending-list sweep from DestroyLuaBackendForSession; the long-lived Tailor's Context is never done
 **Inject:** internal/server/server.go:Server.DestroyLuaBackendForSession
-@alarm-hash: f3a167a944e0ee41
-**Pulled:** 2026-11-19 — re-pulled after DestroyLuaBackendForSession dropped the map: pending-list sweep removed; `Tailor "timed" context not cancelled by session destroy` *Earlier —* 2026-11-18 — 2026-11-18 — rang: destroy sweep removed; the timed Tailor's context was not cancelled by session destroy
+@alarm-hash: 6a910cff03795802
+**Pulled:** 2026-11-19 — re-pulled after 9a removed the store adapter's RemoveBackend from this function: pending-list sweep removed; `Tailor "timed" context not cancelled by session destroy` *Earlier —* 2026-11-19 — re-pulled after DestroyLuaBackendForSession dropped the map: pending-list sweep removed; `Tailor "timed" context not cancelled by session destroy` *Earlier —* 2026-11-18 — 2026-11-18 — rang: destroy sweep removed; the timed Tailor's context was not cancelled by session destroy
 ## Test: posting on an ended session closes the Tailor
 **Purpose:** a stitch posted after the session is gone closes the Tailor as failed without posting (R179, R186)
 **Input:** a Tailor whose session's Lua session is shut down without the destroy sweep; Sew a stitch that records it ran
