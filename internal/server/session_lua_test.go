@@ -14,6 +14,7 @@ import (
 	"time"
 
 	gopher "github.com/yuin/gopher-lua"
+	"github.com/zot/ui-engine/internal/config"
 )
 
 // setMainLua replaces the test site's main.lua; sessions created afterwards run it.
@@ -178,4 +179,42 @@ func TestExecuteInSessionAsyncIsActive(t *testing.T) {
 	if unknownRan {
 		t.Fatal("ExecuteInSessionAsync ran work for an unknown session")
 	}
+}
+
+// ownSiteMakesNoDangerousCall runs one of ui-engine's own sites with dangerous
+// execution disallowed, so a dangerous call panics, and checks that it does not
+// panic and that change detection still follows its post.
+func ownSiteMakesNoDangerousCall(t *testing.T, site string, call func(s *Server, vendedID string)) {
+	t.Helper()
+	s := newRefTestServer(t, func(c *config.Config) { c.Session.AllowDangerousExecution = false })
+	internalID, vendedID := newSession(t, s)
+	attachBrowser(s, internalID)
+	var batches atomic.Int32
+	s.wsEndpoint.SetAfterBatch(func(string, bool) { batches.Add(1) })
+
+	func() {
+		defer func() {
+			if r := recover(); r != nil {
+				t.Fatalf("%s made a dangerous call: %v (R264)", site, r)
+			}
+		}()
+		call(s, vendedID)
+	}()
+	deadline := time.Now().Add(2 * time.Second)
+	for batches.Load() < 1 {
+		if time.Now().After(deadline) {
+			t.Fatalf("change detection never ran after %s (R264)", site)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+}
+
+// Test: pushing viewdefs makes no dangerous call (R264)
+func TestPushViewdefsMakesNoDangerousCall(t *testing.T) {
+	ownSiteMakesNoDangerousCall(t, "PushViewdefs", func(s *Server, id string) { s.PushViewdefs(id, nil) })
+}
+
+// Test: refreshing after a hot reload makes no dangerous call (R264)
+func TestRefreshMakesNoDangerousCall(t *testing.T) {
+	ownSiteMakesNoDangerousCall(t, "triggerSessionRefresh", func(s *Server, id string) { s.triggerSessionRefresh(id) })
 }

@@ -105,6 +105,10 @@ func (s *Server) PrimitiveExecuteInSession(vendedID string, fn func() (interface
   - **not set:** panic, naming the same site, before queueing anything.
 - `AllowDangerousExecution` defaults to set while callers are moved. The warnings are the
   list of remaining callers. When no site warns any more, the default is meant to flip.
+- **ui-engine's own code makes no dangerous call.** Work that needs no result, only
+  change detection afterward, posts with the session's `ExecRig.PostUpdate` and does not
+  wait: pushing changed viewdefs to a session, and refreshing a session after a hot
+  reload.
 
 ## Where a session's parts live
 

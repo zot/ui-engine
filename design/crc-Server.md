@@ -1,5 +1,5 @@
 # Server
-**Requirements:** R119, R120, R138, R143, R153, R168-171, R193, R118, R229, R231, R232, R233, R235, R236, R239, R254-R256, R260
+**Requirements:** R119, R120, R138, R143, R153, R168-171, R193, R118, R229, R231, R232, R233, R235, R236, R239, R254-R256, R260, R264
 
 Top-level server. This card covers its site-directory responsibilities and its
 session entry points (references and dangerous execution); protocol and HTTP behavior
@@ -44,6 +44,9 @@ are on their own cards.
 - ExecuteInSession: delegates to PrimitiveExecuteInSession with dangerous true (R168).
 - ExecuteInSessionAsync(vendedID, fn): SessionRef(vendedID), then Exec().PostUpdate;
   nothing when there is no such session (R235).
+- PushViewdefs(vendedID, viewdefs) and triggerSessionRefresh(vendedID): post an empty function
+  with the session's ExecRig.PostUpdate so change detection pushes what changed; neither
+  waits, so neither is a dangerous call (R264).
 - DestroyLuaBackendForSession: first closes every open Tailor on the session as
   failed (R193). Then shuts down the session's attached LuaSession, which returns at once
   and closes its VM once the session executor drains; there is no map entry to remove

@@ -388,27 +388,27 @@ func (s *Server) GetSessionIDs() []string {
 // PushViewdefs pushes updated viewdefs to a session.
 // This triggers AfterBatch to detect and send the changes.
 // Implements viewdef.SessionPusher.
-// CRC: crc-ViewdefStore.md
+// CRC: crc-ViewdefStore.md, crc-Server.md | R264
 // Sequence: seq-viewdef-hotload.md
 func (s *Server) PushViewdefs(vendedID string, viewdefs map[string]string) {
-	// Execute in session to trigger AfterBatch
-	// The viewdef manager already has the updated content, so AfterBatch will pick it up
-	s.ExecuteInSession(vendedID, func() (interface{}, error) {
-		// No-op - just trigger AfterBatch which will detect the changed viewdef
-		return nil, nil
-	})
+	// The viewdef manager already has the updated content, so change detection after an
+	// empty post picks it up. Posted, not waited for: nothing needs a result (R264).
+	if ref, ok := s.SessionRef(vendedID); ok {
+		ref.Exec().PostUpdate(func() {})
+	}
 }
 
 // triggerSessionRefresh triggers AfterBatch for a session to push pending changes.
 // Used by Lua hot-loader after reloading code.
-// CRC: crc-LuaHotLoader.md
+// CRC: crc-LuaHotLoader.md, crc-Server.md | R264
 // Sequence: seq-lua-hotload.md
 func (s *Server) triggerSessionRefresh(vendedID string) {
 	s.config.Log(1, "triggerSessionRefresh: triggering refresh for session %s", vendedID)
-	s.ExecuteInSession(vendedID, func() (interface{}, error) {
-		// No-op - just trigger AfterBatch which will detect any changes
-		return nil, nil
-	})
+	// An empty post: change detection afterward pushes what the reload changed. Posted,
+	// not waited for: nothing needs a result (R264).
+	if ref, ok := s.SessionRef(vendedID); ok {
+		ref.Exec().PostUpdate(func() {})
+	}
 }
 
 // SetSiteFS sets a custom filesystem for serving static files.

@@ -188,3 +188,27 @@ time, and a warning repeated per call only adds noise. Each gets an alarm.
 **Inject:** internal/server/server.go:Server.ExecuteInSessionAsync
 @alarm-hash: 80df95eb0f75bace
 **Pulled:** 2026-11-19 — rang: ExecuteInSessionAsync through Post; "afterBatch ran 0 times after ExecuteInSessionAsync, want 1 (R235)"
+
+## Test: pushing viewdefs makes no dangerous call
+**Purpose:** `PushViewdefs` posts with `ExecRig.PostUpdate` instead of waiting, so it runs with dangerous execution disallowed and change detection still follows it (R264)
+**Input:** a server with `AllowDangerousExecution` unset, a counting afterBatch and an attached browser; `PushViewdefs`, recovering any panic
+**Expected:** no panic, and afterBatch has run once within 2 seconds
+**Refs:** crc-Server.md
+**Code:** internal/server/session_lua_test.go
+**Alarm:** 14
+**Fire alarm:** implement PushViewdefs with `s.ExecuteInSession` again; with dangerous execution disallowed it panics naming its site
+**Inject:** internal/server/server.go:Server.PushViewdefs
+@alarm-hash: 561f4142feaa3923
+**Pulled:** 2026-11-19 — rang: `PushViewdefs made a dangerous call: dangerous synchronous ExecuteInSession from .../server.go:396`
+
+## Test: refreshing after a hot reload makes no dangerous call
+**Purpose:** `triggerSessionRefresh` posts with `ExecRig.PostUpdate` instead of waiting (R264)
+**Input:** the same setup; `triggerSessionRefresh`, recovering any panic
+**Expected:** no panic, and afterBatch has run once within 2 seconds
+**Refs:** crc-Server.md, crc-LuaHotLoader.md
+**Code:** internal/server/session_lua_test.go
+**Alarm:** 15
+**Fire alarm:** implement triggerSessionRefresh with `s.ExecuteInSession` again; it panics the same way
+**Inject:** internal/server/server.go:Server.triggerSessionRefresh
+@alarm-hash: 27f7439cccf1a541
+**Pulled:** 2026-11-19 — rang: `triggerSessionRefresh made a dangerous call: dangerous synchronous ExecuteInSession from .../server.go:409`
