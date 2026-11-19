@@ -136,6 +136,17 @@ reaching it keeps working by reading the new home; it never keeps a copy.
   (creating a variable, reading its value or a property, updating it, destroying it), and
   nothing maps a variable ID back to a session. A Lua session names its own. Through this,
   `session:destroyVariable(id)` destroys that session's variable (`libraries.md`).
+- **A browser connection holds its session.** When a browser connects to a session that
+  exists, the connection keeps the session itself, and the session records the
+  connection; on disconnect both are undone together. Each direction of that relationship
+  is kept once. Messages from the connection go to its session's executor; a connection
+  whose session does not exist reaches nothing.
+- **A session's connections are the session's own.** Whether a browser is connected to a
+  session, and which connections a broadcast to it reaches, come from the session. A
+  destroyed session has no connections, even if a browser that was attached to it has not
+  yet closed: change detection does not run for it, and a broadcast to it sends nothing.
+- **Reconnection needs no token.** A browser can rejoin any session that has not timed
+  out (`interfaces.md`); nothing issues or checks a reconnect token.
 
 Execution through the server reads the same home as the rigs:
 

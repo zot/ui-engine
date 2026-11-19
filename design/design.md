@@ -185,6 +185,7 @@ target-to-link reverse mapping is kept.
 - [x] test-PortableOS.md → `internal/lua/portable_test.go`
 - [x] test-SessionRef.md → `internal/server/sessionref_test.go`, `internal/server/dangerous_test.go`, `internal/server/session_lua_test.go`
 - [x] test-LuaTrackerAdapter.md → `internal/server/store_adapter_test.go`
+- [x] test-WebSocketEndpoint.md → `internal/server/connection_test.go`
 - [x] test-Tailor.md → `internal/server/tailor_test.go`
 - [x] test-ChanSvc.md → `internal/server/svc_test.go`
 - [x] test-Bundle.md → `internal/bundle/bundle_test.go`

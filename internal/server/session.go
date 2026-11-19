@@ -166,6 +166,19 @@ func (s *Session) IsActive() bool {
 	return len(s.connections) > 0
 }
 
+// ConnectionIDs returns a snapshot of the browser connections attached to this session.
+// The session's connection set is the only session-to-connection record.
+// CRC: crc-Session.md | R245, R247
+func (s *Session) ConnectionIDs() []string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	ids := make([]string, 0, len(s.connections))
+	for id := range s.connections {
+		ids = append(ids, id)
+	}
+	return ids
+}
+
 // GetConnectionCount returns the number of active connections.
 func (s *Session) GetConnectionCount() int {
 	s.mu.RLock()

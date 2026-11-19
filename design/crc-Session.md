@@ -1,5 +1,5 @@
 # Session
-**Requirements:** R191, R192, R224, R225, R229, R230, R231
+**Requirements:** R191, R192, R224, R225, R229, R230, R231, R244, R245, R247
 
 **Source Spec:** main.md (UI Server Architecture - Frontend Layer), interfaces.md
 
@@ -11,7 +11,8 @@
 - exec: the session's executor, a ChanSvc built and started with the session and stopped when it is destroyed (R224, R225)
 - lua: the session's LuaSession, an atomic pointer: attached once while the session is created, before main.lua runs, and never replaced; the only place it is held (R229, R230, R231)
 - backend: Backend instance (LuaBackend or ProxiedBackend)
-- connections: List of connected frontend connections
+- connections: the IDs of the browser connections attached to this session, mutex-guarded;
+  the only session-to-connection record (R244, R245, R247)
 - createdAt: Session creation timestamp
 - lastActivity: Last activity timestamp
 
@@ -22,6 +23,7 @@
 - removeConnection: Unregister frontend connection, call backend.UnwatchAll for connection
 - isActive: Check if session has any connections
 - getConnectionCount: Return number of active connections
+- ConnectionIDs: a snapshot of the attached connection IDs, for broadcast (R247)
 - touch: Update lastActivity timestamp
 - handleMessage: Delegate to backend.HandleMessage
 - addTailor / removeTailor / tailors: maintain and snapshot the pending list (R191, R192)

@@ -35,33 +35,33 @@ type DisconnectCallback func(sessionID string)
 
 // wsConn wraps a websocket connection with a write mutex.
 // gorilla/websocket does not support concurrent writes.
+// session is the Session the connection was opened on, set once by register when the
+// session exists and never changed; it is the only connection-to-session record.
+// CRC: crc-WebSocketEndpoint.md | R244, R245
 type wsConn struct {
 	conn    *websocket.Conn
+	session *Session
 	writeMu sync.Mutex
 }
 
 // WebSocketEndpoint handles WebSocket connections.
 type WebSocketEndpoint struct {
-	config          *config.Config
-	connections     map[string]*wsConn // connectionID -> conn
-	sessionBindings map[string]string  // connectionID -> sessionID
-	reconnectTokens map[string]string  // sessionID -> token
-	sessions        *SessionManager
-	handler         *protocol.Handler
-	afterBatch      AfterBatchCallback // Called after each message to detect changes
-	onDisconnectCb  DisconnectCallback // Called when a connection disconnects
-	mu              sync.RWMutex
+	config         *config.Config
+	connections    map[string]*wsConn // connectionID -> conn
+	sessions       *SessionManager
+	handler        *protocol.Handler
+	afterBatch     AfterBatchCallback // Called after each message to detect changes
+	onDisconnectCb DisconnectCallback // Called when a connection disconnects
+	mu             sync.RWMutex
 }
 
 // NewWebSocketEndpoint creates a new WebSocket endpoint.
 func NewWebSocketEndpoint(cfg *config.Config, sessions *SessionManager, handler *protocol.Handler) *WebSocketEndpoint {
 	return &WebSocketEndpoint{
-		config:          cfg,
-		connections:     make(map[string]*wsConn),
-		sessionBindings: make(map[string]string),
-		reconnectTokens: make(map[string]string),
-		sessions:        sessions,
-		handler:         handler,
+		config:      cfg,
+		connections: make(map[string]*wsConn),
+		sessions:    sessions,
+		handler:     handler,
 	}
 }
 
@@ -172,33 +172,40 @@ func (ws *WebSocketEndpoint) HandleWebSocket(w http.ResponseWriter, r *http.Requ
 	}
 
 	connectionID := generateConnectionID()
+	wc := ws.register(connectionID, conn, sessionID)
 
+	// Handle messages
+	go ws.readPump(connectionID, wc)
+}
+
+// register is the binding step of a new connection: the session is looked up once, and
+// when it exists the connection holds it and the session records the connection. A
+// connection to a session that does not exist holds nothing.
+// CRC: crc-WebSocketEndpoint.md | R244, R245
+func (ws *WebSocketEndpoint) register(connectionID string, conn *websocket.Conn, sessionID string) *wsConn {
+	wc := &wsConn{conn: conn, session: ws.getSession(sessionID)}
 	ws.mu.Lock()
-	ws.connections[connectionID] = &wsConn{conn: conn}
-	ws.sessionBindings[connectionID] = sessionID
+	ws.connections[connectionID] = wc
 	ws.mu.Unlock()
 
 	// Log connection event (verbosity level 1)
 	ws.Log(1, "WebSocket connected: session=%s conn=%s", sessionID, connectionID)
 
-	// Add connection to session
-	if sess, ok := ws.sessions.GetSession(sessionID); ok {
-		sess.AddConnection(connectionID)
+	if wc.session != nil {
+		wc.session.AddConnection(connectionID)
 	}
-
-	// Handle messages
-	go ws.readPump(connectionID, conn)
+	return wc
 }
 
 // readPump reads messages from a WebSocket connection.
-func (ws *WebSocketEndpoint) readPump(connectionID string, conn *websocket.Conn) {
+func (ws *WebSocketEndpoint) readPump(connectionID string, wc *wsConn) {
 	defer func() {
 		ws.onDisconnect(connectionID)
-		conn.Close()
+		wc.conn.Close()
 	}()
 
 	for {
-		_, message, err := conn.ReadMessage()
+		_, message, err := wc.conn.ReadMessage()
 		if err != nil {
 			if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
 				ws.Log(0, "WebSocket error: %v", err)
@@ -206,26 +213,23 @@ func (ws *WebSocketEndpoint) readPump(connectionID string, conn *websocket.Conn)
 			break
 		}
 
-		// Get session for this connection
-		ws.mu.RLock()
-		sessionID := ws.sessionBindings[connectionID]
-		ws.mu.RUnlock()
-
-		if sessionID == "" {
-			continue
-		}
-
-		// Queue message processing through session's executor
-		// A message for a session that is gone is dropped (R228).
-		// Seq: seq-session-executor.md#3.1.2
-		svc := ws.executor(sessionID)
-		if svc == nil {
-			continue
-		}
-		Svc(svc, func() {
-			ws.processMessage(connectionID, sessionID, message)
-		})
+		ws.postMessage(connectionID, wc, message)
 	}
+}
+
+// postMessage posts one message to the connection's session's executor and reports
+// whether it did. A connection with no session posts nothing. The session's executor
+// drops it once the session is destroyed (R228).
+// CRC: crc-WebSocketEndpoint.md | Seq: seq-session-executor.md#3.1.2 | R246
+func (ws *WebSocketEndpoint) postMessage(connectionID string, wc *wsConn, message []byte) bool {
+	if wc.session == nil {
+		return false
+	}
+	sessionID := wc.session.ID
+	Svc(wc.session.Executor(), func() {
+		ws.processMessage(connectionID, sessionID, message)
+	})
+	return true
 }
 
 // processMessage handles one or more messages within the session's executor.
@@ -305,23 +309,32 @@ func (ws *WebSocketEndpoint) sendResponse(connectionID string, resp *protocol.Re
 }
 
 // onDisconnect handles connection close.
+// It forgets the connection and removes it from its session, undoing both directions of
+// the relationship together.
+// CRC: crc-WebSocketEndpoint.md | R244, R245
 func (ws *WebSocketEndpoint) onDisconnect(connectionID string) {
 	ws.mu.Lock()
-	sessionID := ws.sessionBindings[connectionID]
+	wc := ws.connections[connectionID]
 	delete(ws.connections, connectionID)
-	delete(ws.sessionBindings, connectionID)
 	ws.mu.Unlock()
+	if wc == nil {
+		return
+	}
+	sessionID := ""
+	if wc.session != nil {
+		sessionID = wc.session.ID
+	}
 
 	// Log disconnection event (verbosity level 1)
 	ws.Log(1, "WebSocket disconnected: session=%s conn=%s", sessionID, connectionID)
 
-	// Notify session
-	if sess, ok := ws.sessions.GetSession(sessionID); ok {
-		sess.RemoveConnection(connectionID)
+	if wc.session == nil {
+		return
 	}
+	wc.session.RemoveConnection(connectionID)
 
 	// Notify disconnect callback (used to clear sent-tracking for page refresh)
-	if ws.onDisconnectCb != nil && sessionID != "" {
+	if ws.onDisconnectCb != nil {
 		ws.onDisconnectCb(sessionID)
 	}
 }
@@ -379,18 +392,21 @@ func (ws *WebSocketEndpoint) SendBatch(connectionID string, msgs []*protocol.Mes
 	return wc.conn.WriteMessage(websocket.TextMessage, data)
 }
 
-// Broadcast sends a message to all connections in a session.
+// Broadcast sends a message to all connections in a session. The session lists its own
+// connections; a destroyed session is no longer found, so nothing is sent.
+// CRC: crc-WebSocketEndpoint.md | R247
 func (ws *WebSocketEndpoint) Broadcast(sessionID string, msg *protocol.Message) error {
-	ws.mu.RLock()
 	var conns []*wsConn
-	for connID, sessID := range ws.sessionBindings {
-		if sessID == sessionID {
+	if sess := ws.getSession(sessionID); sess != nil {
+		ids := sess.ConnectionIDs()
+		ws.mu.RLock()
+		for _, connID := range ids {
 			if wc, ok := ws.connections[connID]; ok {
 				conns = append(conns, wc)
 			}
 		}
+		ws.mu.RUnlock()
 	}
-	ws.mu.RUnlock()
 
 	// Log message
 	msgType := strings.ToUpper(string(msg.Type))
@@ -421,65 +437,37 @@ func (ws *WebSocketEndpoint) IsConnected(connectionID string) bool {
 	return ok
 }
 
-// GetSessionID returns the session ID for a connection.
-func (ws *WebSocketEndpoint) GetSessionID(connectionID string) (string, bool) {
-	ws.mu.RLock()
-	defer ws.mu.RUnlock()
-	sessionID, ok := ws.sessionBindings[connectionID]
-	return sessionID, ok
-}
-
 // GetSessionIDForConnection returns the session ID for a connection.
 // Returns empty string if connection is not found.
+// CRC: crc-WebSocketEndpoint.md | R244
 func (ws *WebSocketEndpoint) GetSessionIDForConnection(connectionID string) string {
 	ws.mu.RLock()
-	defer ws.mu.RUnlock()
-	return ws.sessionBindings[connectionID]
+	wc := ws.connections[connectionID]
+	ws.mu.RUnlock()
+	if wc == nil || wc.session == nil {
+		return ""
+	}
+	return wc.session.ID
 }
 
 // HasConnectionsForSession returns true if the session has any active connections.
+// It asks the session; a destroyed session is no longer found, so it has none.
+// CRC: crc-WebSocketEndpoint.md | R162, R247
 func (ws *WebSocketEndpoint) HasConnectionsForSession(sessionID string) bool {
-	ws.mu.RLock()
-	defer ws.mu.RUnlock()
-	for _, sessID := range ws.sessionBindings {
-		if sessID == sessionID {
-			return true
-		}
-	}
-	return false
+	sess := ws.getSession(sessionID)
+	return sess != nil && sess.GetConnectionCount() > 0
 }
 
 // IsSessionReconnectable checks if a session can be rejoined.
 // A session can be rejoined if it exists and hasn't timed out.
+// No reconnect token is issued or checked: existing and not timed out is the whole test.
+// CRC: crc-WebSocketEndpoint.md | R248
 func (ws *WebSocketEndpoint) IsSessionReconnectable(sessionID string) bool {
 	return ws.sessions.SessionExists(sessionID)
-}
-
-// GenerateReconnectToken creates a token for validating reconnection.
-func (ws *WebSocketEndpoint) GenerateReconnectToken(sessionID string) string {
-	token := generateToken()
-	ws.mu.Lock()
-	ws.reconnectTokens[sessionID] = token
-	ws.mu.Unlock()
-	return token
-}
-
-// ValidateReconnectToken validates a reconnection token.
-func (ws *WebSocketEndpoint) ValidateReconnectToken(sessionID, token string) bool {
-	ws.mu.RLock()
-	defer ws.mu.RUnlock()
-	expected, ok := ws.reconnectTokens[sessionID]
-	return ok && expected == token
 }
 
 func generateConnectionID() string {
 	bytes := make([]byte, 16)
 	rand.Read(bytes)
 	return "conn-" + hex.EncodeToString(bytes)
-}
-
-func generateToken() string {
-	bytes := make([]byte, 32)
-	rand.Read(bytes)
-	return hex.EncodeToString(bytes)
 }

@@ -42,11 +42,10 @@ func newSession(t *testing.T, s *Server) (string, string) {
 	return sess.ID, vendedID
 }
 
-// attachBrowser makes the endpoint report a browser connection for the session.
+// attachBrowser makes the endpoint report a browser connection for the session, by the
+// same binding step a real connection runs. The socket is nil; nothing here writes to it.
 func attachBrowser(s *Server, internalID string) {
-	s.wsEndpoint.mu.Lock()
-	s.wsEndpoint.sessionBindings["test-conn"] = internalID
-	s.wsEndpoint.mu.Unlock()
+	s.wsEndpoint.register("test-conn", nil, internalID)
 }
 
 func waitFor(t *testing.T, ch <-chan struct{}, what string) {

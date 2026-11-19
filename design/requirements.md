@@ -268,6 +268,11 @@
 - **R241:** Every variable operation on the variable store names its session (creating, reading a value or a property, updating, destroying); nothing maps a variable ID back to a session
 - **R242:** A Lua session names its own session in every variable operation it makes
 - **R243:** In embedded mode, `session:destroyVariable(id)` destroys that session's variable
+- **R244:** A browser connection to an existing session holds that session, and the session records the connection; disconnecting undoes both together
+- **R245:** The connection-to-session relationship is kept once in each direction: no other table maps a connection to its session or a session to its connections
+- **R246:** Messages from a browser connection go to its session's executor; a connection whose session does not exist reaches nothing
+- **R247:** Whether a browser is connected to a session, and which connections a broadcast to it reaches, come from the session; a destroyed session has no connections, so change detection does not run for it and a broadcast to it sends nothing
+- **R248:** Nothing issues or checks a reconnect token; a browser can rejoin any session that has not timed out
 
 ## Feature: Tailor
 **Source:** specs/tailor.md
