@@ -1,5 +1,5 @@
 # Server
-**Requirements:** R119, R120, R138, R143, R153, R168-171, R193, R118, R229, R231, R232, R233, R235, R236
+**Requirements:** R119, R120, R138, R143, R153, R168-171, R193, R118, R229, R231, R232, R233, R235, R236, R239
 
 Top-level server. This card covers its site-directory responsibilities and its
 session entry points (references and dangerous execution); protocol and HTTP behavior
@@ -36,7 +36,8 @@ are on their own cards.
   attached Lua session's Shutdown (R118, R233). Afterwards luaSessionFor finds nothing,
   since every Lua session reports shut down.
 - CreateLuaBackendForSession: attaches the new LuaSession to the Session before
-  CreateLuaSession runs main.lua (R230); no copy goes to the store adapter (R231).
+  CreateLuaSession runs main.lua (R230); neither the Lua session nor the backend is copied
+  to the store adapter, which finds the backend through the registry (R231, R239).
 - ExecuteInSession: delegates to PrimitiveExecuteInSession with dangerous true (R168).
 - ExecuteInSessionAsync(vendedID, fn): SessionRef(vendedID), then Exec().PostUpdate;
   nothing when there is no such session (R235).

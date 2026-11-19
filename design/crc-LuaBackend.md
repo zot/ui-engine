@@ -1,4 +1,5 @@
 # LuaBackend
+**Requirements:** R240
 
 **Source Spec:** main.md (UI Server Architecture - Hosted Backend), protocol.md (Session-Based Communication)
 
@@ -12,6 +13,7 @@
 - watchCounts: Map of variable ID to observer count {varId -> count}
 - watchers: Map of variable ID to watching connections {varId -> []connId}
 - appVariable: Reference to variable 1 (created by main.lua)
+- nextServerVarID: the next negative ID for a server-created variable in this session, from -1 down; guarded by mu (R240)
 
 ### Does
 - Watch: Add observer for variable, manage tally, register with tracker if new
@@ -28,6 +30,7 @@
 - CreateAppVariable: Create variable 1, register with tracker
 - LoadMainLua: Load and execute main.lua with session global
 - Shutdown: Clean up Lua state and tracker
+- NextServerVarID: return the next negative ID and decrement the counter (R240)
 
 ## Collaborators
 

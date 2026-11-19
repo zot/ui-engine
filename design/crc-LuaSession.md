@@ -1,7 +1,7 @@
 # LuaSession
 
 **Source Spec:** libraries.md, interfaces.md, protocol.md, deployment.md, remove-prototype.md, module-tracking.md, session-defer.md
-**Requirements:** R1-7, R9-21, R92-111, R115-118, R145, R152, R238
+**Requirements:** R1-7, R9-21, R92-111, R115-118, R145, R152, R238, R241, R242
 
 ## Responsibilities
 
@@ -101,7 +101,7 @@
 
 - Server: Creates and owns this LuaSession (one per frontend session)
 - LuaBackend: Per-session backend for watch management and change detection
-- luaTrackerAdapter: Implements VariableStore interface, routes to per-session tracker
+- luaTrackerAdapter: Implements VariableStore; every operation names its session, and the Lua session passes its own vended ID (R241, R242). See crc-LuaTrackerAdapter.md
 - WrapperRegistry: Provides wrapper factories for ui.registerWrapper
 - LuaHotLoader: Re-executes modified Lua files via RequireLuaFile(), checks IsFileLoaded(), provides cleanup callback
 - Module: Tracks resources registered by each module for cleanup during unload

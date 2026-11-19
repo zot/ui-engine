@@ -12,7 +12,7 @@
 - Server: Main server (finds Lua sessions through the session registry)
 - LuaSession: Per-session Lua environment with isolated VM
 - LuaBackend: Per-session backend for watch management
-- luaTrackerAdapter: Routes variable operations to per-session tracker
+- luaTrackerAdapter: Routes each variable operation to the named session's tracker, found through the registry
 - Tracker: change-tracker.Tracker instance
 
 ## Sequence
@@ -41,7 +41,6 @@
         |                   |                   |                   |                   |                   |                   |                   |                   |
         |                   |                   |                   |--SetBackend(lb)--|<------------------|-------------------|                   |                   |
         |                   |                   |                   |                   |                   |                   |                   |                   |
-        |                   |                   |                   |                   |--SetBackend(id, lb)---------------------------------------->|                   |
         |                   |                   |                   |                   |                   |                   |                   |                   |
         |                   |                   |                   |                   |--SetVariableStore(adapter)---------->|                   |                   |
         |                   |                   |                   |                   |                   |                   |                   |                   |
@@ -73,5 +72,5 @@
 - Variable IDs are scoped to the session (each session has its own variable 1)
 - main.lua is responsible for creating the app variable via session:createAppVariable()
 - The tracker is per-session, eliminating the global map key collision bug
-- **luaTrackerAdapter**: Coordinates variable operations across per-session backends
+- **luaTrackerAdapter**: Holds no per-session state; each variable operation names its session, and the adapter finds that session's backend through the registry (R239, R241)
 - **Session Callbacks**: SessionManager.SetOnSessionCreated triggers Server.CreateLuaBackendForSession

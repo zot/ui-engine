@@ -22,7 +22,20 @@ type LuaBackend struct {
 	watchers          map[int64][]string // variable ID -> connection IDs
 	inactiveVariables map[int64]struct{} // variable IDs marked inactive
 	varToSession      map[int64]struct{} // track variables owned by this session
+	nextServerVarID   int64              // next negative ID for a server-created variable (R240)
 	mu                sync.RWMutex
+}
+
+// NextServerVarID returns the next negative ID for a server-created variable in this
+// session and decrements the counter. Each session counts from -1 on its own, since
+// variable IDs name a variable only within its session.
+// CRC: crc-LuaBackend.md | R240, R45
+func (lb *LuaBackend) NextServerVarID() int64 {
+	lb.mu.Lock()
+	defer lb.mu.Unlock()
+	id := lb.nextServerVarID
+	lb.nextServerVarID--
+	return id
 }
 
 // NewLuaBackend creates a new LuaBackend for a session.
@@ -42,6 +55,7 @@ func NewLuaBackend(cfg *config.Config, sessionID string, resolver changetracker.
 		watchers:          make(map[int64][]string),
 		inactiveVariables: make(map[int64]struct{}),
 		varToSession:      make(map[int64]struct{}),
+		nextServerVarID:   -1,
 	}
 }
 

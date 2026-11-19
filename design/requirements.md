@@ -263,6 +263,11 @@
 - **R236:** `Server.ExecuteInSession` finds the session the same way a session reference does
 - **R237:** No rig has a method that waits for the session's executor
 - **R238:** `SessionRef.Valid()` is true while the session's Lua session is running, and false after the session is destroyed or a new session takes its vended ID
+- **R239:** A session's backend is held by the session; the variable store's adapter reaches it through the session registry and keeps no copy
+- **R240:** The counter for a session's server-created variable IDs (negative, from `-1`) belongs to that session's backend
+- **R241:** Every variable operation on the variable store names its session (creating, reading a value or a property, updating, destroying); nothing maps a variable ID back to a session
+- **R242:** A Lua session names its own session in every variable operation it makes
+- **R243:** In embedded mode, `session:destroyVariable(id)` destroys that session's variable
 
 ## Feature: Tailor
 **Source:** specs/tailor.md

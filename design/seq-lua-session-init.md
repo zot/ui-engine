@@ -12,7 +12,7 @@
 - Server: Main server (finds Lua sessions through the session registry)
 - LuaSession: Per-session Lua environment (with isolated VM)
 - LuaBackend: Per-session backend for watch management
-- luaTrackerAdapter: Routes to per-session tracker
+- luaTrackerAdapter: Routes each variable operation to the named session's tracker, found through the registry
 
 ## Sequence
 
@@ -36,7 +36,6 @@
         |                   |                   |                   |--SetBackend----->|<------------------|                   |                   |
         |                   |                   |                   |   (backend)      |                   |                   |                   |
         |                   |                   |                   |                   |                   |                   |                   |
-        |                   |                   |                   |                   |--SetBackend(id, lb)----------------->|----------------->|
         |                   |                   |                   |                   |                   |                   |                   |
         |                   |                   |                   |                   |--SetVariableStore(adapter)---------->|                   |
         |                   |                   |                   |                   |                   |                   |                   |

@@ -8,9 +8,9 @@
 Give Go code one handle to a session from which it can reach everything the session
 owns, instead of carrying session IDs and looking each part up in a different map.
 
-Today a session's state is spread across maps owned by several objects (`SessionManager`,
+A session's state was spread across maps owned by several objects (`SessionManager`,
 `WebSocketEndpoint`, `Server`, the store adapter, the variable store), keyed by two kinds
-of session ID. Every operation reassembles the session from those maps. A session
+of session ID, and every operation reassembled the session from those maps. A session
 reference replaces that with navigation: hold the reference, ask it for the part you need.
 
 This is a piece-at-a-time restructuring. The references were first implemented over the
@@ -126,6 +126,16 @@ reaching it keeps working by reading the new home; it never keeps a copy.
   shuts down cannot deadlock it.
 - **A destroyed session cannot be found by its vended ID** from the moment its IDs are
   dropped, including while its Lua session is being torn down.
+- **The backend** belongs to the session. The variable store's adapter reaches a
+  session's backend through the session registry and keeps no copy.
+- **Each session numbers its own server-created variables** (negative IDs from `-1`, see
+  `protocol.md`), so the counter belongs to that session's backend, beside the variables
+  it numbers.
+- **A variable ID names a variable only within its session**: every session has a
+  variable 1 and a variable `-1`. So every variable operation names its session
+  (creating a variable, reading its value or a property, updating it, destroying it), and
+  nothing maps a variable ID back to a session. A Lua session names its own. Through this,
+  `session:destroyVariable(id)` destroys that session's variable (`libraries.md`).
 
 Execution through the server reads the same home as the rigs:
 

@@ -510,7 +510,7 @@ func (s *Server) setupLua(cfg *config.Config) {
 	}
 
 	// Create store adapter (will be shared across sessions)
-	s.storeAdapter = &luaTrackerAdapter{config: cfg} //, store: s.store}
+	s.storeAdapter = &luaTrackerAdapter{config: cfg, sessions: s.sessions}
 
 	// In bundle mode, pre-cache main.lua content for per-session execution
 	if cfg.Server.Dir == "" {
@@ -574,11 +574,6 @@ func (s *Server) CreateLuaBackendForSession(vendedID string, sess *Session) erro
 	// Each session has its own batcher for isolated debouncing
 	sess.SetBatcher(NewOutgoingBatcher(s.wsEndpoint))
 
-	// Track in store adapter for variable operations
-	if s.storeAdapter != nil {
-		s.storeAdapter.SetBackend(vendedID, lb)
-	}
-
 	// Set variable store on Lua session
 	luaSession.SetVariableStore(s.storeAdapter)
 
@@ -625,11 +620,6 @@ func (s *Server) DestroyLuaBackendForSession(vendedID string, sess *Session) {
 		b.Shutdown()
 	}
 	sess.SetBackend(nil)
-
-	// Remove from store adapter
-	if s.storeAdapter != nil {
-		s.storeAdapter.RemoveBackend(vendedID)
-	}
 
 	s.config.Log(0, "Destroyed Lua session %s", vendedID)
 }
@@ -991,15 +981,15 @@ func (s *Server) preloadMainLuaFromBundleToConfig() {
 	s.config.Log(0, "Preloaded main.lua from bundle")
 }
 
-// luaTrackerAdapter adapts variable.Store to lua.VariableStore interface.
-// It coordinates with per-session LuaBackends for change detection.
+// luaTrackerAdapter is the server's lua.VariableStore. It holds no per-session state:
+// every operation names its session, and the adapter finds that session's backend
+// through the session registry. There is no variable-to-session index, because variable
+// IDs name a variable only within its session.
+// CRC: crc-LuaTrackerAdapter.md | R239, R241
 type luaTrackerAdapter struct {
-	config          *config.Config
-	viewdefManager  *viewdef.ViewdefManager
-	backends        map[string]*backend.LuaBackend // vendedID -> backend
-	varToSession    map[int64]string               // variableID -> sessionID
-	nextServerVarId map[string]int64               // vendedID -> next negative ID (starts at -1, decrements)
-	mu              sync.RWMutex
+	config         *config.Config
+	viewdefManager *viewdef.ViewdefManager
+	sessions       *SessionManager // the registry every lookup goes through (R239)
 }
 
 // SetViewdefManager sets the viewdef manager for sending viewdefs to frontend.
@@ -1007,275 +997,152 @@ func (a *luaTrackerAdapter) SetViewdefManager(vm *viewdef.ViewdefManager) {
 	a.viewdefManager = vm
 }
 
-// SetBackend sets the backend for a session.
-func (a *luaTrackerAdapter) SetBackend(sessionID string, lb *backend.LuaBackend) {
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	if a.backends == nil {
-		a.backends = make(map[string]*backend.LuaBackend)
-		a.varToSession = make(map[int64]string)
-		a.nextServerVarId = make(map[string]int64)
+// backend returns the Lua backend of the session with this vended ID, or nil when there
+// is no such session or it has no Lua backend. The one way the adapter reaches a
+// session's backend; it keeps no copy.
+// CRC: crc-LuaTrackerAdapter.md | R239
+func (a *luaTrackerAdapter) backend(vendedID string) *backend.LuaBackend {
+	sess := a.sessions.GetByVendedID(vendedID)
+	if sess == nil {
+		return nil
 	}
-	a.backends[sessionID] = lb
+	lb, _ := sess.GetBackend().(*backend.LuaBackend)
+	return lb
 }
 
-// GetBackend returns the backend for a session.
-func (a *luaTrackerAdapter) GetBackend(sessionID string) *backend.LuaBackend {
-	a.mu.RLock()
-	defer a.mu.RUnlock()
-	return a.backends[sessionID]
+// GetBackend returns the Lua backend for a session.
+// CRC: crc-LuaTrackerAdapter.md | R239
+func (a *luaTrackerAdapter) GetBackend(vendedID string) *backend.LuaBackend {
+	return a.backend(vendedID)
 }
 
-// RemoveBackend removes the backend for a session.
-func (a *luaTrackerAdapter) RemoveBackend(sessionID string) {
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	delete(a.backends, sessionID)
-	// Clean up varToSession
-	for varID, sid := range a.varToSession {
-		if sid == sessionID {
-			delete(a.varToSession, varID)
-		}
-	}
-}
-
-// CreateSession creates a new tracker for a session.
-// Note: The tracker is now managed by LuaBackend, this just sets up the resolver.
-func (a *luaTrackerAdapter) CreateSession(sessionID string, resolver changetracker.Resolver) {
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	if a.backends == nil {
-		a.backends = make(map[string]*backend.LuaBackend)
-	}
-	if a.varToSession == nil {
-		a.varToSession = make(map[int64]string)
-	}
-	if a.nextServerVarId == nil {
-		a.nextServerVarId = make(map[string]int64)
-	}
-	// Initialize negative ID counter for this session (starts at -1, decrements)
-	// Spec: protocol.md - Server-created variables (other than root) use negative IDs
-	a.nextServerVarId[sessionID] = -1
-	// If we have a backend for this session, set its resolver
-	if lb, ok := a.backends[sessionID]; ok {
+// CreateSession sets the resolver on the session's tracker. The negative-ID counter
+// belongs to the backend, so there is nothing else to set up.
+// CRC: crc-LuaTrackerAdapter.md | R240
+func (a *luaTrackerAdapter) CreateSession(vendedID string, resolver changetracker.Resolver) {
+	if lb := a.backend(vendedID); lb != nil {
 		lb.GetTracker().Resolver = resolver
 	}
 }
 
-// DestroySession removes a session's tracker.
-func (a *luaTrackerAdapter) DestroySession(sessionID string) {
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	// Backend removal is handled separately via RemoveBackend
-	// Just clean up varToSession
-	for varID, sid := range a.varToSession {
-		if sid == sessionID {
-			delete(a.varToSession, varID)
-		}
-	}
-}
+// DestroySession has nothing to clean up: the session's state goes with the session.
+// CRC: crc-LuaTrackerAdapter.md
+func (a *luaTrackerAdapter) DestroySession(vendedID string) {}
 
 // GetTracker returns the tracker for a session.
-func (a *luaTrackerAdapter) GetTracker(sessionID string) *changetracker.Tracker {
-	a.mu.RLock()
-	defer a.mu.RUnlock()
-	if lb, ok := a.backends[sessionID]; ok {
+func (a *luaTrackerAdapter) GetTracker(vendedID string) *changetracker.Tracker {
+	if lb := a.backend(vendedID); lb != nil {
 		return lb.GetTracker()
 	}
 	return nil
 }
 
-// CreateVariable creates a variable using the session's tracker.
+// CreateVariable creates a variable in the session's tracker.
 // Spec: protocol.md - Server uses positive ID 1 for root, negative IDs for others.
-// Root variable (parentID == 0) uses auto-assigned ID (1).
-// Non-root server variables use negative IDs starting from -1.
-func (a *luaTrackerAdapter) CreateVariable(sessionID string, parentID int64, luaObject *gopher.LTable, properties map[string]string) (int64, error) {
-	a.mu.Lock()
-	lb := a.backends[sessionID]
+// The root (parentID 0) takes the tracker's auto-assigned ID 1; any other server
+// variable takes the session's next negative ID, counted per session.
+// CRC: crc-LuaTrackerAdapter.md | R240, R45
+func (a *luaTrackerAdapter) CreateVariable(vendedID string, parentID int64, luaObject *gopher.LTable, properties map[string]string) (int64, error) {
+	lb := a.backend(vendedID)
 	if lb == nil {
-		a.mu.Unlock()
-		return 0, fmt.Errorf("session %s not found", sessionID)
+		return 0, fmt.Errorf("session %s not found", vendedID)
 	}
 	tracker := lb.GetTracker()
 
-	var v *changetracker.Variable
-	var id int64
-
 	if parentID == 0 {
-		// Root variable - use auto-assigned ID (will be 1)
-		v = tracker.CreateVariable(luaObject, parentID, "", properties)
-		id = v.ID
-	} else {
-		// Non-root server variable - use negative ID
-		id = a.nextServerVarId[sessionID]
-		a.nextServerVarId[sessionID]--
-		a.mu.Unlock()
-
-		v = tracker.CreateVariableWithId(id, luaObject, parentID, "", properties)
-		if v == nil {
-			return 0, fmt.Errorf("variable ID %d already in use", id)
-		}
-
-		a.config.Log(0, "CREATED LUA VARIABLE id=%d, type=%s", id, v.Properties["type"])
-		lb.TrackVariable(id)
-		return id, nil
+		v := tracker.CreateVariable(luaObject, parentID, "", properties)
+		a.config.Log(0, "CREATED ROOT LUA VARIABLE id=%d, type=%s", v.ID, v.Properties["type"])
+		lb.TrackVariable(v.ID)
+		return v.ID, nil
 	}
-	a.mu.Unlock()
 
-	a.config.Log(0, "CREATED ROOT LUA VARIABLE id=%d, type=%s", id, v.Properties["type"])
+	id := lb.NextServerVarID()
+	v := tracker.CreateVariableWithId(id, luaObject, parentID, "", properties)
+	if v == nil {
+		return 0, fmt.Errorf("variable ID %d already in use", id)
+	}
+	a.config.Log(0, "CREATED LUA VARIABLE id=%d, type=%s", id, v.Properties["type"])
 	lb.TrackVariable(id)
 	return id, nil
 }
 
-// CreatePathVariable creates a path-based variable initiated by the frontend.
-// This is called when the frontend creates a variable with parentId and path property.
-// The variable is created in the parent's tracker, which resolves the path.
-func (a *luaTrackerAdapter) CreatePathVariable(parentID int64, path string, properties map[string]string) (int64, json.RawMessage, error) {
-	// Find which session owns the parent variable
-	a.mu.RLock()
-	sessionID, ok := a.varToSession[parentID]
-	if !ok {
-		a.mu.RUnlock()
-		return 0, nil, fmt.Errorf("parent variable %d not found in any session", parentID)
-	}
-	lb := a.backends[sessionID]
-	a.mu.RUnlock()
-
+// variable returns the session's tracker and the variable with this ID in it, or nil.
+// CRC: crc-LuaTrackerAdapter.md | R241
+func (a *luaTrackerAdapter) variable(vendedID string, id int64) (*changetracker.Tracker, *changetracker.Variable) {
+	lb := a.backend(vendedID)
 	if lb == nil {
-		return 0, nil, fmt.Errorf("session %s backend not found", sessionID)
+		return nil, nil
 	}
 	tracker := lb.GetTracker()
-
-	// Ensure path is in properties
-	if properties == nil {
-		properties = make(map[string]string)
-	}
-	properties["path"] = path
-
-	// Create variable in tracker - it will resolve the path
-	v := tracker.CreateVariable(nil, parentID, path, properties)
-	id := v.ID
-
-	// Track which session owns this variable
-	a.mu.Lock()
-	a.varToSession[id] = sessionID
-	a.mu.Unlock()
-
-	// Get the resolved value
-	resolvedValue, err := v.Get()
-	if err != nil {
-		// Path resolution failed - return with nil value, error will be sent as update
-		return id, nil, nil
-	}
-
-	// Convert to JSON
-	jsonValue, err := tracker.ToValueJSONBytes(resolvedValue)
-	if err != nil {
-		return id, nil, nil
-	}
-
-	return id, jsonValue, nil
+	return tracker, tracker.GetVariable(id)
 }
 
-// Get retrieves a variable's value and properties.
-func (a *luaTrackerAdapter) Get(id int64) (json.RawMessage, map[string]string, bool) {
-	// First try the backend's tracker
-	a.mu.RLock()
-	sessionID, ok := a.varToSession[id]
-	if ok {
-		lb := a.backends[sessionID]
-		a.mu.RUnlock()
-		if lb != nil {
-			tracker := lb.GetTracker()
-			v := tracker.GetVariable(id)
-			if v != nil {
-				jsonBytes, _ := tracker.ToValueJSONBytes(v.Value)
-				return jsonBytes, v.Properties, true
-			}
-		}
-	} else {
-		a.mu.RUnlock()
+// Get retrieves a variable's value and properties in the named session.
+// CRC: crc-LuaTrackerAdapter.md | R241
+func (a *luaTrackerAdapter) Get(vendedID string, id int64) (json.RawMessage, map[string]string, bool) {
+	tracker, v := a.variable(vendedID, id)
+	if v == nil {
+		return nil, nil, false
 	}
-	return nil, nil, false
+	jsonBytes, _ := tracker.ToValueJSONBytes(v.Value)
+	return jsonBytes, v.Properties, true
 }
 
-// GetProperty retrieves a property value.
-func (a *luaTrackerAdapter) GetProperty(id int64, name string) (string, bool) {
-	// First try the backend's tracker
-	a.mu.RLock()
-	sessionID, ok := a.varToSession[id]
-	if ok {
-		lb := a.backends[sessionID]
-		a.mu.RUnlock()
-		if lb != nil {
-			tracker := lb.GetTracker()
-			v := tracker.GetVariable(id)
-			if v != nil {
-				val := v.GetProperty(name)
-				return val, val != ""
-			}
-		}
-	} else {
-		a.mu.RUnlock()
+// GetProperty retrieves a property value of a variable in the named session.
+// CRC: crc-LuaTrackerAdapter.md | R241
+func (a *luaTrackerAdapter) GetProperty(vendedID string, id int64, name string) (string, bool) {
+	_, v := a.variable(vendedID, id)
+	if v == nil {
+		return "", false
 	}
-	return "", false
+	val := v.GetProperty(name)
+	return val, val != ""
 }
 
-// Update updates a variable's value and/or properties in the store.
-func (a *luaTrackerAdapter) Update(id int64, value json.RawMessage, properties map[string]string) error {
+// Update is a no-op: the tracker already holds the variable's state. It names its
+// session like every other variable operation.
+// CRC: crc-LuaTrackerAdapter.md | R241
+func (a *luaTrackerAdapter) Update(vendedID string, id int64, value json.RawMessage, properties map[string]string) error {
 	return nil
 }
 
-// Destroy removes a variable.
-func (a *luaTrackerAdapter) Destroy(id int64) error {
-	// Remove from backend's tracker
-	a.mu.Lock()
-	sessionID, ok := a.varToSession[id]
-	if ok {
-		if lb := a.backends[sessionID]; lb != nil {
-			lb.GetTracker().DestroyVariable(id)
-			lb.UntrackVariable(id)
-		}
-		delete(a.varToSession, id)
+// Destroy removes a variable from the named session's tracker.
+// CRC: crc-LuaTrackerAdapter.md | R241, R243
+func (a *luaTrackerAdapter) Destroy(vendedID string, id int64) error {
+	lb := a.backend(vendedID)
+	if lb == nil {
+		return fmt.Errorf("session %s not found", vendedID)
 	}
-	a.mu.Unlock()
+	lb.GetTracker().DestroyVariable(id)
+	lb.UntrackVariable(id)
 	return nil
 }
 
-// DetectChanges returns changes for a session.
-func (a *luaTrackerAdapter) DetectChanges(sessionID string) bool {
-	a.mu.RLock()
-	lb := a.backends[sessionID]
-	a.mu.RUnlock()
-	if lb != nil {
+// DetectChanges runs change detection for a session.
+func (a *luaTrackerAdapter) DetectChanges(vendedID string) bool {
+	if lb := a.backend(vendedID); lb != nil {
 		return lb.GetTracker().DetectChanges()
 	}
 	return false
 }
 
-// DetectChanges returns changes for a session.
-func (a *luaTrackerAdapter) GetChanges(sessionID string) []changetracker.Change {
-	a.mu.RLock()
-	lb := a.backends[sessionID]
-	a.mu.RUnlock()
-
-	if lb == nil {
-		return nil
+// GetChanges returns the detected changes for a session.
+func (a *luaTrackerAdapter) GetChanges(vendedID string) []changetracker.Change {
+	if lb := a.backend(vendedID); lb != nil {
+		return lb.GetTracker().GetChanges()
 	}
-
-	return lb.GetTracker().GetChanges()
+	return nil
 }
 
 // updateVariable1Viewdefs updates variable 1's viewdefs property with new viewdefs.
 // Per spec: "pending viewdefs are set on variable 1's viewdefs property"
-func (a *luaTrackerAdapter) updateVariable1Viewdefs(sessionID string, viewdefs map[string]string) {
-	// Serialize viewdefs as JSON
+func (a *luaTrackerAdapter) updateVariable1Viewdefs(vendedID string, viewdefs map[string]string) {
 	viewdefsJSON, err := json.Marshal(viewdefs)
 	if err != nil {
 		a.config.Log(0, "Warning: failed to marshal viewdefs: %v", err)
 		return
 	}
-
-	lb := a.backends[sessionID]
-	lb.GetTracker().GetVariable(1).SetProperty("viewdefs", string(viewdefsJSON))
+	if lb := a.backend(vendedID); lb != nil {
+		lb.GetTracker().GetVariable(1).SetProperty("viewdefs", string(viewdefsJSON))
+	}
 }

@@ -44,7 +44,7 @@ func (s *mockVariableStore) Create(parentID int64, value json.RawMessage, proper
 	return id, nil
 }
 
-func (s *mockVariableStore) Get(id int64) (json.RawMessage, map[string]string, bool) {
+func (s *mockVariableStore) Get(sessionID string, id int64) (json.RawMessage, map[string]string, bool) {
 	v, ok := s.variables[id]
 	if !ok {
 		return nil, nil, false
@@ -52,7 +52,7 @@ func (s *mockVariableStore) Get(id int64) (json.RawMessage, map[string]string, b
 	return v.value, v.properties, true
 }
 
-func (s *mockVariableStore) GetProperty(id int64, name string) (string, bool) {
+func (s *mockVariableStore) GetProperty(sessionID string, id int64, name string) (string, bool) {
 	v, ok := s.variables[id]
 	if !ok {
 		return "", false
@@ -61,7 +61,7 @@ func (s *mockVariableStore) GetProperty(id int64, name string) (string, bool) {
 	return val, exists
 }
 
-func (s *mockVariableStore) Update(id int64, value json.RawMessage, properties map[string]string) error {
+func (s *mockVariableStore) Update(sessionID string, id int64, value json.RawMessage, properties map[string]string) error {
 	v, ok := s.variables[id]
 	if !ok {
 		return nil
@@ -77,7 +77,7 @@ func (s *mockVariableStore) Update(id int64, value json.RawMessage, properties m
 	return nil
 }
 
-func (s *mockVariableStore) Destroy(id int64) error {
+func (s *mockVariableStore) Destroy(sessionID string, id int64) error {
 	delete(s.variables, id)
 	return nil
 }

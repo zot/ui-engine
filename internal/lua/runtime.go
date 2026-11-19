@@ -135,12 +135,14 @@ type VariableStore interface {
 	DestroySession(sessionID string)
 	GetTracker(sessionID string) *changetracker.Tracker
 
-	// Variable operations (delegate to session's tracker)
+	// Variable operations (delegate to session's tracker). Every one names its session:
+	// variable IDs name a variable only within its session.
+	// CRC: crc-LuaTrackerAdapter.md | R241
 	CreateVariable(sessionID string, parentID int64, luaObject *lua.LTable, properties map[string]string) (int64, error)
-	Get(id int64) (value json.RawMessage, properties map[string]string, ok bool)
-	GetProperty(id int64, name string) (string, bool)
-	Update(id int64, value json.RawMessage, properties map[string]string) error
-	Destroy(id int64) error
+	Get(sessionID string, id int64) (value json.RawMessage, properties map[string]string, ok bool)
+	GetProperty(sessionID string, id int64, name string) (string, bool)
+	Update(sessionID string, id int64, value json.RawMessage, properties map[string]string) error
+	Destroy(sessionID string, id int64) error
 
 	// Change detection
 	DetectChanges(sessionID string) bool
@@ -432,6 +434,8 @@ func (r *LuaSession) createFallbackSessionTable(vendedID string) *lua.LTable {
 }
 
 // injectSessionFunctions injects Go backend functions into a Lua session.
+// Every variable-store call it installs names this session, vendedID.
+// CRC: crc-LuaSession.md | R242
 func (r *LuaSession) injectSessionFunctions(session *lua.LTable, vendedID string) {
 	// _setGetValueFn - get variable value
 	setGetValueFn := r.State.GetField(session, "_setGetValueFn")
@@ -440,7 +444,7 @@ func (r *LuaSession) injectSessionFunctions(session *lua.LTable, vendedID string
 		r.State.Push(session)
 		r.State.Push(r.State.NewFunction(func(L *lua.LState) int {
 			id := L.CheckInt64(1)
-			value, _, ok := r.variableStore.Get(id)
+			value, _, ok := r.variableStore.Get(vendedID, id)
 			if !ok {
 				L.Push(lua.LNil)
 				return 1
@@ -463,7 +467,7 @@ func (r *LuaSession) injectSessionFunctions(session *lua.LTable, vendedID string
 		r.State.Push(r.State.NewFunction(func(L *lua.LState) int {
 			id := L.CheckInt64(1)
 			name := L.CheckString(2)
-			prop, ok := r.variableStore.GetProperty(id, name)
+			prop, ok := r.variableStore.GetProperty(vendedID, id, name)
 			if !ok {
 				L.Push(lua.LNil)
 				return 1
@@ -536,7 +540,7 @@ func (r *LuaSession) injectSessionFunctions(session *lua.LTable, vendedID string
 				})
 			}
 
-			r.variableStore.Update(id, jsonValue, props)
+			r.variableStore.Update(vendedID, id, jsonValue, props)
 			return 0
 		}))
 		r.State.PCall(2, 0, nil)
@@ -549,7 +553,7 @@ func (r *LuaSession) injectSessionFunctions(session *lua.LTable, vendedID string
 		r.State.Push(session)
 		r.State.Push(r.State.NewFunction(func(L *lua.LState) int {
 			id := L.CheckInt64(1)
-			r.variableStore.Destroy(id)
+			r.variableStore.Destroy(vendedID, id)
 			return 0
 		}))
 		r.State.PCall(2, 0, nil)
@@ -557,6 +561,8 @@ func (r *LuaSession) injectSessionFunctions(session *lua.LTable, vendedID string
 }
 
 // addGoSessionMethods adds Go-specific methods that need access to Go structs.
+// Its destroyVariable names this session to the variable store.
+// CRC: crc-LuaSession.md | R242, R243
 func (r *LuaSession) addGoSessionMethods(session *lua.LTable, vendedID string) {
 	// createAppVariable - creates variable 1 and stores reference in Go struct
 	r.State.SetField(session, "createAppVariable", r.State.NewFunction(func(L *lua.LState) int {
@@ -697,7 +703,7 @@ func (r *LuaSession) addGoSessionMethods(session *lua.LTable, vendedID string) {
 			return 0
 		}
 
-		if err := r.variableStore.Destroy(id); err != nil {
+		if err := r.variableStore.Destroy(vendedID, id); err != nil {
 			r.Log(2, "LuaRuntime: destroyVariable error: %v", err)
 		}
 
@@ -1610,7 +1616,7 @@ func (r *LuaSession) AfterBatch(vendedID string) []VariableUpdate {
 		})
 
 		// Also update the variable store so watchers get notified
-		if err := r.variableStore.Update(change.VariableID, value, props); err != nil {
+		if err := r.variableStore.Update(vendedID, change.VariableID, value, props); err != nil {
 			r.Log(1, "AfterBatch: failed to update store for variable %d: %v", change.VariableID, err)
 		}
 	}
