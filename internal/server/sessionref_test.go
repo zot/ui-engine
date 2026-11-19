@@ -149,8 +149,8 @@ func TestPostOnInvalidRefQueuesNothing(t *testing.T) {
 	}
 }
 
-// Test: views and station round-trip (R157, R158)
-func TestViewsAndStationRoundTrip(t *testing.T) {
+// Test: rigs and station round-trip (R157, R158)
+func TestRigsAndStationRoundTrip(t *testing.T) {
 	s := newRefTestServer(t, nil)
 	_, vendedID := newSession(t, s)
 	ref, _ := s.SessionRef(vendedID)
@@ -161,7 +161,7 @@ func TestViewsAndStationRoundTrip(t *testing.T) {
 		"station": ref.Exec().Station().Lua.Ref(),
 	} {
 		if got.ID() != vendedID {
-			t.Errorf("%s view returned ref %q, want %q", name, got.ID(), vendedID)
+			t.Errorf("%s rig returned ref %q, want %q", name, got.ID(), vendedID)
 		}
 	}
 	if _, ok := s.SessionRef("no-such-session"); ok {
@@ -205,8 +205,8 @@ func TestSessionRefChecksShutdown(t *testing.T) {
 	}
 }
 
-// Test: the browser view reports connection and pushes on demand (R162, R163)
-func TestBrowserViewConnectedAndUpdate(t *testing.T) {
+// Test: the browser rig reports connection and pushes on demand (R162, R163)
+func TestBrowserRigConnectedAndUpdate(t *testing.T) {
 	s := newRefTestServer(t, nil)
 	internalID, vendedID := newSession(t, s)
 	var batches atomic.Int32

@@ -2,7 +2,7 @@
 **Requirements:** R174, R175, R176, R177, R178, R179, R180, R181, R182, R183, R184, R185, R186, R187, R188, R189, R190, R191, R194
 
 One sewing operation: a monadic wrapper that exists for that operation and then
-disappears. It posts stitches through the session's ExecView, carries the operation's
+disappears. It posts stitches through the session's ExecRig, carries the operation's
 state, and keeps itself on its session's pending list until it closes.
 
 ## Knows
@@ -20,7 +20,7 @@ state, and keeps itself on its session's pending list until it closes.
 - state: the session's `*lua.LState` while a stitch runs (R187, R188)
 
 ## Does
-- new (ExecView.Tailor): build the Tailor with a context from `context.Background()`,
+- new (ExecRig.Tailor): build the Tailor with a context from `context.Background()`,
   start the deadline timer when the deadline is non-zero, and add it to the session's
   pending list (R174, R175, R189, R191).
 - Sew / SewUpdate / End / EndUpdate: call post with passive or active and terminal or
@@ -28,11 +28,11 @@ state, and keeps itself on its session's pending list until it closes.
 - post: under mu, panic when ended (R184); when closed, log once and return (R185);
   record time and calling site (R178); mark ended for a terminal stitch. Then, outside
   mu, close as failed when the ref is invalid (R179), else post runStitch through
-  `ExecView.Post` (passive) or `ExecView.PostUpdate` (active) (R177).
+  `ExecRig.Post` (passive) or `ExecRig.PostUpdate` (active) (R177).
 - runStitch (on the executor): skip when closed by a failure, deadline or session end.
   Set state and inStitch, run fn with panics recovered (R180), clear them. On error, log
   with the name and close as failed (R181); for a passive non-terminal stitch with
-  updateOnErr, call `BrowserView.Update` (R182). A terminal stitch closes the Tailor
+  updateOnErr, call `BrowserRig.Update` (R182). A terminal stitch closes the Tailor
   (R183).
 - IsValid: not closed and the ref is valid (R186).
 - State: the LState when inStitch, else panic (R187). Never the LuaSession (R188).
@@ -42,9 +42,9 @@ state, and keeps itself on its session's pending list until it closes.
 - info: a TailorInfo snapshot for PendingTailors.
 
 ## Collaborators
-- ExecView: posting stitches; creating Tailors
-- BrowserView: change detection after a passive error with updateOnErr
-- LuaView: the session's LState for a running stitch
+- ExecRig: posting stitches; creating Tailors
+- BrowserRig: change detection after a passive error with updateOnErr
+- LuaRig: the session's LState for a running stitch
 - Session: the pending list
 - Config: logging
 

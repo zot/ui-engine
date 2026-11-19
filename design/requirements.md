@@ -229,22 +229,22 @@
 - **R150:** `ui.exec(argv)` runs `argv[1]` with the remaining elements as its arguments, directly with no shell, waits for it, and returns its stdout; a failure to start or a non-zero exit returns `nil, err` with the exit status and the program's stderr in `err`
 - **R151:** `ui.platform()` returns a table with `os` set to the server's `GOOS` and `arch` set to its `GOARCH`
 
-## Feature: Session References and Views
+## Feature: Session References and Rigs
 **Source:** specs/session-ref.md
 
 - **R153:** `Server.SessionRef(vendedID)` returns a reference and `true` for an existing session, and `false` when there is no such session
 - **R154:** `SessionRef.ID()` returns the vended session ID
-- **R155:** `SessionRef.Valid()` is true while the session's Lua session is running, and false after the session is destroyed or its Lua environment is restarted
+- **~~R155:~~** (Retired T6 — see R238) `SessionRef.Valid()` is true while the session's Lua session is running, and false after the session is destroyed or its Lua environment is restarted
 - **R156:** A `SessionRef` never keeps its session alive and is safe to hold after the session ends
-- **R157:** A `SessionRef` provides a Lua view, a browser view, an execution view, and a `Station` holding all three
-- **R158:** Every view returns its reference (`Ref()`) and produces the session's `Station`
-- **R159:** `ExecView.Post(fn)` queues `fn` on the session's executor without waiting, runs it with the session's Lua context set, and runs no change detection afterward
-- **R160:** `ExecView.PostUpdate(fn)` queues `fn` like `Post`, and after it runs, runs change detection and pushes changes when a browser is connected
+- **R157:** A `SessionRef` provides a Lua rig, a browser rig, an execution rig, and a `Station` holding all three
+- **R158:** Every rig returns its reference (`Ref()`) and produces the session's `Station`
+- **R159:** `ExecRig.Post(fn)` queues `fn` on the session's executor without waiting, runs it with the session's Lua context set, and runs no change detection afterward
+- **R160:** `ExecRig.PostUpdate(fn)` queues `fn` like `Post`, and after it runs, runs change detection and pushes changes when a browser is connected
 - **R161:** `Post` and `PostUpdate` return `false` and do nothing when the reference is invalid; posted work runs whether or not a browser is connected
-- **R162:** `BrowserView.Connected()` reports whether a browser connection is attached to the session
-- **R163:** `BrowserView.Update()` runs change detection and pushes changes immediately, and is called only on the session's executor
-- **R164:** `LuaView.Session()` returns the session's `LuaSession`, for use only on the session's executor
-- **R165:** (inferred) Obtaining a view or the station does no work beyond copying the reference
+- **R162:** `BrowserRig.Connected()` reports whether a browser connection is attached to the session
+- **R163:** `BrowserRig.Update()` runs change detection and pushes changes immediately, and is called only on the session's executor
+- **R164:** `LuaRig.Session()` returns the session's `LuaSession`, for use only on the session's executor
+- **R165:** (inferred) Obtaining a rig or the station does no work beyond copying the reference
 - **~~R166:~~** (Retired T3 — see R173) Session references are implemented over the existing session maps; `ExecuteInSession`, `ExecuteInSessionAsync` and the maps are unchanged
 - **R167:** ui-engine exposes no notion of a current session; a host that has one supplies the reference
 - **R168:** `Server.ExecuteInSession` keeps its signature and delegates all its behaviour to `Server.PrimitiveExecuteInSession(vendedID, fn, dangerous)` with `dangerous` true
@@ -252,12 +252,22 @@
 - **R170:** With `dangerous` true and `AllowDangerousExecution` set, `PrimitiveExecuteInSession` logs a warning naming the file and line that called `ExecuteInSession`, at most once per site for the life of the process, then proceeds as with `dangerous` false
 - **R171:** With `dangerous` true and `AllowDangerousExecution` not set, `PrimitiveExecuteInSession` panics with a message naming the calling site, before queueing anything
 - **R172:** The session config property `AllowDangerousExecution` (`allow_dangerous_execution` in the config file) defaults to set
-- **R173:** Session references are implemented over the existing session maps; `ExecuteInSessionAsync` and the maps are unchanged
+- **~~R173:~~** (Retired T7 — see R229) Session references are implemented over the existing session maps; `ExecuteInSessionAsync` and the maps are unchanged
+- **R229:** Each part of a session has exactly one home; the old way of reaching a part reads that home and keeps no copy
+- **R230:** A session's Lua session is attached to the session while it is created, before `main.lua` runs, and does not change for the life of the session
+- **R231:** No table other than the session holds a session's Lua session: not the server, and not the variable store's adapter
+- **R232:** A Lua session is found by vended ID by going from the vended ID to the session and asking it; `Server.GetLuaSession` keeps its signature and works this way, as do browser messages, change detection and the debug page
+- **R233:** Every running session is enumerated from the session registry, including for hot-loading and viewdef pushes
+- **R234:** A destroyed session cannot be found by its vended ID from the moment its IDs are dropped, including while its Lua session is being torn down
+- **R235:** `Server.ExecuteInSessionAsync` is `ExecRig.PostUpdate` on a reference to the session, and does nothing when there is no such session
+- **R236:** `Server.ExecuteInSession` finds the session the same way a session reference does
+- **R237:** No rig has a method that waits for the session's executor
+- **R238:** `SessionRef.Valid()` is true while the session's Lua session is running, and false after the session is destroyed or a new session takes its vended ID
 
 ## Feature: Tailor
 **Source:** specs/tailor.md
 
-- **R174:** `ExecView.Tailor(name, deadline)` creates a Tailor for one sewing operation on the view's session
+- **R174:** `ExecRig.Tailor(name, deadline)` creates a Tailor for one sewing operation on the rig's session
 - **R175:** A Tailor created with deadline 0 is long-lived: it never expires
 - **R176:** `Sew(fn, updateOnErr)`, `SewUpdate(fn)`, `End(fn)` and `EndUpdate(fn)` each post a stitch to the session executor and return without waiting
 - **R177:** A stitch runs with the session's Lua context set; `Sew` and `End` stitches are passive, and `SewUpdate` and `EndUpdate` stitches run change detection afterward, pushing changes when a browser is connected
@@ -275,7 +285,7 @@
 - **R189:** A Tailor with a non-zero deadline closes as failed when the deadline passes, logging its name and last calling site
 - **R190:** `Context()` returns a context that is cancelled when the Tailor closes for any reason
 - **R191:** A Tailor joins its session's pending list when created and leaves it when it closes
-- **R192:** `ExecView.PendingTailors()` lists the session's open Tailors with name, creation time, last stitch time, last calling site, and whether each is long-lived
+- **R192:** `ExecRig.PendingTailors()` lists the session's open Tailors with name, creation time, last stitch time, last calling site, and whether each is long-lived
 - **R193:** When a session is destroyed, each of its open Tailors closes as failed, its context is cancelled, and it is logged with its name, age, and last calling site
 - **R194:** `Tailor.Ref()` returns the Tailor's session reference
 
@@ -307,7 +317,7 @@
 ## Feature: Host Operations
 **Source:** specs/host-ops.md
 
-- **R205:** `LuaView.DefineHostOp(name, deadline, op)` installs `ui[name]` in the session's Lua state
+- **R205:** `LuaRig.DefineHostOp(name, deadline, op)` installs `ui[name]` in the session's Lua state
 - **R206:** Calling a host operation with a `target` that is not a table, or a `field` that is not a string, raises a Lua argument error at the call
 - **R207:** A host operation call returns nothing, at once, without waiting for its work
 - **R208:** A trailing function argument is taken as the callback and is not passed to `op`

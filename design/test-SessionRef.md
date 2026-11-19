@@ -36,12 +36,11 @@ time, and a warning repeated per call only adds noise. Each gets an alarm.
 **Code:** internal/server/sessionref_test.go
 **Alarm:** 3
 **Fire alarm:** remove the resolve check in Post so it posts by vended ID; Post returns true
-**Inject:** internal/server/sessionref.go:ExecView.Post
-@alarm-hash: 425adf9438952cc5
-**Pulled:** 2026-11-18 — 2026-11-18 — rang: Post returned true on a failed resolve; "Post on a destroyed session returned true"
-
-## Test: views and station round-trip
-**Purpose:** every view returns its reference and the same station (R157, R158)
+**Inject:** internal/server/sessionref.go:ExecRig.Post
+@alarm-hash: 6147ef2da912ff9d
+**Pulled:** 2026-11-19 — re-pulled after the rename to ExecRig: Post's resolve check removed; "Post on a destroyed session returned true" *Earlier —* 2026-11-18 — 2026-11-18 — rang: Post returned true on a failed resolve; "Post on a destroyed session returned true"
+## Test: rigs and station round-trip
+**Purpose:** every rig returns its reference and the same station (R157, R158)
 **Input:** a valid ref
 **Expected:** `ref.Lua().Ref().ID() == ref.ID()`, and likewise for Browser and Exec; `ref.Exec().Station().Lua.Ref().ID() == ref.ID()`
 **Refs:** crc-SessionRef.md
@@ -109,7 +108,7 @@ time, and a warning repeated per call only adds noise. Each gets an alarm.
 @alarm-hash: 741bf325fdc32656
 **Pulled:** 2026-11-18 — 2026-11-18 — rang: IsShutdown check dropped; "ref still valid after its Lua session shut down"
 
-## Test: the browser view reports connection and pushes on demand
+## Test: the browser rig reports connection and pushes on demand
 **Purpose:** Connected follows browser attachment, and Update called on the executor runs change detection once (R162, R163)
 **Input:** a counting afterBatch; Connected before and after attaching a browser; a passive Post that calls `Browser().Update()`
 **Expected:** Connected false then true; afterBatch count 1 after the post

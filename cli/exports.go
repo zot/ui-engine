@@ -22,13 +22,13 @@ type (
 	Tracker  = changetracker.Tracker
 	// Debug types
 	DebugVariable = server.DebugVariable
-	// Session references and views
+	// Session references and rigs
 	// CRC: crc-SessionRef.md | R153, R157
-	SessionRef  = server.SessionRef
-	Station     = server.Station
-	LuaView     = server.LuaView
-	BrowserView = server.BrowserView
-	ExecView    = server.ExecView
+	SessionRef = server.SessionRef
+	Station    = server.Station
+	LuaRig     = server.LuaRig
+	BrowserRig = server.BrowserRig
+	ExecRig    = server.ExecRig
 	// CRC: crc-Tailor.md | R174, R192
 	Tailor     = server.Tailor
 	TailorInfo = server.TailorInfo

@@ -15,10 +15,9 @@ an alarm.
 **Code:** internal/server/hostop_test.go
 **Alarm:** 1
 **Fire alarm:** leave the trailing callback in the arguments passed to op; op sees two arguments
-**Inject:** internal/server/hostop.go:LuaView.callHostOp
-@alarm-hash: e0fe402e5c072108
-**Pulled:** 2026-11-18 — rang: trailing callback left in the args; "op saw 2 arguments, want 1 (the callback must not be passed)"
-
+**Inject:** internal/server/hostop.go:LuaRig.callHostOp
+@alarm-hash: 37ac484566bd811f
+**Pulled:** 2026-11-19 — re-pulled after the rename to LuaRig: the trailing callback left in the arguments; "op saw 2 arguments, want 1 (the callback must not be passed)" *Earlier —* 2026-11-18 — rang: trailing callback left in the args; "op saw 2 arguments, want 1 (the callback must not be passed)"
 ## Test: delivery runs change detection
 **Purpose:** the browser hears about the result (R212)
 **Input:** a browser attached and a counting afterBatch; define `echo` whose work returns its argument; from Lua, call `ui.echo(t, "v", 1, cb)` and wait for cb
@@ -51,10 +50,9 @@ an alarm.
 **Code:** internal/server/hostop_test.go
 **Alarm:** 4
 **Fire alarm:** return without delivering when op errors; the error field is never written
-**Inject:** internal/server/hostop.go:LuaView.callHostOp
-@alarm-hash: e0fe402e5c072108
-**Pulled:** 2026-11-18 — rang: op error returned without delivering; "timed out waiting for refuses callback"
-
+**Inject:** internal/server/hostop.go:LuaRig.callHostOp
+@alarm-hash: 37ac484566bd811f
+**Pulled:** 2026-11-19 — re-pulled after the rename to LuaRig: return without delivering when op errors; "timed out waiting for refuses callback" *Earlier —* 2026-11-18 — rang: op error returned without delivering; "timed out waiting for refuses callback"
 ## Test: bad target or field raise at the call
 **Purpose:** (R206)
 **Input:** from Lua, `pcall(ui.greet, "not a table", "msg")` and `pcall(ui.greet, {}, 42)`
@@ -70,10 +68,9 @@ an alarm.
 **Code:** internal/server/hostop_test.go
 **Alarm:** 5
 **Fire alarm:** run work on the calling goroutine instead of its own; the call never returns
-**Inject:** internal/server/hostop.go:LuaView.callHostOp
-@alarm-hash: e0fe402e5c072108
-**Pulled:** 2026-11-18 — rang: work run on the calling goroutine; "the host operation call did not return while its work was running"
-
+**Inject:** internal/server/hostop.go:LuaRig.callHostOp
+@alarm-hash: 37ac484566bd811f
+**Pulled:** 2026-11-19 — re-pulled after the rename to LuaRig: work run on the calling goroutine; "the host operation call did not return while its work was running" *Earlier —* 2026-11-18 — rang: work run on the calling goroutine; "the host operation call did not return while its work was running"
 ## Test: the deadline reaches work's context
 **Purpose:** a work that honors its context fails with the context's error at the deadline (R211, R216)
 **Input:** define `waits` with a 20ms deadline whose work returns `ctx.Err()` when its context is done; call it
@@ -94,6 +91,6 @@ an alarm.
 **Code:** internal/server/hostop_test.go
 **Alarm:** 7
 **Fire alarm:** create the Tailor with no deadline; PendingTailors never empties
-**Inject:** internal/server/hostop.go:LuaView.callHostOp
-@alarm-hash: e0fe402e5c072108
-**Pulled:** 2026-11-18 — rang: Tailor created with no deadline; "the stuck operation's Tailor was never closed"
+**Inject:** internal/server/hostop.go:LuaRig.callHostOp
+@alarm-hash: 37ac484566bd811f
+**Pulled:** 2026-11-19 — re-pulled after the rename to LuaRig: Tailor created with no deadline; "the stuck operation's Tailor was never closed" *Earlier —* 2026-11-18 — rang: Tailor created with no deadline; "the stuck operation's Tailor was never closed"

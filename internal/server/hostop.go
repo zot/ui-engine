@@ -26,7 +26,7 @@ type hostOpCall struct {
 // DefineHostOp installs ui[name] in this session's Lua state. Call it on the
 // executor. A deadline of 0 means none.
 // CRC: crc-HostOp.md | Seq: seq-host-op.md#1.1 | R205
-func (v LuaView) DefineHostOp(name string, deadline time.Duration, op HostOp) {
+func (v LuaRig) DefineHostOp(name string, deadline time.Duration, op HostOp) {
 	ls := v.Session()
 	if ls == nil {
 		return
@@ -44,7 +44,7 @@ func (v LuaView) DefineHostOp(name string, deadline time.Duration, op HostOp) {
 // callHostOp is the binding: check the target and field, take a trailing
 // callback, let op read the arguments, then run the work off the executor.
 // CRC: crc-HostOp.md | Seq: seq-host-op.md#1.2 | R206, R207, R208, R209, R210, R211, R216
-func (v LuaView) callHostOp(L *gopher.LState, name string, deadline time.Duration, op HostOp) int {
+func (v LuaRig) callHostOp(L *gopher.LState, name string, deadline time.Duration, op HostOp) int {
 	field, ok := L.Get(2).(gopher.LString)
 	if !ok {
 		L.ArgError(2, "field must be a string")

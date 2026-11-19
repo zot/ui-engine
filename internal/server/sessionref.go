@@ -20,29 +20,29 @@ type SessionRef struct {
 	lua weak.Pointer[lua.LuaSession]
 }
 
-// Station holds every view of one session.
+// Station holds every rig of one session.
 // CRC: crc-SessionRef.md | R157
 type Station struct {
-	Lua     LuaView
-	Browser BrowserView
-	Exec    ExecView
+	Lua     LuaRig
+	Browser BrowserRig
+	Exec    ExecRig
 }
 
-// LuaView reaches the session's Lua state.
+// LuaRig reaches the session's Lua state.
 // CRC: crc-SessionRef.md | R157
-type LuaView struct{ ref SessionRef }
+type LuaRig struct{ ref SessionRef }
 
-// BrowserView reaches the browser side: connection state and change pushes.
+// BrowserRig reaches the browser side: connection state and change pushes.
 // CRC: crc-SessionRef.md | R157
-type BrowserView struct{ ref SessionRef }
+type BrowserRig struct{ ref SessionRef }
 
 // There is no current-session accessor: ui-engine serves many sessions, and a
 // host that has a current one supplies the reference.
 // CRC: crc-SessionRef.md | R167
 
-// ExecView posts work to the session's executor.
+// ExecRig posts work to the session's executor.
 // CRC: crc-SessionRef.md | R157
-type ExecView struct{ ref SessionRef }
+type ExecRig struct{ ref SessionRef }
 
 // SessionRef returns a reference to the session with this vended ID, or false
 // when no Lua session is registered under it.
@@ -94,24 +94,24 @@ func (r SessionRef) Valid() bool {
 }
 
 // CRC: crc-SessionRef.md | R157, R165
-func (r SessionRef) Lua() LuaView         { return LuaView{r} }
-func (r SessionRef) Browser() BrowserView { return BrowserView{r} }
-func (r SessionRef) Exec() ExecView       { return ExecView{r} }
-func (r SessionRef) Station() Station     { return Station{LuaView{r}, BrowserView{r}, ExecView{r}} }
+func (r SessionRef) Lua() LuaRig         { return LuaRig{r} }
+func (r SessionRef) Browser() BrowserRig { return BrowserRig{r} }
+func (r SessionRef) Exec() ExecRig       { return ExecRig{r} }
+func (r SessionRef) Station() Station    { return Station{LuaRig{r}, BrowserRig{r}, ExecRig{r}} }
 
 // CRC: crc-SessionRef.md | R158
-func (v LuaView) Ref() SessionRef      { return v.ref }
-func (v LuaView) Station() Station     { return v.ref.Station() }
-func (v BrowserView) Ref() SessionRef  { return v.ref }
-func (v BrowserView) Station() Station { return v.ref.Station() }
-func (v ExecView) Ref() SessionRef     { return v.ref }
-func (v ExecView) Station() Station    { return v.ref.Station() }
+func (v LuaRig) Ref() SessionRef      { return v.ref }
+func (v LuaRig) Station() Station     { return v.ref.Station() }
+func (v BrowserRig) Ref() SessionRef  { return v.ref }
+func (v BrowserRig) Station() Station { return v.ref.Station() }
+func (v ExecRig) Ref() SessionRef     { return v.ref }
+func (v ExecRig) Station() Station    { return v.ref.Station() }
 
 // Post queues fn on the session's executor with the session's Lua context set,
 // without waiting and without change detection afterward. It returns false,
 // queueing nothing, when the reference is invalid.
 // CRC: crc-SessionRef.md | Seq: seq-session-ref.md#1.2 | R159, R161
-func (v ExecView) Post(fn func()) bool {
+func (v ExecRig) Post(fn func()) bool {
 	ls, internalID, ok := v.ref.resolve()
 	if !ok {
 		return false
@@ -129,7 +129,7 @@ func (v ExecView) Post(fn func()) bool {
 // PostUpdate is Post followed by change detection, which pushes changes when a
 // browser is connected.
 // CRC: crc-SessionRef.md | Seq: seq-session-ref.md#1.2.3 | R160, R161
-func (v ExecView) PostUpdate(fn func()) bool {
+func (v ExecRig) PostUpdate(fn func()) bool {
 	ls, internalID, ok := v.ref.resolve()
 	if !ok {
 		return false
@@ -146,7 +146,7 @@ func (v ExecView) PostUpdate(fn func()) bool {
 
 // Connected reports whether a browser connection is attached to the session.
 // CRC: crc-SessionRef.md | R162
-func (v BrowserView) Connected() bool {
+func (v BrowserRig) Connected() bool {
 	_, internalID, ok := v.ref.resolve()
 	return ok && v.ref.srv.wsEndpoint.HasConnectionsForSession(internalID)
 }
@@ -154,7 +154,7 @@ func (v BrowserView) Connected() bool {
 // Update runs change detection and pushes changes now. Call it only on the
 // session's executor.
 // CRC: crc-SessionRef.md | R163
-func (v BrowserView) Update() {
+func (v BrowserRig) Update() {
 	if _, internalID, ok := v.ref.resolve(); ok {
 		v.ref.srv.wsEndpoint.RunAfterBatch(internalID)
 	}
@@ -163,7 +163,7 @@ func (v BrowserView) Update() {
 // Session returns the session's LuaSession, or nil when the reference is
 // invalid. Use it only on the session's executor.
 // CRC: crc-SessionRef.md | R164
-func (v LuaView) Session() *lua.LuaSession {
+func (v LuaRig) Session() *lua.LuaSession {
 	ls, _, ok := v.ref.resolve()
 	if !ok {
 		return nil

@@ -49,7 +49,7 @@ type TailorInfo struct {
 // Tailor creates a Tailor for one sewing operation on this session. A deadline
 // of 0 makes it long-lived; otherwise it closes as failed when the deadline passes.
 // CRC: crc-SessionRef.md | Seq: seq-tailor.md#1.1 | R174, R175, R189, R191
-func (v ExecView) Tailor(name string, deadline time.Duration) *Tailor {
+func (v ExecRig) Tailor(name string, deadline time.Duration) *Tailor {
 	ctx, cancel := context.WithCancel(context.Background())
 	t := &Tailor{
 		ref:       v.ref,
@@ -75,7 +75,7 @@ func (v ExecView) Tailor(name string, deadline time.Duration) *Tailor {
 
 // PendingTailors lists the session's open Tailors.
 // CRC: crc-SessionRef.md | R192
-func (v ExecView) PendingTailors() []TailorInfo {
+func (v ExecRig) PendingTailors() []TailorInfo {
 	sess := v.ref.session()
 	if sess == nil {
 		return nil

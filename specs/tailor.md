@@ -36,7 +36,7 @@ A Tailor exists for one operation and then disappears. It is not one per session
 
 ```go
 // Creating a Tailor
-func (v ExecView) Tailor(name string, deadline time.Duration) *Tailor // deadline 0: long-lived
+func (v ExecRig) Tailor(name string, deadline time.Duration) *Tailor // deadline 0: long-lived
 
 // Stitches: all four post and return at once
 func (t *Tailor) Sew(fn func() error, updateOnErr bool) // passive
@@ -51,7 +51,7 @@ func (t *Tailor) State() *lua.LState           // only inside a running stitch
 func (t *Tailor) Ref() SessionRef
 
 // Inspection
-func (v ExecView) PendingTailors() []TailorInfo
+func (v ExecRig) PendingTailors() []TailorInfo
 type TailorInfo struct {
     Name       string
     Created    time.Time

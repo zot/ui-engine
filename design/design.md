@@ -196,6 +196,8 @@ target-to-link reverse mapping is kept.
 - T3: R166 retired by R173 (2026-11-18 dangerous execution: ExecuteInSession now delegates to PrimitiveExecuteInSession)
 - T4: R203 retired by R218 (stop became final and non-blocking (R218-R223))
 - T5: R204 retired by R224 (the executor belongs to the session (R224-R228))
+- T6: R155 retired by R238 (nothing restarts a Lua session; the real case is vended-ID reuse)
+- T7: R173 retired by R229 (the Lua session moved into the session and ExecuteInSessionAsync became PostUpdate (R229-R237))
 
 ### Incomplete Implementation
 

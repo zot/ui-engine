@@ -1,4 +1,4 @@
-# Session References and Views
+# Session References and Rigs
 
 **Language:** Go
 **Environment:** ui-engine backend (`internal/server`, re-exported through `cli`)
@@ -13,22 +13,24 @@ Today a session's state is spread across maps owned by several objects (`Session
 of session ID. Every operation reassembles the session from those maps. A session
 reference replaces that with navigation: hold the reference, ask it for the part you need.
 
-This is the first step of a piece-at-a-time restructuring. The references described here
-are implemented over today's maps, so nothing that exists changes. Later steps move each
-part into the session itself, behind the same references, without changing callers.
+This is a piece-at-a-time restructuring. The references were first implemented over the
+existing maps, so nothing that existed changed. Each later step moves one part into the
+session itself, behind the same references, without changing callers; "Where a session's
+parts live" below says which parts have moved.
 
 ## Concepts
 
 - **Session reference** (`SessionRef`): a small value naming one session. It is cheap to
   copy and safe to hold after the session ends. It never keeps a session alive.
-- **View**: a value obtained from a reference that carries one system's operations on
-  that session. There is one view per system: Lua, browser, and execution.
-- **Station**: a struct holding every view of one session. Any view can produce it, so
-  from any view every other system is one step away.
+- **Rig**: a value obtained from a reference that carries one system's operations on
+  that session. There is one rig per system: Lua, browser, and execution.
+- **Station**: a struct holding every rig of one session. Any rig can produce it, so
+  from any rig every other system is one step away.
 
 A session reference is valid while its Lua session is running. After the session is
-destroyed, or the Lua environment is restarted, the reference is invalid, and operations
-through it report that rather than failing in other ways.
+destroyed, the reference is invalid, and operations through it report that rather than
+failing in other ways. Vended IDs are reused once every session is gone, so a reference
+also becomes invalid, rather than following the ID, when a new session takes its ID.
 
 ## API
 
@@ -40,32 +42,32 @@ type SessionRef struct { /* unexported */ }
 
 func (r SessionRef) ID() string          // the vended session ID
 func (r SessionRef) Valid() bool         // true while the session's Lua session is running
-func (r SessionRef) Lua() LuaView
-func (r SessionRef) Browser() BrowserView
-func (r SessionRef) Exec() ExecView
+func (r SessionRef) Lua() LuaRig
+func (r SessionRef) Browser() BrowserRig
+func (r SessionRef) Exec() ExecRig
 func (r SessionRef) Station() Station
 
 type Station struct {
-    Lua     LuaView
-    Browser BrowserView
-    Exec    ExecView
+    Lua     LuaRig
+    Browser BrowserRig
+    Exec    ExecRig
 }
 
-// Every view can return to its reference and produce the station.
-func (v LuaView) Ref() SessionRef
-func (v LuaView) Station() Station
-// (likewise for BrowserView and ExecView)
+// Every rig can return to its reference and produce the station.
+func (v LuaRig) Ref() SessionRef
+func (v LuaRig) Station() Station
+// (likewise for BrowserRig and ExecRig)
 
 // Execution: post work to the session's executor without waiting.
-func (v ExecView) Post(fn func()) bool       // passive: no change detection afterward
-func (v ExecView) PostUpdate(fn func()) bool // active: change detection and push afterward
+func (v ExecRig) Post(fn func()) bool       // passive: no change detection afterward
+func (v ExecRig) PostUpdate(fn func()) bool // active: change detection and push afterward
 
 // Browser: whether a browser is attached, and pushing changes to it.
-func (v BrowserView) Connected() bool
-func (v BrowserView) Update() // run change detection and push now; call only on the executor
+func (v BrowserRig) Connected() bool
+func (v BrowserRig) Update() // run change detection and push now; call only on the executor
 
 // Lua: the session's Lua state, usable only on the session's executor.
-func (v LuaView) Session() *lua.LuaSession
+func (v LuaRig) Session() *lua.LuaSession
 ```
 
 - `Post` and `PostUpdate` return at once. They return false, and do nothing, when the
@@ -74,9 +76,9 @@ func (v LuaView) Session() *lua.LuaSession
   session's Lua context set, the same context `ExecuteInSession` provides.
 - `PostUpdate` runs change detection after the work, and pushes changes when a browser is
   connected. `Post` does neither. With no browser connected, posted work still runs.
-- `BrowserView.Update` lets passive work trigger change detection itself when it decides
+- `BrowserRig.Update` lets passive work trigger change detection itself when it decides
   to, for example after an error.
-- Views and the station are values. Obtaining them does no work beyond copying the
+- Rigs and the station are values. Obtaining them does no work beyond copying the
   reference.
 
 ## Dangerous execution
@@ -104,9 +106,37 @@ func (s *Server) PrimitiveExecuteInSession(vendedID string, fn func() (interface
 - `AllowDangerousExecution` defaults to set while callers are moved. The warnings are the
   list of remaining callers. When no site warns any more, the default is meant to flip.
 
+## Where a session's parts live
+
+Each part has exactly one home. When a part moves into the session, the old way of
+reaching it keeps working by reading the new home; it never keeps a copy.
+
+- **The executor** belongs to the session (see `closure-actor.md`).
+- **The Lua session** belongs to the session. It is attached while the session is
+  created, before `main.lua` runs, so the session can be found by its vended ID while it
+  starts up, and it does not change for the life of the session. No other table holds it:
+  not the server, and not the variable store's adapter.
+- **Finding a session's Lua session by vended ID** goes from the vended ID to the session
+  and asks it. `Server.GetLuaSession` keeps its signature and works this way, as do
+  browser messages, change detection and the debug page.
+- **Every running session** is enumerated from the session registry. Hot-loading and
+  viewdef pushes reach every session this way.
+- **Server shutdown** takes the list of sessions, lets go of the registry, and only then
+  shuts each Lua session down, so a task that reaches back into the server while a session
+  shuts down cannot deadlock it.
+- **A destroyed session cannot be found by its vended ID** from the moment its IDs are
+  dropped, including while its Lua session is being torn down.
+
+Execution through the server reads the same home as the rigs:
+
+- `Server.ExecuteInSessionAsync` is `ExecRig.PostUpdate` on a reference to the session,
+  and does nothing when there is no such session.
+- `Server.ExecuteInSession` finds the session the same way a reference does. It stays off
+  the rigs: no rig waits for the executor, because a wait made from inside an executor
+  deadlocks (see "Dangerous execution").
+
 ## Non-goals
 
 - No notion of a "current session". ui-engine serves many sessions; a host that has a
   current one (Frictionless's MCP server does) supplies the reference itself.
-- No other change to existing APIs. `ExecuteInSessionAsync` and the session maps stay as
-  they are in this step.
+- No synchronous method on any rig.

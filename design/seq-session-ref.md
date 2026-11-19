@@ -7,7 +7,7 @@
 
 - Caller: host code holding a SessionRef, or calling ExecuteInSession
 - Server: issues references, PrimitiveExecuteInSession, luaSessions registry
-- SessionRef: resolve, views
+- SessionRef: resolve, rigs
 - WSEndpoint: WebSocketEndpoint, the per-session ChanSvc executor and afterBatch
 - LuaSession: Lua context and executor
 

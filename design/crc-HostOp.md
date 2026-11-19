@@ -7,12 +7,12 @@ terminal active stitch delivers the result into Lua state.
 
 ## Knows
 - HostOp: the host's function type, `func(args []LValue) (work, error)` (R209)
-- per definition: name, deadline, op, and the SessionRef of the LuaView it was defined on
+- per definition: name, deadline, op, and the SessionRef of the LuaRig it was defined on
 - per call (captured by the call's closures, touched only on the executor): target,
   field, callback (R206, R208)
 
 ## Does
-- define (`LuaView.DefineHostOp`): on the executor, set `ui[name]` to the binding (R205).
+- define (`LuaRig.DefineHostOp`): on the executor, set `ui[name]` to the binding (R205).
 - binding (on the executor): check `target` is a table and `field` a string, raising a
   Lua argument error otherwise (R206); take a trailing function as the callback (R208);
   call op with the rest (R209); create a Tailor named after the operation with twice the
@@ -26,8 +26,8 @@ terminal active stitch delivers the result into Lua state.
   Tailor logs with its name.
 
 ## Collaborators
-- LuaView: the session's Lua state for the definition and the `GoToLua` conversion
-- ExecView: creating the Tailor
+- LuaRig: the session's Lua state for the definition and the `GoToLua` conversion
+- ExecRig: creating the Tailor
 - Tailor: the sewing, its context and deadline backstop, the delivery stitch
 
 ## Sequences

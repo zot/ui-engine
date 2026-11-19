@@ -20,7 +20,7 @@ leaks a child process. Each gets an alarm.
 
 ## Test: an error ends the sewing
 **Purpose:** a stitch that returns an error closes the Tailor as failed, and a stitch already queued behind it does not run (R181)
-**Input:** Sew a stitch returning an error, then Sew a stitch that records it ran, then post a barrier through the ExecView
+**Input:** Sew a stitch returning an error, then Sew a stitch that records it ran, then post a barrier through the ExecRig
 **Expected:** the second stitch did not run; the Tailor is not valid; the log names the Tailor
 **Refs:** crc-Tailor.md, seq-tailor.md
 **Code:** internal/server/tailor_test.go
@@ -44,7 +44,7 @@ leaks a child process. Each gets an alarm.
 **Refs:** crc-Tailor.md, crc-SessionRef.md
 **Code:** internal/server/tailor_test.go
 **Alarm:** 3
-**Fire alarm:** call BrowserView.Update on every error regardless of updateOnErr; the first Tailor's count is 1
+**Fire alarm:** call BrowserRig.Update on every error regardless of updateOnErr; the first Tailor's count is 1
 **Inject:** internal/server/tailor.go:Tailor.runStitch
 @alarm-hash: 1160f79828fe137f
 **Pulled:** 2026-11-18 — 2026-11-18 — rang: Update called on every passive error; "afterBatch ran 1 times for an error without updateOnErr, want 0"

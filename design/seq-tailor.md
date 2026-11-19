@@ -7,7 +7,7 @@
 
 - Worker: host code, on any goroutine
 - Tailor: one sewing operation
-- ExecView: posts to the session executor
+- ExecRig: posts to the session executor
 - Executor: the session's executor running a stitch
 - Session: holds the pending list
 - Server: destroys sessions
@@ -15,20 +15,20 @@
 ## Sequence: a sewing
 
 ```
-1.1. Worker -> ExecView.Tailor(name, deadline)
+1.1. Worker -> ExecRig.Tailor(name, deadline)
   1.1.1. Tailor created with ctx; deadline timer started unless deadline is 0
   1.1.2. Session.addTailor(t)
 1.2. Worker -> t.Sew(fn, updateOnErr)   (SewUpdate / End / EndUpdate differ only in flags)
   1.2.1. under mu: ended -> panic; closed -> log once, return
   1.2.2. record lastStitch and lastSite; terminal -> ended = true
   1.2.3. ref invalid -> close as failed; return
-  1.2.4. passive -> ExecView.Post(runStitch); active -> ExecView.PostUpdate(runStitch)
+  1.2.4. passive -> ExecRig.Post(runStitch); active -> ExecRig.PostUpdate(runStitch)
 1.3. Executor runs runStitch
   1.3.1. closed by failure, deadline or session end -> skip
   1.3.2. set state and inStitch; run fn with recover; clear them
-  1.3.3. error -> log with name; close as failed; passive with updateOnErr -> BrowserView.Update
+  1.3.3. error -> log with name; close as failed; passive with updateOnErr -> BrowserRig.Update
   1.3.4. terminal -> close
-  1.3.5. active -> change detection after the stitch (ExecView.PostUpdate)
+  1.3.5. active -> change detection after the stitch (ExecRig.PostUpdate)
 ```
 
 ## Sequence: closing without the terminal stitch

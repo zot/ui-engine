@@ -40,7 +40,7 @@ ui.op(target, field, args..., cb)    -- and then cb(result, err) is called
 type HostOp func(args []lua.LValue) (work func(ctx context.Context) (any, error), err error)
 
 // DefineHostOp installs ui[name] in this session's Lua state. Call it on the executor.
-func (v LuaView) DefineHostOp(name string, deadline time.Duration, op HostOp)
+func (v LuaRig) DefineHostOp(name string, deadline time.Duration, op HostOp)
 ```
 
 - When Lua calls `ui[name]`, the binding checks `target` and `field`, removes a trailing

@@ -15,13 +15,13 @@
 ## Sequence: one call
 
 ```
-1.1. Host -> LuaView.DefineHostOp(name, deadline, op)
+1.1. Host -> LuaRig.DefineHostOp(name, deadline, op)
   1.1.1. ui[name] = binding
 1.2. Lua -> ui[name](target, field, args..., [cb])
   1.2.1. target not a table or field not a string -> Lua argument error
   1.2.2. trailing function -> cb, removed from args
   1.2.3. work, err = op(args)
-  1.2.4. ExecView.Tailor(name, 2 * deadline)
+  1.2.4. ExecRig.Tailor(name, 2 * deadline)
   1.2.5. err -> deliver(nil, err); return
   1.2.6. go Worker; return nothing
 1.3. Worker
