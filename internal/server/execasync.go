@@ -10,9 +10,9 @@ import (
 )
 
 // defineExecAsync installs ui.execAsync(target, field, argv [, cb]) in the
-// session's Lua state: ui.exec's program run, off the executor. Its host-op
-// deadline is 0 because each call carries its own limit, applied by the work.
-// CRC: crc-ExecAsync.md | Seq: seq-session-create-backend.md | R250, R251, R252
+// session's Lua state: it runs a program with no shell, off the executor. Its
+// host-op deadline is 0 because each call carries its own limit, applied by the work.
+// CRC: crc-ExecAsync.md | Seq: seq-session-create-backend.md | R250, R252, R266
 func defineExecAsync(ref SessionRef) {
 	ref.Lua().DefineHostOp("execAsync", 0, func(args []gopher.LValue) (func(context.Context) (any, error), error) {
 		if len(args) == 0 {

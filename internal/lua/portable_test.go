@@ -2,6 +2,7 @@
 package lua
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -16,7 +17,7 @@ import (
 
 const helperEnv = "UI_ENGINE_TEST_HELPER"
 
-// TestHelperProcess is the child for the ui.exec cases, not a test: with
+// TestHelperProcess is the child for the ExecArgv cases, not a test: with
 // helperEnv set it acts on the arguments after "--" and exits.
 func TestHelperProcess(t *testing.T) {
 	if os.Getenv(helperEnv) != "1" {
@@ -152,32 +153,35 @@ func TestUIBase64Decode(t *testing.T) {
 	}
 }
 
-// Test: exec passes arguments verbatim with no shell (R150)
-func TestUIExecVerbatim(t *testing.T) {
+// Test: running a program passes arguments verbatim with no shell (R266)
+func TestExecArgvVerbatim(t *testing.T) {
 	t.Setenv(helperEnv, "1")
-	r := runPortable(t, map[string]string{"bin": os.Args[0]}, `
-		out, err = ui.exec({bin, "-test.run=^TestHelperProcess$", "--", "echo", "a b", "$HOME", "x>y"})
-	`, "out", "err")
-	if r[1] != lua.LNil {
-		t.Fatalf("exec failed: %s", r[1])
+	out, err := ExecArgv(context.Background(), []string{os.Args[0], "-test.run=^TestHelperProcess$", "--", "echo", "a b", "$HOME", "x>y"})
+	if err != nil {
+		t.Fatalf("ExecArgv failed: %v", err)
 	}
-	if got := strings.ReplaceAll(r[0].String(), "\r\n", "\n"); got != "a b\n$HOME\nx>y\n" {
+	if got := strings.ReplaceAll(out, "\r\n", "\n"); got != "a b\n$HOME\nx>y\n" {
 		t.Errorf("exec stdout = %q, want %q", got, "a b\n$HOME\nx>y\n")
 	}
 }
 
-// Test: exec failure carries the exit status and stderr (R150)
-func TestUIExecFailure(t *testing.T) {
+// Test: a failing program's error carries the exit status and stderr (R266)
+func TestExecArgvFailure(t *testing.T) {
 	t.Setenv(helperEnv, "1")
-	r := runPortable(t, map[string]string{"bin": os.Args[0], "nobin": filepath.Join(t.TempDir(), "no-such-program")}, `
-		out, err = ui.exec({bin, "-test.run=^TestHelperProcess$", "--", "fail"})
-		out2, err2 = ui.exec({nobin})
-	`, "out", "err", "out2", "err2")
-	if r[0] != lua.LNil || !strings.Contains(r[1].String(), "3") || !strings.Contains(r[1].String(), "boom") {
-		t.Errorf("exec(fail) = %v, %q; want nil and an error naming exit 3 and boom", r[0], r[1])
+	out, err := ExecArgv(context.Background(), []string{os.Args[0], "-test.run=^TestHelperProcess$", "--", "fail"})
+	if out != "" || err == nil || !strings.Contains(err.Error(), "3") || !strings.Contains(err.Error(), "boom") {
+		t.Errorf("exec(fail) = %q, %v; want no output and an error naming exit 3 and boom", out, err)
 	}
-	if r[2] != lua.LNil || r[3].String() == "" {
-		t.Errorf("exec(missing) = %v, %q; want nil, error", r[2], r[3])
+	if _, err := ExecArgv(context.Background(), []string{filepath.Join(t.TempDir(), "no-such-program")}); err == nil {
+		t.Error("exec(missing) succeeded, want an error")
+	}
+}
+
+// Test: there is no blocking way to run a program (R267)
+func TestNoBlockingExec(t *testing.T) {
+	r := runPortable(t, nil, `kind = type(ui.exec)`, "kind")
+	if got := r[0].String(); got != "nil" {
+		t.Errorf("type(ui.exec) = %s, want nil: Lua must have no blocking way to run a program (R267)", got)
 	}
 }
 

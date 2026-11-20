@@ -1,4 +1,4 @@
-// CRC: crc-PortableOS.md | R146-R151
+// CRC: crc-PortableOS.md | R146-R149, R151, R266, R267
 // Portable OS primitives for Lua apps, so they never shell out: mkdir -p, ls,
 // test -d, base64 -d and POSIX shell syntax do not exist on Windows.
 package lua
@@ -19,13 +19,15 @@ import (
 	lua "github.com/yuin/gopher-lua"
 )
 
-// registerPortableOS adds the portable OS functions to the ui table.
+// registerPortableOS adds the portable OS functions to the ui table. There is no
+// exec: running a program is ui.execAsync only, so nothing here blocks the session on
+// a program.
+// CRC: crc-PortableOS.md | R267
 func registerPortableOS(L *lua.LState, uiMod *lua.LTable) {
 	L.SetField(uiMod, "mkdir", L.NewFunction(luaMkdir))
 	L.SetField(uiMod, "isDir", L.NewFunction(luaIsDir))
 	L.SetField(uiMod, "listDir", L.NewFunction(luaListDir))
 	L.SetField(uiMod, "base64Decode", L.NewFunction(luaBase64Decode))
-	L.SetField(uiMod, "exec", L.NewFunction(luaExec))
 	L.SetField(uiMod, "platform", L.NewFunction(luaPlatform))
 }
 
@@ -96,7 +98,7 @@ const DefaultExecTimeout = 60 * time.Second
 // ReadExec reads a Lua argv table: its array part as strings, and its timeout
 // field in seconds (absent is DefaultExecTimeout, 0 is none). Call it on the
 // executor.
-// CRC: crc-PortableOS.md | R150, R252
+// CRC: crc-PortableOS.md | R252, R266
 func ReadExec(v lua.LValue) (argv []string, timeout time.Duration, err error) {
 	tbl, ok := v.(*lua.LTable)
 	if !ok {
@@ -128,7 +130,7 @@ func ReadExec(v lua.LValue) (argv []string, timeout time.Duration, err error) {
 // and returns its stdout. A failure carries the exit status and trimmed stderr.
 // Cancelling ctx kills the program; WaitDelay keeps a grandchild that holds the
 // pipes from stalling the return after a kill.
-// CRC: crc-PortableOS.md | R150, R251
+// CRC: crc-PortableOS.md | R266
 func ExecArgv(ctx context.Context, argv []string) (string, error) {
 	var stdout, stderr bytes.Buffer
 	cmd := exec.CommandContext(ctx, argv[0], argv[1:]...)
@@ -142,22 +144,6 @@ func ExecArgv(ctx context.Context, argv []string) (string, error) {
 		return "", err
 	}
 	return stdout.String(), nil
-}
-
-// ui.exec(argv) -> stdout | nil, err
-// R150: no shell, so arguments pass verbatim; err carries exit status and stderr.
-// R253: deprecated in favor of ui.execAsync; it blocks the executor and has no limit.
-func luaExec(L *lua.LState) int {
-	argv, _, err := ReadExec(L.CheckTable(1))
-	if err != nil {
-		L.ArgError(1, err.Error())
-	}
-	out, err := ExecArgv(context.Background(), argv)
-	if err != nil {
-		return pushErr(L, err)
-	}
-	L.Push(lua.LString(out))
-	return 1
 }
 
 // ui.platform() -> {os, arch}

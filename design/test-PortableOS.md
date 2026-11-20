@@ -4,7 +4,7 @@
 Every case runs Lua through a real runtime (`NewRuntime`) against a `t.TempDir()`
 tree, so the contract under test is the one apps see. Nothing shells out, so the
 suite runs unchanged on the Windows VM; links come from `sitetest.LinkDir` (a
-symlink on Unix, a junction on Windows). `ui.exec` cases re-run the test binary
+symlink on Unix, a junction on Windows). The `ExecArgv` cases re-run the test binary
 as the child (the standard Go helper-process pattern), so they need no Unix tool.
 
 Measured on Windows 2026-10-19: the whole file passed on the `windows-gpu` VM
@@ -49,9 +49,9 @@ prove junctions are followed.
 **Refs:** crc-PortableOS.md
 **Code:** internal/lua/portable_test.go
 
-## Test: exec passes arguments verbatim with no shell
-**Purpose:** the property that makes `ui.exec` portable: no quoting, splitting, or expansion (R150)
-**Input:** `ui.exec({<test binary>, "-test.run=^TestHelperProcess$", "--", "echo", "a b", "$HOME", "x>y"})` with the helper env set; the helper prints each argument on its own line
+## Test: running a program passes arguments verbatim with no shell
+**Purpose:** the property that makes running a program portable: no quoting, splitting, or expansion. `ExecArgv` is what `ui.execAsync` runs (R266)
+**Input:** `ExecArgv(ctx, [<test binary>, "-test.run=^TestHelperProcess$", "--", "echo", "a b", "$HOME", "x>y"])` with the helper env set; the helper prints each argument on its own line
 **Expected:** stdout is exactly `a b\n$HOME\nx>y\n`
 **Refs:** crc-PortableOS.md
 **Code:** internal/lua/portable_test.go
@@ -59,18 +59,30 @@ prove junctions are followed.
 **Fire alarm:** run the argv through a shell as one joined string (`sh -c` on Unix). Red: the shell takes `x>y` as a redirect, so stdout comes back empty (and `a b` would split, `$HOME` expand). The redirect writes a file `y` in the package directory; delete it after pulling.
 **Inject:** internal/lua/portable.go:ExecArgv
 @alarm-hash: e2d92d2befdf6fc1
-**Pulled:** 2026-11-19 — re-pulled after 11a moved the run into ExecArgv: shell injection, rang `exec stdout = "", want "a b\n$HOME\nx>y\n"` *Earlier —* 2026-10-19 — rang: `exec stdout = "", want "a b\n$HOME\nx>y\n"`
-## Test: exec failure carries the exit status and stderr
-**Purpose:** a failing command is `nil, err`, and `err` says why (R150)
-**Input:** the helper told to write `boom` to stderr and exit 3; then a program that does not exist
-**Expected:** first: `nil` and an error containing `3` and `boom`; second: `nil` and a non-empty error
+**Pulled:** 2026-11-20 — re-pulled after the test moved from `ui.exec` to `ExecArgv` (ui.exec removed): shell join, rang `exec stdout = "", want "a b\n$HOME\nx>y\n"` *Earlier —* 2026-11-19 — re-pulled after 11a moved the run into ExecArgv: shell injection, rang `exec stdout = "", want "a b\n$HOME\nx>y\n"` *Earlier —* 2026-10-19 — rang: `exec stdout = "", want "a b\n$HOME\nx>y\n"`
+## Test: a failing program's error carries the exit status and stderr
+**Purpose:** a failing command returns an error that says why (R266)
+**Input:** `ExecArgv` with the helper told to write `boom` to stderr and exit 3; then with a program that does not exist
+**Expected:** first: no output and an error containing `3` and `boom`; second: a non-empty error
 **Refs:** crc-PortableOS.md
 **Code:** internal/lua/portable_test.go
 **Alarm:** 4
 **Fire alarm:** drop the stderr from the error message (return `err.Error()` only). Red: the error lacks `boom`.
 **Inject:** internal/lua/portable.go:ExecArgv
 @alarm-hash: e2d92d2befdf6fc1
-**Pulled:** 2026-11-19 — re-pulled after 11a moved the run into ExecArgv: stderr dropped, rang `exec(fail) = nil, "exit status 3"; want nil and an error naming exit 3 and boom` *Earlier —* 2026-10-19 — rang: `exec(fail) = nil, "exit status 3"; want … boom`
+**Pulled:** 2026-11-20 — re-pulled after the test moved from `ui.exec` to `ExecArgv` (ui.exec removed): stderr dropped, rang `exec(fail) = "", exit status 3; want no output and an error naming exit 3 and boom` *Earlier —* 2026-11-19 — re-pulled after 11a moved the run into ExecArgv: stderr dropped, rang `exec(fail) = nil, "exit status 3"; want nil and an error naming exit 3 and boom` *Earlier —* 2026-10-19 — rang: `exec(fail) = nil, "exit status 3"; want … boom`
+## Test: there is no blocking way to run a program
+**Purpose:** `ui.exec` is gone, so no Lua call can block the session on a program (R267)
+**Input:** a runtime; Lua `type(ui.exec)`
+**Expected:** `nil`
+**Refs:** crc-PortableOS.md
+**Code:** internal/lua/portable_test.go
+**Alarm:** 5
+**Fire alarm:** register an `exec` function in the `ui` table again; the type is `function`
+**Inject:** internal/lua/portable.go:registerPortableOS
+@alarm-hash: 756cc38092f772e6
+**Pulled:** 2026-11-20 — `ui.exec` registered again, rang `type(ui.exec) = function, want nil: Lua must have no blocking way to run a program (R267)`
+
 ## Test: platform reports GOOS and GOARCH
 **Purpose:** apps branch on the server's platform without `uname` (R151)
 **Input:** `ui.platform()`

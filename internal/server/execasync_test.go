@@ -82,7 +82,7 @@ func TestExecAsyncDefinedBeforeMainLua(t *testing.T) {
 	}
 }
 
-// Test: stdout lands in the field and the callback (R251)
+// Test: stdout lands in the field and the callback (R266)
 func TestExecAsyncDeliversStdout(t *testing.T) {
 	h := execTest(t)
 	h.run(`t = {} ui.execAsync(t, "out", helper("echo", "a b", "x>y"), function(out, err)
@@ -99,7 +99,7 @@ func TestExecAsyncDeliversStdout(t *testing.T) {
 	h.expect("cbErr", "nil")
 }
 
-// Test: a failing program delivers its exit status and stderr (R251)
+// Test: a failing program delivers its exit status and stderr (R266)
 func TestExecAsyncFailure(t *testing.T) {
 	h := execTest(t)
 	h.run(`t = {} ui.execAsync(t, "out", helper("fail"), function() signal("done") end)`)

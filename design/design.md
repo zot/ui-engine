@@ -207,6 +207,9 @@ target-to-link reverse mapping is kept.
 - T8: R116 retired by R262 (Item 14: there is no separate Lua executor to dequeue from)
 - T9: R115 retired by R260 (Item 14: one executor per session; shutdown is executor work (R260), with a bounded wait from outside (R261), not a join of a Lua goroutine)
 - T10: R172 retired by R265 (Item 12c: every caller in ui-engine, Frictionless and ark was moved, so the default flipped to not set)
+- T11: R150 retired by R266 (Item 11c: ui.exec removed once ark moved off it; ui.execAsync is the one way to run a program)
+- T12: R251 retired by R266 (Item 11c: restated without reference to the removed ui.exec)
+- T13: R253 retired by R267 (Item 11c: the deprecation ended in removal)
 
 ### Incomplete Implementation
 

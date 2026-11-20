@@ -18,7 +18,7 @@ stderr and an exit status, or sleep.
 @alarm-hash: 0aeb3332c0b72fc3
 **Pulled:** 2026-11-19 — re-pulled after Item 14 added SetExecutor to this function: rang `main.lua saw type(ui.execAsync) = nil, want function (R250)` *Earlier —* 2026-11-19 — rang: `main.lua saw type(ui.execAsync) = nil, want function (R250)`
 ## Test: stdout lands in the field and the callback
-**Purpose:** a successful run delivers the program's stdout, verbatim argv, no shell (R251)
+**Purpose:** a successful run delivers the program's stdout, verbatim argv, no shell (R266)
 **Input:** `ui.execAsync(t, "out", {<helper>, "echo", "a b", "x>y"}, cb)`
 **Expected:** `t.out` is `a b\nx>y\n`, `t.outError` is nil, and cb received the same stdout and no error
 **Refs:** crc-ExecAsync.md
@@ -29,7 +29,7 @@ stderr and an exit status, or sleep.
 @alarm-hash: 240ec2871e23e7bc
 **Pulled:** 2026-11-19 — re-pulled after the simplifier nested the error checks in the work: rang `t.out = "" (error nil), want "a b\nx>y\n"` *Earlier —* 2026-11-19 — rang: `t.out = "" (error nil), want "a b\nx>y\n"`
 ## Test: a failing program delivers its exit status and stderr
-**Purpose:** failure reaches the error field with the reason (R251)
+**Purpose:** failure reaches the error field with the reason (R266)
 **Input:** the helper told to write `boom` to stderr and exit 3
 **Expected:** `t.out` is nil and `t.outError` contains `3` and `boom`
 **Refs:** crc-ExecAsync.md, crc-PortableOS.md
@@ -54,6 +54,7 @@ stderr and an exit status, or sleep.
 **Refs:** crc-PortableOS.md
 **Code:** internal/lua/portable_test.go
 
-## Not tested, deliberately
-**R253 (deprecation).** `ui.exec` keeps behaving as R150, which test-PortableOS's exec
-tests and alarms 3 and 4 already hold; its removal is a later change.
+## Covered elsewhere
+Arguments passing verbatim and a failure's exit status and stderr (R266) are tested on
+`ExecArgv`, which `ui.execAsync` runs, in test-PortableOS alarms 3 and 4. That `ui.exec` is
+gone (R267) is test-PortableOS alarm 5.
